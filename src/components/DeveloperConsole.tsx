@@ -1576,12 +1576,7 @@ INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2569');`
                     onClick={() => {
                       const toml = `name = "academic-management-system"
 compatibility_date = "2024-01-01"
-pages_build_output_dir = "dist"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "school-academic-db"
-database_id = "<YOUR_D1_DATABASE_ID_FROM_WRANGLER>"`;
+pages_build_output_dir = "dist"`;
                       navigator.clipboard.writeText(toml);
                       setHasCopiedWrangler(true);
                       onShowToast('success', 'คัดลอกแล้ว', 'คัดลอกไฟล์ wrangler.toml เรียบร้อย');
@@ -1594,17 +1589,15 @@ database_id = "<YOUR_D1_DATABASE_ID_FROM_WRANGLER>"`;
                   </button>
                 </div>
 
-                <div className="p-3.5 bg-slate-900 rounded-xl font-mono text-[11px] text-slate-300 border border-slate-800">
-                  <pre className="whitespace-pre">
+                <div className="p-3.5 bg-slate-900 rounded-xl font-mono text-[11px] text-slate-300 border border-slate-800 space-y-2">
+                  <pre className="whitespace-pre text-emerald-300">
 {`name = "academic-management-system"
 compatibility_date = "2024-01-01"
-pages_build_output_dir = "dist"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "school-academic-db"
-database_id = "<ใส่_DATABASE_ID_ที่ได้จากคำสั่ง_wrangler_d1_create>"`}
+pages_build_output_dir = "dist"`}
                   </pre>
+                  <p className="text-[10px] text-slate-400 border-t border-slate-800 pt-2">
+                    ✓ การผูกฐานข้อมูล D1 ถูกกำหนดผ่านหน้าเว็บ Cloudflare Pages (Settings &rarr; Bindings: DB) เรียบร้อยแล้ว ไม่จำเป็นต้องใส่ database_id ในไฟล์นี้ เพื่อป้องกันข้อผิดพลาด Invalid database UUID
+                  </p>
                 </div>
               </div>
 

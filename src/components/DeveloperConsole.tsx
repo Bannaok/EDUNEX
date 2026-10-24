@@ -87,6 +87,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   const [isCheckingD1, setIsCheckingD1] = useState(false);
   const [hasCopiedSql, setHasCopiedSql] = useState(false);
   const [hasCopiedWrangler, setHasCopiedWrangler] = useState(false);
+  const [copiedSingleIndex, setCopiedSingleIndex] = useState<number | null>(null);
 
   // Google config states & School Automation
   const [webAppUrl, setWebAppUrl] = useState(googleConfig?.webAppUrl || '');
@@ -1233,7 +1234,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                   </div>
 
                   {/* Step 3 */}
-                  <div className="p-4 bg-slate-900/90 rounded-2xl border border-emerald-800/40 space-y-2.5">
+                  <div className="p-4 bg-slate-900/90 rounded-2xl border border-emerald-800/40 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="w-6 h-6 rounded-lg bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">3</span>
@@ -1249,13 +1250,27 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                         2. ที่เมนูด้านบนของฐานข้อมูล ให้เลือกแท็บ <strong className="text-emerald-400 font-mono">Console</strong>
                       </p>
                       <p>
-                        3. กดปุ่ม <span className="text-emerald-300 font-bold">"คัดลอก SQL ทั้งหมด"</span> จากกล่องด้านล่างนี้ แล้วนำมาวาง (Paste) ลงในช่องคำสั่งของแท็บ Console
+                        3. ให้นำคำสั่ง SQL จากกล่องด้านล่างไปวาง (Paste) แล้วคลิกปุ่ม <strong className="text-white bg-indigo-600 px-2 py-0.5 rounded">Execute</strong> สีฟ้า
                       </p>
-                      <p>
-                        4. คลิกปุ่ม <strong className="text-white bg-indigo-600 px-2 py-0.5 rounded">Execute</strong> สีฟ้า เพื่อรันคำสั่ง
-                      </p>
+                      
+                      {/* Alert box solving No SQL statements detected */}
+                      <div className="p-3 bg-amber-950/60 border border-amber-600/60 rounded-xl space-y-1.5 text-amber-200 mt-2">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-300 text-xs">
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>หากขึ้นสีแดงเตือน: &quot;No SQL statements detected.&quot; ให้แก้ตามนี้</span>
+                        </div>
+                        <ul className="list-disc list-inside space-y-1 text-slate-300 pl-1 leading-relaxed">
+                          <li>
+                            <strong className="text-white font-semibold">สาเหตุที่ 1: มีการลากเมาส์คลุมดำ (Highlight) ข้อความบางส่วน:</strong> ในหน้า Console ของ Cloudflare ถ้าเผลอลากเมาส์โดนช่องว่างหรือบรรทัดคอมเมนต์ แล้วกด Execute ระบบจะรันเฉพาะตรงที่คลุมดำ ทำให้ขึ้นว่าไม่พบคำสั่ง SQL <span className="text-amber-300 font-medium">&rarr; วิธีแก้: กดในช่องแล้วกด Ctrl+A แล้วลบออกให้หมด จากนั้นวางใหม่โดยไม่ต้องลากเมาส์</span>
+                          </li>
+                          <li>
+                            <strong className="text-white font-semibold">สาเหตุที่ 2: หน้าเว็บ Cloudflare D1 Console ในบางเบราว์เซอร์ไม่รองรับการรันหลายคำสั่งพร้อมกัน:</strong> <span className="text-emerald-300 font-medium">&rarr; วิธีแก้ที่ได้ผล 100%: ให้ใช้ <strong>&quot;ทางเลือกที่ 2: รันทีละคำสั่ง (Single Statements)&quot;</strong> ด้านล่าง โดยกดคัดลอกทีละคำสั่ง (1 ถึง 6) วางแล้วกด Execute ทีละอัน</span>
+                          </li>
+                        </ul>
+                      </div>
+
                       <p className="text-emerald-400/90 bg-emerald-950/40 p-2 rounded-xl border border-emerald-900/40">
-                        ✓ ระบบจะสร้างตาราง <strong>developers</strong>, <strong>school_admins</strong>, <strong>members</strong>, <strong>academic_years</strong> และสร้าง ID Developer: <code className="font-bold text-white">Airfan</code> (รหัส: <code className="font-bold text-white">456789</code>) บน Cloudflare D1 ให้ทันที!
+                        ✓ เมื่อรันครบ ตาราง <strong>developers</strong>, <strong>school_admins</strong>, <strong>members</strong>, <strong>academic_years</strong> และ ID Developer: <code className="font-bold text-white">Airfan</code> (รหัส: <code className="font-bold text-white">456789</code>) จะถูกสร้างบน Cloudflare D1 พร้อมใช้งานทันที!
                       </p>
                     </div>
                   </div>
@@ -1284,7 +1299,22 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                         <div><span className="text-slate-400">Build command:</span> <strong className="text-indigo-300">npm run build</strong></div>
                         <div><span className="text-slate-400">Build output directory:</span> <strong className="text-indigo-300">dist</strong></div>
                       </div>
-                      <p>
+                      
+                      {/* Environment variables tip for Cloudflare Pages npm error */}
+                      <div className="p-2.5 bg-indigo-950/40 rounded-xl border border-indigo-800/40 space-y-1 mt-2">
+                        <strong className="text-indigo-300 block font-semibold text-[11px]">
+                          💡 ตั้งค่า Environment variables (ป้องกัน Build failed: npm error peer dependency):
+                        </strong>
+                        <p className="text-slate-300 text-[10px] leading-relaxed">
+                          ในส่วน <strong>Environment variables (advanced)</strong> ให้เพิ่ม 2 ตัวแปรนี้ (หรือดันไฟล์ <code className="text-amber-300 font-mono">.npmrc</code> ขึ้น GitHub):
+                        </p>
+                        <div className="font-mono text-[10px] text-slate-300 bg-slate-900 p-2 rounded-lg space-y-0.5 border border-slate-800">
+                          <div><span className="text-slate-400">Variable:</span> <strong className="text-amber-400">NPM_CONFIG_LEGACY_PEER_DEPS</strong> &rarr; <span className="text-emerald-400">true</span></div>
+                          <div><span className="text-slate-400">Variable:</span> <strong className="text-amber-400">NODE_VERSION</strong> &rarr; <span className="text-emerald-400">20</span></div>
+                        </div>
+                      </div>
+
+                      <p className="pt-1">
                         5. คลิกปุ่ม <strong>Save and Deploy</strong> &rarr; Cloudflare จะทำการดึงโค้ดและ Build เว็บไซต์ให้ทันที
                       </p>
                     </div>
@@ -1324,26 +1354,29 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                 </div>
               </div>
 
-              {/* SQL Schema Preview & Copy */}
-              <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-white font-bold">
-                    <Code className="w-4 h-4 text-emerald-400" />
-                    <span>ไฟล์คำสั่ง SQL (schema.sql)</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const sql = `-- CLOUDFLARE D1 SQL SCHEMA
-CREATE TABLE IF NOT EXISTS developers (
+              {/* SQL Schema Preview & Copy Options */}
+              <div className="space-y-4">
+                
+                {/* OPTION 1: Clean All-in-one SQL */}
+                <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-white font-bold">
+                      <Code className="w-4 h-4 text-emerald-400" />
+                      <span>ทางเลือกที่ 1: คัดลอก SQL ทั้งหมด (Clean SQL ไม่มีคอมเมนต์)</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleanSql = `CREATE TABLE IF NOT EXISTS developers (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
 INSERT OR IGNORE INTO developers (id, username, password, full_name)
-VALUES ('dev-airfan', 'Airfan', '456789', 'Airfan (ผู้พัฒนาระบบ)');
+VALUES ('dev-airfan', 'Airfan', '456789', 'Airfan');
 
 CREATE TABLE IF NOT EXISTS school_admins (
   id TEXT PRIMARY KEY,
@@ -1358,7 +1391,7 @@ CREATE TABLE IF NOT EXISTS school_admins (
   google_sheet_url TEXT,
   drive_folder_id TEXT,
   is_suspended INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS members (
@@ -1376,42 +1409,76 @@ CREATE TABLE IF NOT EXISTS members (
   learning_group TEXT,
   avatar_url TEXT,
   is_suspended INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (school_id) REFERENCES school_admins(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS academic_years (
   year_code TEXT PRIMARY KEY,
   is_active INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2567'), ('2568'), ('2569');`;
-                      navigator.clipboard.writeText(sql);
-                      setHasCopiedSql(true);
-                      onShowToast('success', 'คัดลอก SQL แล้ว', 'คัดลอก schema.sql ลงในคลิปบอร์ดเรียบร้อย');
-                      setTimeout(() => setHasCopiedSql(false), 2500);
-                    }}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                  >
-                    {hasCopiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{hasCopiedSql ? 'คัดลอกแล้ว' : 'คัดลอก SQL ทั้งหมด'}</span>
-                  </button>
+
+INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2567');
+INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2568');
+INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2569');
+
+CREATE INDEX IF NOT EXISTS idx_members_school ON members(school_id);
+CREATE INDEX IF NOT EXISTS idx_admins_username ON school_admins(username);
+CREATE INDEX IF NOT EXISTS idx_members_username ON members(username);`;
+                        navigator.clipboard.writeText(cleanSql);
+                        setHasCopiedSql(true);
+                        onShowToast('success', 'คัดลอก SQL แล้ว', 'คัดลอกคำสั่ง SQL ทั้งหมดลงในคลิปบอร์ดแล้ว');
+                        setTimeout(() => setHasCopiedSql(false), 2500);
+                      }}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl flex items-center gap-1.5 transition-all cursor-pointer shadow-xs self-start sm:self-auto"
+                    >
+                      {hasCopiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{hasCopiedSql ? 'คัดลอกแล้ว' : 'คัดลอก SQL ทั้งหมด (Clean)'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    นำไปวางในช่อง Console ของ Cloudflare D1 แล้วกด <strong>Execute</strong> (ห้ามลากเมาส์คลุมดำข้อความก่อนกด Execute)
+                  </p>
                 </div>
 
-                <div className="p-3.5 bg-slate-900 rounded-xl font-mono text-[11px] text-slate-300 max-h-56 overflow-y-auto border border-slate-800">
-                  <pre className="whitespace-pre">
-{`-- 1. ตาราง Developer
-CREATE TABLE IF NOT EXISTS developers (
+                {/* OPTION 2: Single Statements (100% Guaranteed Fix for No SQL statements detected) */}
+                <div className="bg-slate-950/80 border border-indigo-900/40 rounded-2xl p-5 space-y-4 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-white font-bold text-sm">
+                        <CheckCircle2 className="w-4 h-4 text-indigo-400" />
+                        <span>ทางเลือกที่ 2: รันทีละคำสั่ง (Single Statements - แก้ปัญหา No SQL statements ได้ 100%)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        หากรันแบบรวมแล้วเจอข้อความเตือน ให้กดปุ่มคัดลอกทีละคำสั่งด้านล่างนี้ วางใน Console แล้วกด Execute ทีละอัน
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {[
+                      {
+                        step: 1,
+                        title: '1. สร้างตาราง developers (สำหรับจัดเก็บ ID Developer)',
+                        sql: `CREATE TABLE IF NOT EXISTS developers (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-INSERT OR IGNORE INTO developers VALUES ('dev-airfan', 'Airfan', '456789', 'Airfan', datetime('now'));
-
--- 2. ตาราง School Admins (โรงเรียน)
-CREATE TABLE IF NOT EXISTS school_admins (
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);`
+                      },
+                      {
+                        step: 2,
+                        title: '2. เพิ่ม ID Developer เริ่มต้น (Airfan / 456789)',
+                        sql: `INSERT OR IGNORE INTO developers (id, username, password, full_name)
+VALUES ('dev-airfan', 'Airfan', '456789', 'Airfan');`
+                      },
+                      {
+                        step: 3,
+                        title: '3. สร้างตาราง school_admins (สำหรับจัดเก็บ ID Admin แต่ละโรงเรียน)',
+                        sql: `CREATE TABLE IF NOT EXISTS school_admins (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
@@ -1424,30 +1491,77 @@ CREATE TABLE IF NOT EXISTS school_admins (
   google_sheet_url TEXT,
   drive_folder_id TEXT,
   is_suspended INTEGER DEFAULT 0,
-  created_at TEXT DEFAULT (datetime('now'))
-);
-
--- 3. ตาราง Members (บุคลากรครู)
-CREATE TABLE IF NOT EXISTS members (
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);`
+                      },
+                      {
+                        step: 4,
+                        title: '4. สร้างตาราง members (สำหรับจัดเก็บ ID สมาชิกครู ตามโรงเรียน)',
+                        sql: `CREATE TABLE IF NOT EXISTS members (
   id TEXT PRIMARY KEY,
   school_id TEXT NOT NULL,
   username TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
   prefix TEXT DEFAULT 'ครู',
   full_name TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
   role TEXT DEFAULT 'member',
   grade_level TEXT,
   position TEXT DEFAULT 'ครูประจำชั้น',
+  learning_group TEXT,
+  avatar_url TEXT,
+  is_suspended INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (school_id) REFERENCES school_admins(id) ON DELETE CASCADE
-);
-
--- 4. ตาราง Academic Years (ปีการศึกษา)
-CREATE TABLE IF NOT EXISTS academic_years (
+);`
+                      },
+                      {
+                        step: 5,
+                        title: '5. สร้างตาราง academic_years (ปีการศึกษาในระบบ)',
+                        sql: `CREATE TABLE IF NOT EXISTS academic_years (
   year_code TEXT PRIMARY KEY,
-  is_active INTEGER DEFAULT 1
-);`}
-                  </pre>
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);`
+                      },
+                      {
+                        step: 6,
+                        title: '6. เพิ่มปีการศึกษาเริ่มต้น (2567, 2568, 2569)',
+                        sql: `INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2567');
+INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2568');
+INSERT OR IGNORE INTO academic_years (year_code) VALUES ('2569');`
+                      }
+                    ].map((item) => (
+                      <div key={item.step} className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-200 text-xs">{item.title}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(item.sql);
+                              setCopiedSingleIndex(item.step);
+                              onShowToast('success', 'คัดลอกคำสั่งแล้ว', `คัดลอกคำสั่งที่ ${item.step} แล้ว นำไปวางใน Console แล้วกด Execute`);
+                              setTimeout(() => setCopiedSingleIndex(null), 2000);
+                            }}
+                            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                              copiedSingleIndex === item.step
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                            }`}
+                          >
+                            {copiedSingleIndex === item.step ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedSingleIndex === item.step ? 'คัดลอกแล้ว' : `คัดลอกคำสั่งที่ ${item.step}`}</span>
+                          </button>
+                        </div>
+                        <pre className="p-2.5 bg-slate-950 rounded-lg font-mono text-[11px] text-emerald-300 overflow-x-auto whitespace-pre">
+                          {item.sql}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
               </div>
 
               {/* wrangler.toml sample preview */}

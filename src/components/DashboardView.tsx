@@ -7,7 +7,8 @@ import {
   Personnel, 
   SavingsRecord,
   AttendanceRecord,
-  SchoolInfo 
+  SchoolInfo,
+  CustomButton
 } from '../types';
 import { 
   Calendar as CalendarIcon, 
@@ -26,7 +27,11 @@ import {
   Megaphone,
   ExternalLink,
   ArrowRight,
-  Lock
+  Lock,
+  Globe,
+  Shield,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -38,6 +43,7 @@ interface DashboardViewProps {
   personnel: Personnel[];
   savings: SavingsRecord[];
   attendance: AttendanceRecord[];
+  customButtons?: CustomButton[];
   onCompleteTask: (taskId: string) => void;
   onSaveTask?: (task: TaskItem) => void;
   onDeleteTask?: (id: string) => void;
@@ -45,6 +51,8 @@ interface DashboardViewProps {
   onSaveCalendarEvent: (event: CalendarEvent) => void;
   onDeleteCalendarEvent: (eventId: string) => void;
   onNavigateToTab: (tab: any) => void;
+  onSaveCustomButton?: (btn: CustomButton) => void;
+  onDeleteCustomButton?: (id: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -56,14 +64,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   personnel,
   savings,
   attendance,
+  customButtons = [],
   onCompleteTask,
   onSaveTask,
   onDeleteTask,
   onShowToast,
   onSaveCalendarEvent,
   onDeleteCalendarEvent,
-  onNavigateToTab
+  onNavigateToTab,
+  onSaveCustomButton,
+  onDeleteCustomButton
 }) => {
+  // Custom Buttons State
+  const [isAddButtonModalOpen, setIsAddButtonModalOpen] = useState(false);
+  const [newBtnLabel, setNewBtnLabel] = useState('');
+  const [newBtnUrl, setNewBtnUrl] = useState('');
+  const [newBtnCategory, setNewBtnCategory] = useState('ระบบงานทั่วไป');
+  const [newBtnColor, setNewBtnColor] = useState('indigo');
+  const [newBtnRole, setNewBtnRole] = useState<'all' | 'admin' | 'member'>('all');
+  const [newBtnOpenNewTab, setNewBtnOpenNewTab] = useState(true);
+
   // Calendar State
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDayEvents, setSelectedDayEvents] = useState<{ 
@@ -276,6 +296,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setNewEventAnnouncement('');
     setNewEventTaskDue('');
     setNewEventDesc('');
+  };
+
+  const filteredCustomButtons = customButtons.filter(btn => {
+    if (!btn.targetRole || btn.targetRole === 'all') return true;
+    if (btn.targetRole === 'admin') return user.role === 'admin' || user.role === 'developer';
+    if (btn.targetRole === 'member') return user.role === 'member' || user.role === 'admin' || user.role === 'developer';
+    return true;
+  });
+
+  const handleCreateCustomButton = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBtnLabel.trim() || !newBtnUrl.trim()) return;
+
+    let targetUrl = newBtnUrl.trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
+
+    const newBtn: CustomButton = {
+      id: 'btn-' + Date.now(),
+      label: newBtnLabel.trim(),
+      actionUrl: targetUrl,
+      category: newBtnCategory.trim() || 'ระบบงานทั่วไป',
+      color: newBtnColor,
+      targetRole: newBtnRole,
+      openInNewTab: newBtnOpenNewTab,
+      order: (customButtons.length || 0) + 1,
+      schoolId: user.schoolId || '',
+      createdBy: user.fullName || user.username,
+      createdAt: new Date().toISOString()
+    };
+
+    if (onSaveCustomButton) {
+      onSaveCustomButton(newBtn);
+    }
+
+    setIsAddButtonModalOpen(false);
+    setNewBtnLabel('');
+    setNewBtnUrl('');
   };
 
   return (
@@ -594,6 +653,94 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
+      </div>
+
+      {/* Custom Buttons & Quick Links Section (Auto-saved to Google Sheets with Two-Way Delete) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-800">
+                  ปุ่มลัด &amp; ลิงก์ระบบที่สร้างเพิ่ม (เก็บลง Google Sheets ประจำโรงเรียนอัตโนมัติ)
+                </h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                  Two-Way Sync
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                เมื่อ Admin หรือ สมาชิก สร้างปุ่มเพิ่ม ข้อมูลจะถูกจัดเก็บใน Google Sheets เสมอ และหากลบจะลบแถวออกจาก Google Sheets ตามจริง
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsAddButtonModalOpen(true)}
+            className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 self-start sm:self-auto"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ สร้างปุ่มลัดเพิ่ม</span>
+          </button>
+        </div>
+
+        {/* Buttons Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filteredCustomButtons.length === 0 ? (
+            <div className="col-span-full py-8 text-center text-slate-400 text-xs border border-dashed border-slate-200 rounded-xl">
+              ยังไม่มีปุ่มลัดที่สร้างเพิ่ม คลิก "+ สร้างปุ่มลัดเพิ่ม" เพื่อบันทึกปุ่มใหม่ลง Google Sheets
+            </div>
+          ) : (
+            filteredCustomButtons.map((btn) => (
+              <div
+                key={btn.id}
+                className="group relative p-3 rounded-xl border border-slate-200 hover:border-purple-300 bg-slate-50/60 hover:bg-white transition-all shadow-2xs flex items-center justify-between gap-2"
+              >
+                <a
+                  href={btn.actionUrl}
+                  target={btn.openInNewTab ? "_blank" : "_self"}
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2.5 min-w-0 flex-1"
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                    btn.color === 'emerald' ? 'bg-emerald-100 text-emerald-700' :
+                    btn.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                    btn.color === 'amber' ? 'bg-amber-100 text-amber-700' :
+                    btn.color === 'rose' ? 'bg-rose-100 text-rose-700' :
+                    'bg-purple-100 text-purple-700'
+                  }`}>
+                    <ExternalLink className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] text-slate-400 block truncate">{btn.category || 'ปุ่มลัด'}</span>
+                    <strong className="text-xs text-slate-800 font-bold block truncate group-hover:text-purple-700">
+                      {btn.label}
+                    </strong>
+                  </div>
+                </a>
+
+                {/* Delete button (Two-way delete from Google Sheets) */}
+                {(user.role === 'admin' || user.role === 'developer' || btn.createdBy === user.fullName) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onDeleteCustomButton) {
+                        onDeleteCustomButton(btn.id);
+                      }
+                    }}
+                    className="p-1.5 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer shrink-0 opacity-0 group-hover:opacity-100"
+                    title="ลบปุ่มนี้ (สั่งลบแถวออกจาก Google Sheets)"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* Modal: View Selected Day Events & Tasks */}
@@ -921,6 +1068,139 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>บันทึกข้อมูล</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: สร้างปุ่มลัดใหม่ (บันทึกลง Google Sheets อัตโนมัติ) */}
+      {isAddButtonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                  <Plus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">สร้างปุ่มลัดใหม่</h3>
+                  <p className="text-[11px] text-slate-500">บันทึกเก็บใน Google Sheets ประจำโรงเรียนอัตโนมัติ</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddButtonModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCustomButton} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  ชื่อปุ่ม (Label) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newBtnLabel}
+                  onChange={(e) => setNewBtnLabel(e.target.value)}
+                  placeholder="เช่น ระบบสารสนเทศทางการศึกษา (DMC)"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  ลิงก์ URL ปลายทาง *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newBtnUrl}
+                  onChange={(e) => setNewBtnUrl(e.target.value)}
+                  placeholder="https://... หรือเว็บระบบงานที่ต้องการ"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">
+                    หมวดหมู่ / หน่วยงาน
+                  </label>
+                  <input
+                    type="text"
+                    value={newBtnCategory}
+                    onChange={(e) => setNewBtnCategory(e.target.value)}
+                    placeholder="เช่น งานวิชาการ, สพฐ."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">
+                    โทนสีปุ่ม
+                  </label>
+                  <select
+                    value={newBtnColor}
+                    onChange={(e) => setNewBtnColor(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white cursor-pointer"
+                  >
+                    <option value="indigo">สีคราม (Indigo)</option>
+                    <option value="purple">สีม่วง (Purple)</option>
+                    <option value="emerald">สีเขียว (Emerald)</option>
+                    <option value="blue">สีฟ้า (Blue)</option>
+                    <option value="amber">สีส้ม (Amber)</option>
+                    <option value="rose">สีแดง (Rose)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-700 font-bold mb-1">
+                  ผู้มีสิทธิ์มองเห็นปุ่มนี้
+                </label>
+                <select
+                  value={newBtnRole}
+                  onChange={(e) => setNewBtnRole(e.target.value as any)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white cursor-pointer"
+                >
+                  <option value="all">ทุกคน (All - ทั้ง Admin และ สมาชิก)</option>
+                  <option value="admin">เฉพาะผู้ดูแลระบบ (Admin Only)</option>
+                  <option value="member">เฉพาะสมาชิกบุคลากร (Members Only)</option>
+                </select>
+              </div>
+
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={newBtnOpenNewTab}
+                    onChange={(e) => setNewBtnOpenNewTab(e.target.checked)}
+                    className="rounded text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>เปิดลิงก์ในหน้าต่างใหม่ (New Tab)</span>
+                </label>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddButtonModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl font-medium transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>บันทึกปุ่มลง Google Sheets</span>
                 </button>
               </div>
             </form>

@@ -22,7 +22,8 @@ import {
   CalendarEvent, 
   GoogleConfig, 
   ToastMessage,
-  SchoolAdminAccount
+  SchoolAdminAccount,
+  CustomButton
 } from './types';
 import { StorageService } from './services/storage';
 
@@ -64,6 +65,7 @@ export default function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>(() => StorageService.getDocuments());
   const [websites, setWebsites] = useState<RecommendedWebsite[]>(() => StorageService.getWebsites());
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => StorageService.getCalendarEvents());
+  const [customButtons, setCustomButtons] = useState<CustomButton[]>(() => StorageService.getCustomButtons());
   const [googleConfig, setGoogleConfig] = useState<GoogleConfig>(() => StorageService.getGoogleConfig());
 
   // UI state
@@ -384,6 +386,21 @@ export default function App() {
     showToast('info', 'ปฏิทิน', 'ลบกิจกรรมเรียบร้อยแล้ว');
   };
 
+  // Custom Buttons Handlers (Admin & Member future-ready dynamic buttons)
+  const handleSaveCustomButton = (btn: CustomButton) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveCustomButton(btn);
+    setCustomButtons(updated);
+    showToast('success', 'บันทึกปุ่มใหม่แล้ว', `บันทึกปุ่ม "${btn.label}" และส่งซิงค์ลง Google Sheets เรียบร้อยแล้ว`);
+  };
+
+  const handleDeleteCustomButton = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteCustomButton(id);
+    setCustomButtons(updated);
+    showToast('info', 'ลบปุ่มแล้ว', 'ลบปุ่มออกจากระบบและสั่งลบแถวออกจาก Google Sheets เรียบร้อย');
+  };
+
   // Member & User Session management handlers
   const handleSaveUserSession = (updatedUser: UserSession) => {
     if (!verifyCanEdit()) return;
@@ -541,6 +558,9 @@ export default function App() {
             onSaveCalendarEvent={handleSaveCalendarEvent}
             onDeleteCalendarEvent={handleDeleteCalendarEvent}
             onNavigateToTab={handleSelectTab}
+            customButtons={customButtons}
+            onSaveCustomButton={handleSaveCustomButton}
+            onDeleteCustomButton={handleDeleteCustomButton}
           />
         )}
 

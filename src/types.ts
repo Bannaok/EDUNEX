@@ -453,3 +453,51 @@ export interface ToastMessage {
   title: string;
   message: string;
 }
+
+export interface CustomButton {
+  id: string;
+  label: string;
+  actionUrl: string;
+  category?: string;
+  icon?: string;
+  color?: string; // indigo, emerald, blue, amber, rose, purple
+  targetRole?: 'all' | 'admin' | 'member';
+  openInNewTab?: boolean;
+  order?: number;
+  schoolId?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CustomPage {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  category?: string;
+  icon?: string;
+  targetRole?: 'all' | 'admin' | 'member';
+  contentMarkdown?: string;
+  externalUrl?: string;
+  buttonLinks?: Array<{ label: string; url: string; color?: string }>;
+  schoolId?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface LeaveRequestRecord {
+  id: string;
+  teacherName: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+  directorName?: string;
+  personnelOfficer?: string;
+  status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
+  schoolId?: string;
+  createdAt: string;
+}
+

@@ -17,7 +17,10 @@ import {
   UserSession,
   SchoolAdminAccount,
   CommentSession,
-  StudentBehaviorEvaluation
+  StudentBehaviorEvaluation,
+  CustomButton,
+  CustomPage,
+  LeaveRequestRecord
 } from '../types';
 import { D1Service } from './d1Service';
 
@@ -61,7 +64,13 @@ const KEYS = {
   LOCKED_SEMESTERS: 'ams_locked_semesters',
   ATTENDANCE_CONFIGS_BY_TERM: 'ams_attendance_configs_by_term',
   COMMENT_SESSIONS: 'ams_comment_sessions',
-  BEHAVIOR_EVALUATIONS: 'ams_behavior_evaluations'
+  BEHAVIOR_EVALUATIONS: 'ams_behavior_evaluations',
+  CUSTOM_BUTTONS: 'ams_custom_buttons',
+  CUSTOM_PAGES: 'ams_custom_pages',
+  LEAVE_REQUESTS: 'ams_leave_requests_v1',
+  DUTY_ASSIGNMENTS: 'ams_duty_assignments_v1',
+  DUTY_LOGS: 'ams_daily_duty_logs_v1',
+  GENERIC_ENTITIES: 'ams_generic_entities'
 };
 
 
@@ -1163,6 +1172,166 @@ export const StorageService = {
     }
   },
 
+  // Custom Buttons Management (Admin & Member future-ready dynamic buttons)
+  getCustomButtons(): CustomButton[] {
+    const defaultButtons: CustomButton[] = [
+      {
+        id: 'btn-emmis',
+        label: 'ระบบจัดเก็บข้อมูลนักเรียน (EMIS)',
+        actionUrl: 'https://emis.bopp.go.th',
+        category: 'ระบบราชการ',
+        icon: 'Globe',
+        color: 'indigo',
+        targetRole: 'all',
+        openInNewTab: true,
+        order: 1,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'btn-dopa',
+        label: 'ตรวจสอบรหัสบัตรประชาชน (DOPA)',
+        actionUrl: 'https://stat.bora.dopa.go.th',
+        category: 'ทะเบียนราษฎร์',
+        icon: 'Shield',
+        color: 'emerald',
+        targetRole: 'all',
+        openInNewTab: true,
+        order: 2,
+        createdAt: new Date().toISOString()
+      }
+    ];
+    return getLocal<CustomButton[]>(KEYS.CUSTOM_BUTTONS, defaultButtons);
+  },
+
+  saveCustomButton(button: CustomButton): CustomButton[] {
+    const list = this.getCustomButtons();
+    const idx = list.findIndex(b => b.id === button.id);
+    let updated: CustomButton[];
+    const payload = {
+      ...button,
+      schoolId: button.schoolId || this.getSession()?.schoolId || '',
+      updatedAt: new Date().toISOString()
+    };
+    if (idx >= 0) {
+      updated = [...list];
+      updated[idx] = payload;
+    } else {
+      updated = [payload, ...list];
+    }
+    setLocal(KEYS.CUSTOM_BUTTONS, updated);
+    this.syncPostToGoogle('saveCustomButton', { button: payload });
+    return updated;
+  },
+
+  deleteCustomButton(id: string): CustomButton[] {
+    const updated = this.getCustomButtons().filter(b => b.id !== id);
+    setLocal(KEYS.CUSTOM_BUTTONS, updated);
+    this.syncPostToGoogle('deleteCustomButton', { id });
+    return updated;
+  },
+
+  // Custom Pages Management (Admin & Member future-ready dynamic pages)
+  getCustomPages(): CustomPage[] {
+    return getLocal<CustomPage[]>(KEYS.CUSTOM_PAGES, []);
+  },
+
+  saveCustomPage(page: CustomPage): CustomPage[] {
+    const list = this.getCustomPages();
+    const idx = list.findIndex(p => p.id === page.id || p.slug === page.slug);
+    let updated: CustomPage[];
+    const payload = {
+      ...page,
+      schoolId: page.schoolId || this.getSession()?.schoolId || '',
+      updatedAt: new Date().toISOString()
+    };
+    if (idx >= 0) {
+      updated = [...list];
+      updated[idx] = payload;
+    } else {
+      updated = [payload, ...list];
+    }
+    setLocal(KEYS.CUSTOM_PAGES, updated);
+    this.syncPostToGoogle('saveCustomPage', { page: payload });
+    return updated;
+  },
+
+  deleteCustomPage(id: string): CustomPage[] {
+    const updated = this.getCustomPages().filter(p => p.id !== id);
+    setLocal(KEYS.CUSTOM_PAGES, updated);
+    this.syncPostToGoogle('deleteCustomPage', { id });
+    return updated;
+  },
+
+  // Administrative Leave & Duty Sync Handlers
+  getLeaveRequests(): any[] {
+    return getLocal<any[]>(KEYS.LEAVE_REQUESTS, []);
+  },
+
+  saveLeaveRequest(record: any): any[] {
+    const list = this.getLeaveRequests();
+    const idx = list.findIndex(r => r.id === record.id);
+    let updated = idx >= 0 ? list.map(r => r.id === record.id ? record : r) : [record, ...list];
+    setLocal(KEYS.LEAVE_REQUESTS, updated);
+    this.syncPostToGoogle('saveLeaveRequest', { record });
+    return updated;
+  },
+
+  deleteLeaveRequest(id: string): any[] {
+    const updated = this.getLeaveRequests().filter(r => r.id !== id);
+    setLocal(KEYS.LEAVE_REQUESTS, updated);
+    this.syncPostToGoogle('deleteLeaveRequest', { id });
+    return updated;
+  },
+
+  getDutyAssignments(): any[] {
+    return getLocal<any[]>(KEYS.DUTY_ASSIGNMENTS, []);
+  },
+
+  saveDutyAssignment(record: any): any[] {
+    const list = this.getDutyAssignments();
+    const idx = list.findIndex(r => r.id === record.id);
+    let updated = idx >= 0 ? list.map(r => r.id === record.id ? record : r) : [record, ...list];
+    setLocal(KEYS.DUTY_ASSIGNMENTS, updated);
+    this.syncPostToGoogle('saveDutyAssignment', { record });
+    return updated;
+  },
+
+  deleteDutyAssignment(id: string): any[] {
+    const updated = this.getDutyAssignments().filter(r => r.id !== id);
+    setLocal(KEYS.DUTY_ASSIGNMENTS, updated);
+    this.syncPostToGoogle('deleteDutyAssignment', { id });
+    return updated;
+  },
+
+  getDailyDutyLogs(): any[] {
+    return getLocal<any[]>(KEYS.DUTY_LOGS, []);
+  },
+
+  saveDailyDutyLog(record: any): any[] {
+    const list = this.getDailyDutyLogs();
+    const idx = list.findIndex(r => r.id === record.id);
+    let updated = idx >= 0 ? list.map(r => r.id === record.id ? record : r) : [record, ...list];
+    setLocal(KEYS.DUTY_LOGS, updated);
+    this.syncPostToGoogle('saveDutyLog', { record });
+    return updated;
+  },
+
+  deleteDailyDutyLog(id: string): any[] {
+    const updated = this.getDailyDutyLogs().filter(r => r.id !== id);
+    setLocal(KEYS.DUTY_LOGS, updated);
+    this.syncPostToGoogle('deleteDutyLog', { id });
+    return updated;
+  },
+
+  // Future-proof Generic Entity Handlers
+  saveGenericEntity(sheetName: string, item: any, keyField: string = 'id'): void {
+    this.syncPostToGoogle('saveEntity', { sheetName, data: item, keyField });
+  },
+
+  deleteGenericEntity(sheetName: string, id: string, keyField: string = 'id'): void {
+    this.syncPostToGoogle('deleteEntity', { sheetName, id, keyField });
+  },
+
   async syncAllToGoogle(): Promise<{ success: boolean; message: string }> {
     const config = this.getGoogleConfig();
     if (!config.webAppUrl) {
@@ -1182,7 +1351,12 @@ export const StorageService = {
       documents: this.getDocuments(),
       websites: this.getWebsites(),
       calendar: this.getCalendarEvents(),
-      members: this.getMembers()
+      members: this.getMembers(),
+      customButtons: this.getCustomButtons(),
+      customPages: this.getCustomPages(),
+      leaveRequests: this.getLeaveRequests(),
+      dutyAssignments: this.getDutyAssignments(),
+      dailyDutyLogs: this.getDailyDutyLogs()
     };
 
     try {

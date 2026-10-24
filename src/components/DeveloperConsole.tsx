@@ -953,12 +953,17 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
               {/* Header & Status */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
                 <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <FolderSync className="w-4 h-4 text-emerald-400" />
-                    <span>การเชื่อมต่อ Google Sheets & Google Drive (ระบบหลังบ้าน)</span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    กำหนดค่า Google Apps Script Web App URL และ Google Drive Folder ID เพื่อซิงค์ฐานข้อมูลและจัดเก็บไฟล์เอกสาร
+                  <div className="flex items-center gap-2">
+                    <FolderSync className="w-5 h-5 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-white">
+                      การเชื่อมต่อ Google Sheets &amp; Google Drive (เวอร์ชัน 3.0 รองรับปุ่ม/หน้าใหม่ &amp; สองทางลบ)
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      v3.0 Multi-School
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    ซิงค์ข้อมูลวิชาการและธุรการทั้งหมดลง Google Sheets แยกตามโรงเรียน (Admin) พร้อมสร้างปุ่ม/หน้าใหม่และลบสองทางตามจริง
                   </p>
                 </div>
 
@@ -977,6 +982,85 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                       ซิงค์ล่าสุด: {new Date(googleConfig.lastSynced).toLocaleString('th-TH')}
                     </span>
                   )}
+                </div>
+              </div>
+
+              {/* Version 3.0 Architectural Features Banner */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="p-4 bg-slate-950/70 border border-emerald-900/40 rounded-2xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>1. สร้างปุ่ม/หน้าใหม่ บันทึกในชีตเสมอ</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    เมื่อหน้า Admin หรือสมาชิก สร้างปุ่มลัดใหม่ หน้าเว็บใหม่ หรือเพิ่มฟิลด์ข้อมูลในอนาคต Code.gs จะสร้างแผ่นงานและขยายคอลัมน์ให้อัตโนมัติทันที
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-950/70 border border-rose-900/40 rounded-2xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-rose-400 font-bold text-xs">
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                    <span>2. ลบสองทางจริง (Two-Way Delete)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    เมื่อกดลบในระบบ หรือเปิดลบแถวใน Google Sheets แถวจะถูกลบออกจาก Google Sheets ตามจริง (sheet.deleteRow) ข้อมูลตรงกัน 100%
+                  </p>
+                </div>
+
+                <div className="p-4 bg-slate-950/70 border border-indigo-900/40 rounded-2xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs">
+                    <Building2 className="w-4 h-4 shrink-0" />
+                    <span>3. สร้าง ID Admin แยกชีตอัตโนมัติ</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    เมื่อ Developer สร้าง ID Admin โรงเรียน ระบบจะสั่ง Google Apps Script สร้างไฟล์ Google Sheet ใหม่และย้ายเข้า Drive ทันที แยกข้อมูลแต่ละโรงเรียน
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Actions & Code.gs Preview Card */}
+              <div className="p-4 bg-indigo-950/30 border border-indigo-800/40 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                    <FileCode2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white">
+                      ไฟล์ Code.gs (Google Apps Script API v3.0)
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      รองรับทุกเบราว์เซอร์ ทุกอุปกรณ์ และทุกอีเมล (ไม่มีปัญหา CORS และไม่ต้องล็อกอินขอสิทธิ์)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleCopyCode}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  >
+                    {hasCopiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{hasCopiedCode ? 'คัดลอกโค้ดแล้ว' : 'คัดลอก Code.gs'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadCodeGs}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>ดาวน์โหลดไฟล์</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCodeModalOpen(true)}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white text-xs font-bold rounded-xl transition-all border border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>ดูโค้ดเต็ม</span>
+                  </button>
                 </div>
               </div>
 
@@ -1000,13 +1084,13 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs focus:ring-1 focus:ring-indigo-500"
                     />
                     <p className="text-[11px] text-slate-500">
-                      URL ที่ได้หลังจากนำโค้ด Code.gs ไปติดตั้งใน Apps Script และกด Deploy เป็น Web App
+                      URL ที่ได้หลังจากนำโค้ด Code.gs ไปติดตั้งใน Google Apps Script แล้วเลือก Deploy เป็น Web App
                     </p>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="block text-slate-300 font-semibold">
-                      Google Drive Folder ID (สำหรับอัปโหลดไฟล์/เอกสาร)
+                      Google Drive Folder ID (โฟลเดอร์สำหรับเก็บ Sheet โรงเรียนและเอกสาร)
                     </label>
                     <input
                       type="text"
@@ -1049,15 +1133,6 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                       <FolderSync className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                       <span>{isSyncing ? 'กำลังซิงค์...' : 'ซิงค์ข้อมูลเดี๋ยวนี้'}</span>
                     </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsCodeModalOpen(true)}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white font-bold rounded-xl transition-all border border-slate-700 flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <FileCode2 className="w-3.5 h-3.5" />
-                      <span>ดูโค้ด Code.gs</span>
-                    </button>
                   </div>
                 </div>
 
@@ -1065,7 +1140,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                 <div className="space-y-3 bg-slate-950/60 p-5 rounded-2xl border border-slate-800 text-xs">
                   <h4 className="text-white font-bold text-xs flex items-center gap-2">
                     <HelpCircle className="w-4 h-4 text-amber-400" />
-                    <span>ขั้นตอนการติดตั้ง Google Apps Script</span>
+                    <span>ขั้นตอนการติดตั้ง Google Apps Script (เข้าได้ทุกเบราว์เซอร์ ทุกอุปกรณ์)</span>
                   </h4>
 
                   <div className="space-y-2.5 text-slate-300">
@@ -1080,6 +1155,16 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                         </div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl space-y-1 text-emerald-300 text-[11px]">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>เคล็ดลับสำคัญในการ Deploy:</span>
+                    </div>
+                    <p className="text-slate-300 text-[10px] leading-relaxed">
+                      ในขั้นตอน Deploy ให้เลือก <strong>ดำเนินการในฐานะ (Execute as): &quot;ตัวฉัน (Me)&quot;</strong> และ <strong>ผู้มีสิทธิ์เข้าถึง (Who has access): &quot;ทุกคน (Anyone)&quot;</strong> เพื่อให้ครูและผู้บริหารทุกคนสามารถบันทึกข้อมูลเข้า Google Sheets ได้จากทุกเครื่อง ทุกเบราว์เซอร์ ทุกอีเมล โดยไม่มีหน้าต่างขอสิทธิ์หรือปัญหา CORS
+                    </p>
                   </div>
                 </div>
               </div>

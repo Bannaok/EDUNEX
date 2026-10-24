@@ -246,11 +246,19 @@ export const StorageService = {
 
   // Google Config
   getGoogleConfig(): GoogleConfig {
-    return getLocal<GoogleConfig>(KEYS.GOOGLE_CONFIG, {
-      webAppUrl: '',
-      driveFolderId: '',
-      isConnected: false
+    const config = getLocal<GoogleConfig>(KEYS.GOOGLE_CONFIG, {
+      webAppUrl: 'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec',
+      driveFolderId: '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
+      isConnected: true,
+      lastSynced: new Date().toISOString()
     });
+    // Ensure that if stored config is empty, fallback to the connected URL and Drive ID
+    if (!config.webAppUrl) {
+      config.webAppUrl = 'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec';
+      config.driveFolderId = '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9';
+      config.isConnected = true;
+    }
+    return config;
   },
 
   setGoogleConfig(config: GoogleConfig): void {

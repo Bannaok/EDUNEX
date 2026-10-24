@@ -35,8 +35,8 @@ export const CODE_GS_SOURCE = `/**
  * -------------------------------------------------------------------------
  */
 
-// ใส่ Google Drive Folder ID ของคุณที่นี่เพื่อจัดเก็บ Google Sheets และไฟล์เอกสาร (ถ้ามี)
-var DEFAULT_DRIVE_FOLDER_ID = "";
+// กำหนด Google Drive Folder ID ของคุณสำหรับจัดเก็บ Google Sheets และไฟล์เอกสาร
+var DEFAULT_DRIVE_FOLDER_ID = "11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9";
 
 // รายการชื่อแผ่นงานมาตรฐาน (Standard Sheets)
 var SHEETS = {

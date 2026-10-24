@@ -180,6 +180,7 @@ export interface SchoolInfo {
   customFields?: { label: string; value: string }[];
   googleSheetId?: string;
   googleSheetUrl?: string;
+  driveFolderId?: string;
 }
 
 export interface DailyTracking {

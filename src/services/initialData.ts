@@ -26,7 +26,10 @@ export const INITIAL_ADMINS: SchoolAdminAccount[] = [
     schoolCode: "1050230045",
     affiliation: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษา (สพป.)",
     directorName: "ดร.วิโรจน์ เจริญรัตนกุล",
-    createdAt: "2026-01-01"
+    createdAt: "2026-01-01",
+    googleSheetId: "1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM",
+    googleSheetUrl: "https://docs.google.com/spreadsheets/d/1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM/edit",
+    driveFolderId: "11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9"
   },
   {
     id: "admin-school-02",
@@ -73,7 +76,10 @@ export const INITIAL_SCHOOL_INFO: SchoolInfo = {
     { label: "สีประจำโรงเรียน", value: "ฟ้า - ขาว (Blue - White)" },
     { label: "คำขวัญโรงเรียน", value: "วินัยดี มีวิชา กีฬาเด่น เน้นคุณธรรม" },
     { label: "ต้นไม้ประจำโรงเรียน", value: "ต้นราชพฤกษ์" }
-  ]
+  ],
+  googleSheetId: "1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM",
+  googleSheetUrl: "https://docs.google.com/spreadsheets/d/1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM/edit",
+  driveFolderId: "11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9"
 };
 
 export const INITIAL_MEMBERS: MemberAccount[] = [

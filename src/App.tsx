@@ -1,0 +1,734 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { 
+  UserSession, 
+  SchoolInfo, 
+  MemberAccount, 
+  Student, 
+  Personnel, 
+  DailyTracking, 
+  Subject, 
+  GradeRecord, 
+  AttendanceRecord, 
+  AttendanceDayConfig, 
+  SavingsRecord, 
+  TaskItem, 
+  DocumentItem, 
+  RecommendedWebsite, 
+  CalendarEvent, 
+  GoogleConfig, 
+  ToastMessage,
+  SchoolAdminAccount
+} from './types';
+import { StorageService } from './services/storage';
+
+import { Header } from './components/Header';
+import { Navigation, NavTab } from './components/Navigation';
+import { DashboardView } from './components/DashboardView';
+import { Module1ClassroomAdmin } from './components/Module1ClassroomAdmin';
+import { ModuleDataOthers } from './components/ModuleDataOthers';
+import { Module2Grading } from './components/Module2Grading';
+import { Module3AttendanceSavings } from './components/Module3AttendanceSavings';
+import { Module4Assignments } from './components/Module4Assignments';
+import { Module5Documents } from './components/Module5Documents';
+import { Module6Websites } from './components/Module6Websites';
+import { Module7Reports } from './components/Module7Reports';
+import { SettingsView } from './components/SettingsView';
+import { LoginModal } from './components/LoginModal';
+import { LightboxModal } from './components/LightboxModal';
+import { DeveloperConsole } from './components/DeveloperConsole';
+import { Toast } from './components/Toast';
+
+export default function App() {
+  // Global State
+  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const [previousTab, setPreviousTab] = useState<NavTab>('dashboard');
+  const [user, setUser] = useState<UserSession>(() => StorageService.getSession());
+  const [schoolInfo, setSchoolInfo] = useState<SchoolInfo>(() => StorageService.getSchoolInfo());
+  const [admins, setAdmins] = useState<SchoolAdminAccount[]>(() => StorageService.getAdmins());
+  const [academicYears, setAcademicYears] = useState<string[]>(() => StorageService.getAcademicYears());
+  const [members, setMembers] = useState<MemberAccount[]>(() => StorageService.getMembers());
+  const [students, setStudents] = useState<Student[]>(() => StorageService.getStudents());
+  const [personnel, setPersonnel] = useState<Personnel[]>(() => StorageService.getPersonnel());
+  const [dailyTracking, setDailyTracking] = useState<DailyTracking[]>(() => StorageService.getDailyTracking());
+  const [subjects, setSubjects] = useState<Subject[]>(() => StorageService.getSubjects());
+  const [grades, setGrades] = useState<GradeRecord[]>(() => StorageService.getGrades());
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => StorageService.getAttendance());
+  const [attendanceConfig, setAttendanceConfig] = useState<AttendanceDayConfig>(() => StorageService.getAttendanceConfig());
+  const [savings, setSavings] = useState<SavingsRecord[]>(() => StorageService.getSavings());
+  const [tasks, setTasks] = useState<TaskItem[]>(() => StorageService.getTasks());
+  const [documents, setDocuments] = useState<DocumentItem[]>(() => StorageService.getDocuments());
+  const [websites, setWebsites] = useState<RecommendedWebsite[]>(() => StorageService.getWebsites());
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => StorageService.getCalendarEvents());
+  const [googleConfig, setGoogleConfig] = useState<GoogleConfig>(() => StorageService.getGoogleConfig());
+
+  // UI state
+  const [isInspectingSchool, setIsInspectingSchool] = useState<boolean>(false);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Lightbox state
+  const [lightboxState, setLightboxState] = useState<{
+    isOpen: boolean;
+    imageUrl: string;
+    title: string;
+    subtitle?: string;
+  }>({
+    isOpen: false,
+    imageUrl: '',
+    title: ''
+  });
+
+  // Toast Dispatcher
+  const showToast = (type: 'success' | 'warning' | 'error' | 'info', title: string, message: string) => {
+    const id = 'toast-' + Date.now() + Math.random().toString(36).substring(2, 6);
+    const newToast: ToastMessage = { id, type, title, message };
+    setToasts(prev => [...prev, newToast]);
+
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 4000);
+  };
+
+  const handleDismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Lightbox opener
+  const handleOpenLightbox = (imageUrl: string, title: string, subtitle?: string) => {
+    setLightboxState({
+      isOpen: true,
+      imageUrl,
+      title,
+      subtitle
+    });
+  };
+
+  // Auth Handlers
+  const handleLogin = (username: string, password: string) => {
+    const res = StorageService.authenticate(username, password);
+    if (res.success && res.user) {
+      setUser(res.user);
+      setIsInspectingSchool(false);
+      // Reload admins and members
+      setAdmins(StorageService.getAdmins());
+      setMembers(StorageService.getMembers());
+      setAcademicYears(StorageService.getAcademicYears());
+      showToast('success', 'เข้าสู่ระบบสำเร็จ', res.message);
+    }
+    return res;
+  };
+
+  const handleLogout = () => {
+    // If developer or admin, allow switching via modal
+    if (user.role === 'developer') {
+      setIsInspectingSchool(false);
+      setIsLoginModalOpen(true);
+      return;
+    }
+
+    const member = members[0];
+    if (user.role === 'admin' && member) {
+      const switched: UserSession = {
+        id: member.id,
+        username: member.username,
+        fullName: member.fullName,
+        role: 'member',
+        assignedGrade: member.gradeLevel,
+        position: member.position
+      };
+      StorageService.setSession(switched);
+      setUser(switched);
+      showToast('info', 'เข้าสู่ระบบ', `เปลี่ยนมาใช้งานในฐานะสมาชิก (${member.fullName})`);
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  // Sync with Google Sheets
+  const handleSyncAll = async () => {
+    setIsSyncing(true);
+    const res = await StorageService.syncAllToGoogle();
+    setIsSyncing(false);
+    if (res.success) {
+      setGoogleConfig(StorageService.getGoogleConfig());
+      showToast('success', 'ซิงค์สำเร็จ', res.message);
+    } else {
+      showToast('warning', 'แจ้งเตือนการซิงค์', res.message);
+    }
+    return res;
+  };
+
+  // Reset to demo data
+  const handleResetData = () => {
+    StorageService.resetAllData();
+    setUser(StorageService.getSession());
+    setSchoolInfo(StorageService.getSchoolInfo());
+    setAdmins(StorageService.getAdmins());
+    setAcademicYears(StorageService.getAcademicYears());
+    setMembers(StorageService.getMembers());
+    setStudents(StorageService.getStudents());
+    setPersonnel(StorageService.getPersonnel());
+    setDailyTracking(StorageService.getDailyTracking());
+    setSubjects(StorageService.getSubjects());
+    setGrades(StorageService.getGrades());
+    setAttendance(StorageService.getAttendance());
+    setAttendanceConfig(StorageService.getAttendanceConfig());
+    setSavings(StorageService.getSavings());
+    setTasks(StorageService.getTasks());
+    setDocuments(StorageService.getDocuments());
+    setWebsites(StorageService.getWebsites());
+    setCalendarEvents(StorageService.getCalendarEvents());
+    setGoogleConfig(StorageService.getGoogleConfig());
+  };
+
+  // Check Developer Read-Only Guard
+  const verifyCanEdit = (): boolean => {
+    if (user.role === 'developer') {
+      showToast('warning', 'ไม่มีสิทธิ์แก้ไข', 'ระดับผู้พัฒนา (Developer) ไม่สามารถแก้ไขหรือบันทึกข้อมูลโรงเรียนได้');
+      return false;
+    }
+    return true;
+  };
+
+  // Module 1 Handlers
+  const handleSaveStudent = (student: Student) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveStudent(student);
+    setStudents(updated);
+  };
+
+  const handleDeleteStudent = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteStudent(id);
+    setStudents(updated);
+  };
+
+  const handleSavePersonnel = (person: Personnel) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.savePersonnel(person);
+    setPersonnel(updated);
+  };
+
+  const handleDeletePersonnel = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deletePersonnel(id);
+    setPersonnel(updated);
+  };
+
+  const handleSaveSchoolInfo = (info: SchoolInfo) => {
+    if (!verifyCanEdit()) return;
+    StorageService.setSchoolInfo(info);
+    setSchoolInfo(info);
+  };
+
+  const handleSaveDailyTracking = (rec: DailyTracking) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveDailyTracking(rec);
+    setDailyTracking(updated);
+  };
+
+  // Module 2 Handlers
+  const handleSaveSubject = (subject: Subject) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveSubject(subject);
+    setSubjects(updated);
+  };
+
+  const handleDeleteSubject = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteSubject(id);
+    setSubjects(updated);
+  };
+
+  const handleSaveBulkSubjects = (newSubs: Subject[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveBulkSubjects(newSubs);
+    setSubjects(updated);
+  };
+
+  const handleUpdateSubjectsList = (updatedSubs: Subject[]) => {
+    if (!verifyCanEdit()) return;
+    setSubjects(updatedSubs);
+  };
+
+  const handleSaveBulkGrades = (newGrades: GradeRecord[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveBulkGrades(newGrades);
+    setGrades(updated);
+  };
+
+  // Module 3 Handlers
+  const handleSaveBulkAttendance = (records: AttendanceRecord[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveBulkAttendance(records);
+    setAttendance(updated);
+  };
+
+  const handleSaveSavingsRecord = (rec: Omit<SavingsRecord, 'balanceAfter'>) => {
+    if (!verifyCanEdit()) {
+      const dummy: SavingsRecord = {
+        ...rec,
+        balanceAfter: 0
+      };
+      return {
+        record: dummy,
+        updated: savings
+      };
+    }
+    const res = StorageService.saveSavingsRecord(rec);
+    setSavings(res.updated);
+    return res;
+  };
+
+  const handleDeleteSavingsRecord = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteSavingsRecord(id);
+    setSavings(updated);
+  };
+
+  const handleUpdateAllSavings = (records: SavingsRecord[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.setAllSavings(records);
+    setSavings(updated);
+  };
+
+  const handleSaveAttendanceConfig = (cfg: AttendanceDayConfig) => {
+    if (!verifyCanEdit()) return;
+    StorageService.setAttendanceConfig(cfg);
+    setAttendanceConfig(cfg);
+  };
+
+  // Module 4 Handlers
+  const handleSaveTask = (task: TaskItem) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveTask(task);
+    setTasks(updated);
+  };
+
+  // "Tasks disappear immediately once completed/submitted."
+  const handleCompleteTask = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.completeTask(id);
+    setTasks(updated);
+    showToast('success', 'ส่งงานสำเร็จ 🎉', 'ส่งภาระงานเรียบร้อยแล้ว รายการจะถูกนำออกจากวิดเจ็ตทันที');
+  };
+
+  const handleDeleteTask = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteTask(id);
+    setTasks(updated);
+  };
+
+  const handleReorderTasks = (newTasks: TaskItem[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.reorderTasks(newTasks);
+    setTasks(updated);
+  };
+
+  // Module 5 Handlers
+  const handleSaveDocument = (doc: DocumentItem) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveDocument(doc);
+    setDocuments(updated);
+  };
+
+  const handleDeleteDocument = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteDocument(id);
+    setDocuments(updated);
+  };
+
+  const handleReorderDocuments = (newDocs: DocumentItem[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.reorderDocuments(newDocs);
+    setDocuments(updated);
+  };
+
+  // Module 6 Handlers
+  const handleSaveWebsite = (site: RecommendedWebsite) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveWebsite(site);
+    setWebsites(updated);
+  };
+
+  const handleDeleteWebsite = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteWebsite(id);
+    setWebsites(updated);
+  };
+
+  const handleReorderWebsites = (newWebsites: RecommendedWebsite[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.reorderWebsites(newWebsites);
+    setWebsites(updated);
+  };
+
+  // Calendar Event Handlers
+  const handleSaveCalendarEvent = (event: CalendarEvent) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveCalendarEvent(event);
+    setCalendarEvents(updated);
+    showToast('success', 'ปฏิทิน', `บันทึกกิจกรรม "${event.title}" สำเร็จ`);
+  };
+
+  const handleDeleteCalendarEvent = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteCalendarEvent(id);
+    setCalendarEvents(updated);
+    showToast('info', 'ปฏิทิน', 'ลบกิจกรรมเรียบร้อยแล้ว');
+  };
+
+  // Member & User Session management handlers
+  const handleSaveUserSession = (updatedUser: UserSession) => {
+    if (!verifyCanEdit()) return;
+    StorageService.setSession(updatedUser);
+    setUser(updatedUser);
+  };
+
+  const handleSaveMember = (mem: MemberAccount) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveMember(mem);
+    setMembers(updated);
+  };
+
+  const handleDeleteMember = (id: string) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.deleteMember(id);
+    setMembers(updated);
+  };
+
+  const handleSaveGoogleConfig = (cfg: GoogleConfig) => {
+    if (!verifyCanEdit()) return;
+    StorageService.setGoogleConfig(cfg);
+    setGoogleConfig(cfg);
+  };
+
+  const handleTestConnection = async (url: string, driveFolderId?: string) => {
+    return await StorageService.testGoogleConnection(url, driveFolderId);
+  };
+
+  const pendingTasksCount = tasks.filter(t => !t.isCompleted).length;
+
+  // Header quick statistics
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayAttendance = attendance.filter(a => a.date === todayStr);
+  const presentCount = todayAttendance.filter(a => a.status === 'present').length;
+  const attendanceRate = todayAttendance.length > 0 
+    ? Math.round((presentCount / todayAttendance.length) * 100) 
+    : 100;
+
+  const handleSelectTab = (tab: NavTab) => {
+    if (tab !== 'settings') {
+      setPreviousTab(tab);
+    }
+    setActiveTab(tab);
+  };
+
+  const effectiveTab = activeTab === 'settings' ? previousTab : activeTab;
+
+  // Level 1: Developer Console View (when not inspecting school)
+  if (user.role === 'developer' && !isInspectingSchool) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+        <DeveloperConsole
+          currentUser={user}
+          admins={admins}
+          members={members}
+          academicYears={academicYears}
+          googleConfig={googleConfig}
+          onSaveGoogleConfig={handleSaveGoogleConfig}
+          onTestConnection={handleTestConnection}
+          onSyncAll={handleSyncAll}
+          onResetData={handleResetData}
+          onRefreshData={() => {
+            setAdmins(StorageService.getAdmins());
+            setMembers(StorageService.getMembers());
+            setAcademicYears(StorageService.getAcademicYears());
+            setGoogleConfig(StorageService.getGoogleConfig());
+          }}
+          onLogout={handleLogout}
+          onShowToast={showToast}
+          onInspectSchoolView={(admin) => {
+            setIsInspectingSchool(true);
+            showToast('info', 'เข้าสู่โหมดตรวจสอบโรงเรียน', `กำลังตรวจสอบระบบของ ${admin.schoolName} ในโหมดอ่านอย่างเดียว`);
+          }}
+        />
+
+        {/* User Login & Role Switcher Modal */}
+        <LoginModal
+          isOpen={isLoginModalOpen}
+          currentUser={user}
+          members={members}
+          onLogin={handleLogin}
+          onClose={() => setIsLoginModalOpen(false)}
+        />
+
+        {/* Floating Action Toasts */}
+        <Toast toasts={toasts} onDismiss={handleDismissToast} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50/60 flex flex-col text-slate-800">
+      {/* Developer Inspection Banner */}
+      {user.role === 'developer' && isInspectingSchool && (
+        <div className="bg-gradient-to-r from-purple-950 via-purple-900 to-indigo-950 text-white px-4 py-2.5 flex flex-wrap items-center justify-between text-xs border-b border-purple-700/60 shadow-inner gap-2 sticky top-0 z-50">
+          <div className="flex items-center gap-2.5">
+            <span className="bg-purple-600 text-white font-bold px-2.5 py-0.5 rounded-lg text-[10px] uppercase tracking-wider border border-purple-400/50 shadow-xs">
+              Developer Read-Only
+            </span>
+            <span>
+              กำลังตรวจสอบระบบของโรงเรียนในฐานะ <strong>Level 1 Developer (Airfan)</strong> — <em>โหมดอ่านอย่างเดียว (ไม่สามารถแก้ไขข้อมูลใดๆ ได้)</em>
+            </span>
+          </div>
+          <button
+            onClick={() => setIsInspectingSchool(false)}
+            className="px-3 py-1 bg-white hover:bg-purple-50 text-purple-950 font-bold rounded-xl transition-all cursor-pointer text-xs shadow-md active:scale-95"
+          >
+            ← กลับสู่ Developer Console
+          </button>
+        </div>
+      )}
+
+      {/* Dynamic Header */}
+      <Header
+        schoolInfo={schoolInfo}
+        user={user}
+        googleConfig={googleConfig}
+        studentsCount={students.length}
+        personnelCount={personnel.length}
+        attendanceRate={attendanceRate}
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onOpenSettings={() => handleSelectTab('settings')}
+        onLogout={handleLogout}
+        onSyncAll={handleSyncAll}
+        isSyncing={isSyncing}
+        isInspectingSchool={isInspectingSchool}
+        onReturnToDevConsole={() => setIsInspectingSchool(false)}
+      />
+
+      {/* Top Navigation Bar: Always visible across all tabs */}
+      <Navigation
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+        pendingTasksCount={pendingTasksCount}
+        user={user}
+      />
+
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 sm:pb-6">
+        {effectiveTab === 'dashboard' && (
+          <DashboardView
+            user={user}
+            schoolInfo={schoolInfo}
+            calendarEvents={calendarEvents}
+            tasks={tasks}
+            students={students}
+            personnel={personnel}
+            savings={savings}
+            attendance={attendance}
+            onCompleteTask={handleCompleteTask}
+            onSaveTask={handleSaveTask}
+            onDeleteTask={handleDeleteTask}
+            onShowToast={showToast}
+            onSaveCalendarEvent={handleSaveCalendarEvent}
+            onDeleteCalendarEvent={handleDeleteCalendarEvent}
+            onNavigateToTab={handleSelectTab}
+          />
+        )}
+
+        {effectiveTab === 'classroom' && (
+          <Module1ClassroomAdmin
+            user={user}
+            students={students}
+            dailyTracking={dailyTracking}
+            onSaveDailyTracking={handleSaveDailyTracking}
+            onShowToast={showToast}
+            schoolInfo={schoolInfo}
+            personnel={personnel}
+          />
+        )}
+
+        {effectiveTab === 'data_others' && (
+          <ModuleDataOthers
+            user={user}
+            students={students}
+            personnel={personnel}
+            schoolInfo={schoolInfo}
+            onSaveStudent={handleSaveStudent}
+            onDeleteStudent={handleDeleteStudent}
+            onSavePersonnel={handleSavePersonnel}
+            onDeletePersonnel={handleDeletePersonnel}
+            onSaveSchoolInfo={handleSaveSchoolInfo}
+            onOpenLightbox={handleOpenLightbox}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'grading' && (
+          <Module2Grading
+            user={user}
+            subjects={subjects}
+            grades={grades}
+            students={students}
+            members={members}
+            academicYear={schoolInfo.academicYear}
+            semester={schoolInfo.semester}
+            attendance={attendance}
+            attendanceConfig={attendanceConfig}
+            onSemesterChange={(newSem) => {
+              setSchoolInfo(prev => {
+                const updated = { ...prev, semester: newSem };
+                StorageService.setSchoolInfo(updated);
+                return updated;
+              });
+            }}
+            onAcademicYearChange={(newYear) => {
+              setSchoolInfo(prev => {
+                const updated = { ...prev, academicYear: newYear };
+                StorageService.setSchoolInfo(updated);
+                return updated;
+              });
+            }}
+            onSaveSubject={handleSaveSubject}
+            onSaveBulkSubjects={handleSaveBulkSubjects}
+            onUpdateSubjectsList={handleUpdateSubjectsList}
+            onDeleteSubject={handleDeleteSubject}
+            onSaveBulkGrades={handleSaveBulkGrades}
+            onSaveBulkAttendance={handleSaveBulkAttendance}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'attendance_savings' && (
+          <Module3AttendanceSavings
+            user={user}
+            schoolInfo={schoolInfo}
+            students={students}
+            attendance={attendance}
+            savings={savings}
+            attendanceConfig={attendanceConfig}
+            onSaveBulkAttendance={handleSaveBulkAttendance}
+            onSaveSavingsRecord={handleSaveSavingsRecord}
+            onDeleteSavingsRecord={handleDeleteSavingsRecord}
+            onUpdateAllSavings={handleUpdateAllSavings}
+            onSaveAttendanceConfig={handleSaveAttendanceConfig}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'assignments' && (
+          <Module4Assignments
+            user={user}
+            tasks={tasks}
+            members={members}
+            onSaveTask={handleSaveTask}
+            onDeleteTask={handleDeleteTask}
+            onCompleteTask={handleCompleteTask}
+            onReorderTasks={handleReorderTasks}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'documents' && (
+          <Module5Documents
+            user={user}
+            documents={documents}
+            googleConfig={googleConfig}
+            onSaveDocument={handleSaveDocument}
+            onDeleteDocument={handleDeleteDocument}
+            onReorderDocuments={handleReorderDocuments}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'websites' && (
+          <Module6Websites
+            user={user}
+            websites={websites}
+            onSaveWebsite={handleSaveWebsite}
+            onDeleteWebsite={handleDeleteWebsite}
+            onReorderWebsites={handleReorderWebsites}
+            onShowToast={showToast}
+          />
+        )}
+
+        {effectiveTab === 'reports' && (
+          <Module7Reports
+            user={user}
+            students={students}
+            personnel={personnel}
+            schoolInfo={schoolInfo}
+            subjects={subjects}
+            grades={grades}
+            attendance={attendance}
+            savings={savings}
+            dailyTracking={dailyTracking}
+            onShowToast={showToast}
+            onOpenLightbox={handleOpenLightbox}
+          />
+        )}
+      </main>
+
+      {/* Pop-up Settings Modal */}
+      {activeTab === 'settings' && (
+        <SettingsView
+          user={user}
+          schoolInfo={schoolInfo}
+          members={members}
+          onClose={() => setActiveTab(previousTab || 'dashboard')}
+          onSaveSchoolInfo={handleSaveSchoolInfo}
+          onSaveMember={handleSaveMember}
+          onDeleteMember={handleDeleteMember}
+          onShowToast={showToast}
+          onSaveUserSession={handleSaveUserSession}
+        />
+      )}
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-slate-200/80 py-4 px-4 text-center text-xs text-slate-500 no-print">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>{schoolInfo.schoolName} • ระบบบริหารจัดการงานวิชาการและธุรการ</span>
+          <div className="flex items-center gap-3">
+            <span className="text-slate-400">Database: Google Sheets & Google Drive</span>
+            <span>·</span>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className="text-indigo-600 hover:underline"
+            >
+              ตั้งค่าระบบ
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* Lightbox Modal */}
+      <LightboxModal
+        isOpen={lightboxState.isOpen}
+        imageUrl={lightboxState.imageUrl}
+        title={lightboxState.title}
+        subtitle={lightboxState.subtitle}
+        onClose={() => setLightboxState(prev => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* User Login & Role Switcher Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        currentUser={user}
+        members={members}
+        onLogin={handleLogin}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
+
+      {/* Floating Action Toasts */}
+      <Toast toasts={toasts} onDismiss={handleDismissToast} />
+    </div>
+  );
+}

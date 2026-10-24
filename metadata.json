@@ -1,0 +1,6 @@
+{
+  "name": "Academic Management System",
+  "description": "ระบบบริหารจัดการงานวิชาการและธุรการโรงเรียน (School Academic & Administrative Management System) เชื่อมต่อ Google Sheets และ Google Drive พร้อมระบบงาน 7 เมนูครบวงจร",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

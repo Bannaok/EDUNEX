@@ -1,0 +1,7611 @@
+import React, { useState, useMemo } from 'react';
+import { 
+  Subject, 
+  GradeRecord, 
+  Student, 
+  UserSession, 
+  GradeLevel,
+  AssignmentItem,
+  MemberAccount,
+  AttendanceRecord,
+  AttendanceDayConfig,
+  SchoolDayItem,
+  RubricLevel,
+  LearningUnitDetail
+} from '../types';
+import { StorageService } from '../services/storage';
+import { 
+  Award, 
+  BookOpen, 
+  Plus, 
+  Save, 
+  Trash2, 
+  Edit, 
+  UserCheck, 
+  CheckCircle, 
+  Sliders, 
+  Layers, 
+  FileText,
+  Calculator,
+  Sparkles,
+  Check,
+  X,
+  UserMinus,
+  Lock,
+  Unlock,
+  Calendar,
+  AlertCircle,
+  Eye,
+  Users,
+  ShieldAlert,
+  Copy,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  User,
+  Clock,
+  CalendarCheck,
+  CheckSquare,
+  Square,
+  Star
+} from 'lucide-react';
+import { Assessment3Booklets } from './Assessment3Booklets';
+
+interface Module2Props {
+  user: UserSession;
+  subjects: Subject[];
+  grades: GradeRecord[];
+  students: Student[];
+  members?: MemberAccount[];
+  academicYear: string;
+  semester: string;
+  attendance?: AttendanceRecord[];
+  attendanceConfig?: AttendanceDayConfig;
+  onSemesterChange?: (sem: '1' | '2') => void;
+  onAcademicYearChange?: (year: string) => void;
+  onSaveSubject: (subject: Subject) => void;
+  onSaveBulkSubjects?: (subs: Subject[]) => void;
+  onUpdateSubjectsList?: (subs: Subject[]) => void;
+  onDeleteSubject: (id: string) => void;
+  onSaveBulkGrades: (grades: GradeRecord[]) => void;
+  onSaveBulkAttendance?: (records: AttendanceRecord[]) => void;
+  onShowToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
+}
+
+export const Module2Grading: React.FC<Module2Props> = ({
+  user,
+  subjects,
+  grades,
+  students,
+  members = [],
+  academicYear,
+  semester,
+  attendance,
+  attendanceConfig,
+  onSemesterChange,
+  onAcademicYearChange,
+  onSaveSubject,
+  onSaveBulkSubjects,
+  onUpdateSubjectsList,
+  onDeleteSubject,
+  onSaveBulkGrades,
+  onSaveBulkAttendance,
+  onShowToast
+}) => {
+  const [activeTab, setActiveTab] = useState<'grading' | 'subjects' | 'assessments'>('grading');
+  
+  // สมาชิกจะไม่เห็นแท็บโครงสร้างรายวิชา หากเปิดอยู่ให้รีไดเรกต์ไปกรอกคะแนน
+  React.useEffect(() => {
+    if (user.role === 'member' && activeTab === 'subjects') {
+      setActiveTab('grading');
+    }
+  }, [user.role, activeTab]);
+
+  // จัดการปีการศึกษา (Academic Years)
+  const [currentAcademicYear, setCurrentAcademicYear] = useState<string>(academicYear || '2568');
+  const [academicYears, setAcademicYears] = useState<string[]>(() => StorageService.getAcademicYears());
+
+  React.useEffect(() => {
+    if (academicYear) {
+      setCurrentAcademicYear(academicYear);
+    }
+  }, [academicYear]);
+
+  // Semester selector state (ภาคเรียนที่ 1 หรือ 2)
+  const [currentSemester, setCurrentSemester] = useState<'1' | '2'>(
+    (semester === '2' ? '2' : '1')
+  );
+
+  // Sync if prop semester changes
+  React.useEffect(() => {
+    if (semester === '1' || semester === '2') {
+      setCurrentSemester(semester);
+    }
+  }, [semester]);
+
+  // Locked semesters map (Admin can lock semester to prevent members from entering scores in wrong semester)
+  const [lockedSemesters, setLockedSemesters] = useState<Record<string, boolean>>(() => 
+    StorageService.getLockedSemesters()
+  );
+
+  const isCurrentSemLocked = Boolean(lockedSemesters[`${currentAcademicYear}_${currentSemester}`]);
+  const isSem1Locked = Boolean(lockedSemesters[`${currentAcademicYear}_1`]);
+  const isSem2Locked = Boolean(lockedSemesters[`${currentAcademicYear}_2`]);
+
+  // Toggle Lock/Unlock for current semester
+  const handleToggleLockCurrentSemester = () => {
+    if (user.role !== 'admin') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถล็อกหรือปลดล็อกภาคเรียนได้');
+      return;
+    }
+    const result = StorageService.toggleSemesterLocked(currentAcademicYear, currentSemester);
+    setLockedSemesters(result.allLocked);
+    if (result.locked) {
+      onShowToast(
+        'info', 
+        `ล็อกภาคเรียนที่ ${currentSemester} เรียบร้อย 🔒`, 
+        `ล็อกการกรอกคะแนนภาคเรียนที่ ${currentSemester} ปี ${currentAcademicYear} แล้ว สมาชิกจะไม่สามารถกรอกหรือแก้ไขคะแนนในภาคเรียนนี้ได้ เพื่อป้องกันการกรอกผิดภาคเรียน`
+      );
+    } else {
+      onShowToast(
+        'success', 
+        `ปลดล็อกภาคเรียนที่ ${currentSemester} แล้ว 🔓`, 
+        `เปิดให้สมาชิกสามารถเข้ามากรอกและบันทึกคะแนนในภาคเรียนที่ ${currentSemester} ปี ${currentAcademicYear} ได้ตามปกติ`
+      );
+    }
+  };
+
+  // Fallback to StorageService.getMembers() if members prop is empty
+  const allMembers = (members && members.length > 0) ? members : StorageService.getMembers();
+
+  // Helper เพื่อตรวจสอบว่ารายวิชาสังกัดปีการศึกษาใด
+  const isSubjectInYear = (s: Subject, yr: string = currentAcademicYear) => {
+    if (!s.academicYear) {
+      return yr === '2568' || yr === (academicYears[0] || '2568');
+    }
+    return s.academicYear === yr;
+  };
+
+  // Grade rank prioritizing Primary 1 (ป.1) at the top, then ascending to ป.6, ม.1-ม.6, then kindergarten
+  const getGradeRank = (grade: string = ''): number => {
+    const g = grade.trim();
+    if (g === 'ป.1' || g.startsWith('ป.1') || g.includes('ประถมศึกษาปีที่ 1')) return 1;
+    if (g === 'ป.2' || g.startsWith('ป.2') || g.includes('ประถมศึกษาปีที่ 2')) return 2;
+    if (g === 'ป.3' || g.startsWith('ป.3') || g.includes('ประถมศึกษาปีที่ 3')) return 3;
+    if (g === 'ป.4' || g.startsWith('ป.4') || g.includes('ประถมศึกษาปีที่ 4')) return 4;
+    if (g === 'ป.5' || g.startsWith('ป.5') || g.includes('ประถมศึกษาปีที่ 5')) return 5;
+    if (g === 'ป.6' || g.startsWith('ป.6') || g.includes('ประถมศึกษาปีที่ 6')) return 6;
+    if (g === 'ม.1' || g.startsWith('ม.1') || g.includes('มัธยมศึกษาปีที่ 1')) return 7;
+    if (g === 'ม.2' || g.startsWith('ม.2') || g.includes('มัธยมศึกษาปีที่ 2')) return 8;
+    if (g === 'ม.3' || g.startsWith('ม.3') || g.includes('มัธยมศึกษาปีที่ 3')) return 9;
+    if (g === 'ม.4' || g.startsWith('ม.4') || g.includes('มัธยมศึกษาปีที่ 4')) return 10;
+    if (g === 'ม.5' || g.startsWith('ม.5') || g.includes('มัธยมศึกษาปีที่ 5')) return 11;
+    if (g === 'ม.6' || g.startsWith('ม.6') || g.includes('มัธยมศึกษาปีที่ 6')) return 12;
+    if (g === 'อ.1' || g.startsWith('อ.1') || g.includes('อนุบาล 1')) return 20;
+    if (g === 'อ.2' || g.startsWith('อ.2') || g.includes('อนุบาล 2')) return 21;
+    if (g === 'อ.3' || g.startsWith('อ.3') || g.includes('อนุบาล 3')) return 22;
+    return 99;
+  };
+
+  const sortSubjectsByGrade = (subs: Subject[]): Subject[] => {
+    return [...subs].sort((a, b) => {
+      const orderA = getGradeRank(a.gradeLevel);
+      const orderB = getGradeRank(b.gradeLevel);
+      if (orderA !== orderB) return orderA - orderB;
+      const codeA = a.code || '';
+      const codeB = b.code || '';
+      const codeCmp = codeA.localeCompare(codeB, 'th');
+      if (codeCmp !== 0) return codeCmp;
+      const nameCmp = (a.name || '').localeCompare(b.name || '', 'th');
+      if (nameCmp !== 0) return nameCmp;
+      return (a.semester || '1').localeCompare(b.semester || '1');
+    });
+  };
+
+
+  // รายวิชาของปีการศึกษาปัจจุบัน
+  const yearSubjects = subjects.filter(s => isSubjectInYear(s, currentAcademicYear));
+
+  // รายวิชาสำหรับภาคเรียนที่เลือกในปีการศึกษาปัจจุบัน
+  const currentSemSubjects = yearSubjects.filter(s => !s.semester || s.semester === currentSemester);
+
+  // Subjects that HAVE been registered by a member/teacher in this semester & year
+  const registeredSubjects = currentSemSubjects.filter(s => 
+    Boolean(s.teacherId && s.teacherId.trim() !== '') || 
+    Boolean(s.teacherName && s.teacherName.trim() !== '')
+  );
+
+  // Subjects that are NOT yet registered by any member
+  const unregisteredSubjects = currentSemSubjects.filter(s => 
+    (!s.teacherId || s.teacherId.trim() === '') && 
+    (!s.teacherName || s.teacherName.trim() === '')
+  );
+
+  // Sorted arrays (ป.1 ขึ้นก่อน และเรียงตามลำดับชั้น)
+  const sortedRegisteredSubjects = sortSubjectsByGrade(registeredSubjects);
+  const sortedUnregisteredSubjects = sortSubjectsByGrade(unregisteredSubjects);
+
+  // Set of teacher IDs and names who have registered at least one subject in current semester & year
+  const registeredTeacherIds = new Set(registeredSubjects.map(s => s.teacherId).filter(Boolean));
+  const registeredTeacherNames = new Set(registeredSubjects.map(s => s.teacherName).filter(Boolean));
+
+  // Members who have NOT registered for any subject in this semester & year
+  const unregisteredMembers = allMembers.filter(m => 
+    m.role === 'member' && 
+    !registeredTeacherIds.has(m.id) && 
+    !registeredTeacherNames.has(m.fullName)
+  );
+
+  // Subjects registered by CURRENT user (if member)
+  const myRegisteredSubjects = registeredSubjects.filter(s => 
+    s.teacherId === user.id || s.teacherName === user.fullName
+  );
+  const sortedMyRegisteredSubjects = sortSubjectsByGrade(myRegisteredSubjects);
+
+  // Grade input selection: if user is a member, prioritize subject they registered in current semester & year
+  const findDefaultSubjectId = (targetSem: '1' | '2' = currentSemester, targetYear: string = currentAcademicYear): string => {
+    const semSubs = subjects.filter(s => isSubjectInYear(s, targetYear) && (!s.semester || s.semester === targetSem));
+    const semRegistered = sortSubjectsByGrade(semSubs.filter(s => Boolean(s.teacherId || s.teacherName)));
+
+    if (user.role === 'member') {
+      const mySub = semRegistered.find(s => s.teacherId === user.id || s.teacherName === user.fullName);
+      if (mySub) return mySub.id;
+      return ''; // Member has no registered subjects in this semester yet
+    } else {
+      // Admin: show first registered subject if available
+      if (semRegistered.length > 0) return semRegistered[0].id;
+      return '';
+    }
+  };
+
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(() => findDefaultSubjectId());
+  
+  // Handle Semester Switch
+  const handleSemesterChange = (newSem: '1' | '2') => {
+    setCurrentSemester(newSem);
+    if (onSemesterChange) {
+      onSemesterChange(newSem);
+    }
+    const inSemRegistered = sortSubjectsByGrade(subjects.filter(s => 
+      isSubjectInYear(s, currentAcademicYear) &&
+      (!s.semester || s.semester === newSem) &&
+      Boolean(s.teacherId || s.teacherName)
+    ));
+    if (user.role === 'member') {
+      const mySub = inSemRegistered.find(s => s.teacherId === user.id || s.teacherName === user.fullName);
+      setSelectedSubjectId(mySub?.id || '');
+    } else {
+      setSelectedSubjectId(inSemRegistered[0]?.id || '');
+    }
+  };
+
+  // Handle Academic Year Switch
+  const handleAcademicYearChange = (newYear: string) => {
+    setCurrentAcademicYear(newYear);
+    if (onAcademicYearChange) {
+      onAcademicYearChange(newYear);
+    }
+    const inSemRegistered = sortSubjectsByGrade(subjects.filter(s => 
+      isSubjectInYear(s, newYear) &&
+      (!s.semester || s.semester === currentSemester) &&
+      Boolean(s.teacherId || s.teacherName)
+    ));
+    if (user.role === 'member') {
+      const mySub = inSemRegistered.find(s => s.teacherId === user.id || s.teacherName === user.fullName);
+      setSelectedSubjectId(mySub?.id || '');
+    } else {
+      setSelectedSubjectId(inSemRegistered[0]?.id || '');
+    }
+  };
+
+  // Active popover score picker state: { studentId, assignmentId }
+  const [activeScorePicker, setActiveScorePicker] = useState<{
+    studentId: string;
+    assignmentId: string;
+  } | null>(null);
+
+  // Constants & helpers for Kindergarten (อ.1, อ.2, อ.3)
+  const DEFAULT_KINDERGARTEN_RUBRIC_LEVELS: RubricLevel[] = [
+    { level: 1, label: 'ควรเสริม' },
+    { level: 2, label: 'ได้บางครั้ง' },
+    { level: 3, label: 'ปฏิบัติได้' }
+  ];
+
+  const isKindergartenGrade = (grade?: string): boolean => {
+    return grade === 'อ.1' || grade === 'อ.2' || grade === 'อ.3';
+  };
+
+  // Admin add subject modal
+  const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
+  const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
+  const [modalGradeLevel, setModalGradeLevel] = useState<GradeLevel>('ป.1');
+
+  // Kindergarten configuration states in modal
+  const [kindergartenSubtopics, setKindergartenSubtopics] = useState<string[]>(['']);
+  const [kindergartenRubricLevels, setKindergartenRubricLevels] = useState<RubricLevel[]>(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+  const [kindergartenRubricCount, setKindergartenRubricCount] = useState<number>(3);
+
+  // Kindergarten states for Member/Teacher Grading View
+  const [selectedKindergartenSubtopic, setSelectedKindergartenSubtopic] = useState<string | null>(null);
+  const [isAddKindergartenSubtopicModalOpen, setIsAddKindergartenSubtopicModalOpen] = useState(false);
+  const [newKindergartenSubtopicInput, setNewKindergartenSubtopicInput] = useState('');
+  const [newKindergartenStandardInput, setNewKindergartenStandardInput] = useState('');
+  const [newKindergartenIndicatorInput, setNewKindergartenIndicatorInput] = useState('');
+  const [subtopicToRename, setSubtopicToRename] = useState<string | null>(null);
+  const [renameSubtopicInput, setRenameSubtopicInput] = useState('');
+  const [renameStandardInput, setRenameStandardInput] = useState('');
+  const [renameIndicatorInput, setRenameIndicatorInput] = useState('');
+  const [isKindergartenSummaryModalOpen, setIsKindergartenSummaryModalOpen] = useState(false);
+  const [kindergartenViewMode, setKindergartenViewMode] = useState<'grading' | 'inlineSummary'>('grading');
+  const [kindergartenSummaryTab, setKindergartenSummaryTab] = useState<'byPage' | 'matrix' | 'stats'>('byPage');
+  const [isAddKindergartenColumnModalOpen, setIsAddKindergartenColumnModalOpen] = useState(false);
+  const [newKindergartenColumnInput, setNewKindergartenColumnInput] = useState('');
+  const [kindergartenColumnToEdit, setKindergartenColumnToEdit] = useState<AssignmentItem | null>(null);
+  const [editKindergartenColumnInput, setEditKindergartenColumnInput] = useState('');
+  const [subtopicToDelete, setSubtopicToDelete] = useState<string | null>(null);
+  const [starMenuOpenSubtopic, setStarMenuOpenSubtopic] = useState<string | null>(null);
+
+  const [gradingViewMode, setGradingViewMode] = useState<'score' | 'grade'>('score');
+
+  // Function to change rubric level count (2 - 5 levels, default 3)
+  const handleRubricCountChange = (count: number) => {
+    const clamped = Math.min(5, Math.max(2, count));
+    setKindergartenRubricCount(clamped);
+    setKindergartenRubricLevels(prev => {
+      const defaults = [
+        { level: 1, label: 'ควรเสริม' },
+        { level: 2, label: 'ได้บางครั้ง' },
+        { level: 3, label: 'ปฏิบัติได้' },
+        { level: 4, label: 'ดีเยี่ยม' },
+        { level: 5, label: 'ยอดเยี่ยม' }
+      ];
+      const next: RubricLevel[] = [];
+      for (let i = 1; i <= clamped; i++) {
+        const found = prev.find(p => p.level === i);
+        const def = defaults.find(d => d.level === i);
+        next.push({
+          level: i,
+          label: found?.label || def?.label || `ระดับ ${i}`
+        });
+      }
+      return next;
+    });
+  };
+
+  // Unit count and Unit details for Subject Modal ("หน่วยที่" + ชื่อหน่วย + คะแนนเก็บ สำหรับ ป.1 - ม.6)
+  const [subjectUnitCountInput, setSubjectUnitCountInput] = useState<number | ''>('');
+  const [subjectUnitDetails, setSubjectUnitDetails] = useState<{
+    unitNumber: number;
+    name: string;
+    score: number | '';
+  }[]>([]);
+
+  const handleOpenSubjectModal = (sub?: Subject | null) => {
+    if (sub) {
+      setEditingSubject(sub);
+      setModalGradeLevel(sub.gradeLevel);
+
+      if (isKindergartenGrade(sub.gradeLevel)) {
+        // อ.1, อ.2, อ.3: โหลดหัวข้อย่อย และระดับคะแนนคุณภาพ
+        const existingSubs = sub.subtopics && sub.subtopics.length > 0 
+          ? [...sub.subtopics] 
+          : (sub.assignmentItems && sub.assignmentItems.length > 0 ? sub.assignmentItems.map(a => a.name) : ['']);
+        setKindergartenSubtopics(existingSubs.length > 0 ? existingSubs : ['']);
+        
+        const existingRubrics = sub.rubricLevels && sub.rubricLevels.length > 0
+          ? [...sub.rubricLevels]
+          : DEFAULT_KINDERGARTEN_RUBRIC_LEVELS;
+        setKindergartenRubricLevels(existingRubrics);
+        setKindergartenRubricCount(sub.rubricMaxLevel || existingRubrics.length || 3);
+        setSubjectUnitCountInput('');
+        setSubjectUnitDetails([]);
+      } else {
+        // ป.1 - ม.6: โหลดหน่วยการเรียนรู้
+        const existingDetails = sub.learningUnitDetails || [];
+        const existingUnits = sub.learningUnits && sub.learningUnits.length > 0
+          ? sub.learningUnits
+          : (existingDetails.length > 0 ? existingDetails.map(d => d.unitNumber) : []);
+        const count = existingUnits.length;
+        setSubjectUnitCountInput(count > 0 ? count : '');
+
+        const details = existingUnits.map(uNum => {
+          const foundDetail = existingDetails.find(d => d.unitNumber === uNum);
+          const unitAsg = (sub.assignmentItems || []).find(a => a.unitNumber === uNum);
+          const scoreVal: number | '' = typeof foundDetail?.score === 'number'
+            ? foundDetail.score
+            : (typeof unitAsg?.maxScore === 'number' ? unitAsg.maxScore : '');
+          return {
+            unitNumber: uNum,
+            name: foundDetail?.name || '',
+            score: scoreVal
+          };
+        });
+        setSubjectUnitDetails(details);
+        setKindergartenSubtopics(['']);
+        setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+        setKindergartenRubricCount(3);
+      }
+    } else {
+      setEditingSubject(null);
+      setModalGradeLevel('ป.1');
+      setKindergartenSubtopics(['']);
+      setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+      setKindergartenRubricCount(3);
+      setSubjectUnitCountInput('');
+      setSubjectUnitDetails([]);
+    }
+    setIsSubjectModalOpen(true);
+  };
+
+  const handleUnitCountChange = (valStr: string) => {
+    if (valStr === '') {
+      setSubjectUnitCountInput('');
+      setSubjectUnitDetails([]);
+      return;
+    }
+    const count = parseInt(valStr, 10);
+    if (isNaN(count)) return;
+
+    if (count <= 0) {
+      setSubjectUnitCountInput(0);
+      setSubjectUnitDetails([]);
+      return;
+    }
+
+    const safeCount = Math.min(30, count);
+    setSubjectUnitCountInput(safeCount);
+
+    setSubjectUnitDetails(prev => {
+      const next = [...prev];
+      while (next.length < safeCount) {
+        const uNum = next.length + 1;
+        next.push({
+          unitNumber: uNum,
+          name: '',
+          score: ''
+        });
+      }
+      return next.slice(0, safeCount);
+    });
+  };
+
+  // Assignment Column Management Modal & State
+  const [isAddAssignmentModalOpen, setIsAddAssignmentModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<AssignmentItem | null>(null);
+  const [assignmentNameInput, setAssignmentNameInput] = useState('');
+
+  // Modals for Academic Year Management
+  const [isAddYearModalOpen, setIsAddYearModalOpen] = useState(false);
+  const [newYearInput, setNewYearInput] = useState('');
+  const [copyPreviousSubjects, setCopyPreviousSubjects] = useState(true);
+  const [sourceYearToCopy, setSourceYearToCopy] = useState(currentAcademicYear);
+  const [deletingYear, setDeletingYear] = useState<string | null>(null);
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+
+  // Modals for Confirmation (ถอนชื่อผู้สอน / ลบรายวิชา)
+  const [subjectToWithdraw, setSubjectToWithdraw] = useState<Subject | null>(null);
+  const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null);
+
+  // Modal for copying subjects from previous year in โครงสร้างรายวิชา
+  const [isCopySubjectsModalOpen, setIsCopySubjectsModalOpen] = useState(false);
+  const [copyModalSourceYear, setCopyModalSourceYear] = useState(
+    academicYears.find(y => y !== currentAcademicYear) || academicYears[0] || '2568'
+  );
+
+  // Modal for copying assignment template from previous year in scoring tab
+  const [isCopyAssignmentModalOpen, setIsCopyAssignmentModalOpen] = useState(false);
+  const [selectedTemplateSubject, setSelectedTemplateSubject] = useState<Subject | null>(null);
+  const [copyTemplateSourceYear, setCopyTemplateSourceYear] = useState<string>('');
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState<string>('all');
+
+  // Learning Units state (หน่วยการเรียนรู้ 1, 2, 3...)
+  const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
+  const [assignmentUnitInput, setAssignmentUnitInput] = useState<number>(1);
+  const [unitToDelete, setUnitToDelete] = useState<number | null>(null);
+  const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
+  const [unitModalMode, setUnitModalMode] = useState<'add' | 'edit'>('add');
+  const [unitModalTargetNum, setUnitModalTargetNum] = useState<number | null>(null);
+  const [unitNameInput, setUnitNameInput] = useState('');
+  const [unitScoreInput, setUnitScoreInput] = useState<number | ''>('');
+
+  // Mobile / Student rapid grading modal state (กดชื่อนักเรียนเพื่อลงคะแนนแต่ละงาน แต่ละหน่วย และปลายภาค)
+  const [mobileGradingStudentId, setMobileGradingStudentId] = useState<string | null>(null);
+  const [mobileGradingUnitTab, setMobileGradingUnitTab] = useState<number | 'test'>(1);
+
+  // Mobile pop-up inline assignment actions (เพิ่ม/แก้ไข/ลบ ชิ้นงานในแต่ละหน่วย)
+  const [isInlineAddingAsg, setIsInlineAddingAsg] = useState(false);
+  const [newAsgNameInput, setNewAsgNameInput] = useState('');
+  const [editingMobileAsgId, setEditingMobileAsgId] = useState<string | null>(null);
+  const [editingMobileAsgName, setEditingMobileAsgName] = useState('');
+  const [deletingAssignmentConfirm, setDeletingAssignmentConfirm] = useState<AssignmentItem | null>(null);
+
+  // Pop-up กำหนดตารางชั่วโมงสอน & สรุปเวลาเรียน (เชื่อมโยงหน้าเวลาเรียน 100 วัน และดึงข้อมูลครูประจำชั้น)
+  const [isTeachingScheduleModalOpen, setIsTeachingScheduleModalOpen] = useState(false);
+  const [teachingScheduleDays, setTeachingScheduleDays] = useState<Record<number, number>>({});
+  const [scheduleActiveView, setScheduleActiveView] = useState<'summary' | 'students' | 'dates'>('summary');
+  const [scheduleSearchQuery, setScheduleSearchQuery] = useState('');
+
+  // Keep selectedSubjectId valid
+  React.useEffect(() => {
+    if (user.role === 'member') {
+      const myRegistered = subjects.filter(s => 
+        isSubjectInYear(s, currentAcademicYear) &&
+        (!s.semester || s.semester === currentSemester) &&
+        (s.teacherId === user.id || s.teacherName === user.fullName)
+      );
+      if (selectedSubjectId && !myRegistered.some(s => s.id === selectedSubjectId)) {
+        setSelectedSubjectId(myRegistered[0]?.id || '');
+      } else if (!selectedSubjectId && myRegistered.length > 0) {
+        setSelectedSubjectId(myRegistered[0].id);
+      }
+    } else {
+      // Admin: focus on registered subjects
+      const registered = subjects.filter(s => 
+        isSubjectInYear(s, currentAcademicYear) &&
+        (!s.semester || s.semester === currentSemester) &&
+        Boolean(s.teacherId || s.teacherName)
+      );
+      if (selectedSubjectId && !registered.some(s => s.id === selectedSubjectId)) {
+        setSelectedSubjectId(registered[0]?.id || '');
+      } else if (!selectedSubjectId && registered.length > 0) {
+        setSelectedSubjectId(registered[0].id);
+      }
+    }
+  }, [subjects, user.id, user.role, currentSemester, currentAcademicYear]);
+
+  // Reset selectedUnit when subject changes
+  React.useEffect(() => {
+    setSelectedUnit(null);
+  }, [selectedSubjectId]);
+
+  const selectedSubject = subjects.find(s => s.id === selectedSubjectId);
+  const assignmentItems: AssignmentItem[] = selectedSubject?.assignmentItems || [];
+  const isPrimaryGradeLevel = selectedSubject?.gradeLevel ? (selectedSubject.gradeLevel.startsWith('ป.') || ['ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'].includes(selectedSubject.gradeLevel)) : false;
+  const isSecondaryGradeLevel = selectedSubject?.gradeLevel ? (selectedSubject.gradeLevel.startsWith('ม.') || ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].includes(selectedSubject.gradeLevel)) : false;
+  const showGradeButton = isSecondaryGradeLevel || (isPrimaryGradeLevel && currentSemester === '2');
+
+  // Units for current subject (respects learningUnits if defined, defaults to [1, 2, 3] if undefined)
+  const currentSubjectUnits: number[] = selectedSubject?.learningUnits !== undefined
+    ? selectedSubject.learningUnits
+    : [1, 2, 3];
+
+  const isSelectedSubjectKindergarten = isKindergartenGrade(selectedSubject?.gradeLevel);
+
+  const activeRubricLevels: RubricLevel[] = useMemo(() => {
+    if (selectedSubject?.rubricLevels && selectedSubject.rubricLevels.length > 0) {
+      return selectedSubject.rubricLevels;
+    }
+    return DEFAULT_KINDERGARTEN_RUBRIC_LEVELS;
+  }, [selectedSubject]);
+
+  const activeRubricMaxLevel = selectedSubject?.rubricMaxLevel || activeRubricLevels.length || 3;
+
+  const currentKindergartenSubtopics: string[] = useMemo(() => {
+    if (!selectedSubject) return [];
+    if (selectedSubject.subtopics !== undefined && selectedSubject.subtopics !== null) {
+      return selectedSubject.subtopics;
+    }
+    return ['มีสุขอนามัย และสุขนิสัยที่ดี', 'รักษาความปลอดภัย', 'พัฒนาการด้านร่างกาย'];
+  }, [selectedSubject]);
+
+  const activeKindergartenSubtopic = useMemo(() => {
+    if (currentKindergartenSubtopics.length === 0) return null;
+    if (selectedKindergartenSubtopic && currentKindergartenSubtopics.includes(selectedKindergartenSubtopic)) {
+      return selectedKindergartenSubtopic;
+    }
+    return currentKindergartenSubtopics[0];
+  }, [currentKindergartenSubtopics, selectedKindergartenSubtopic]);
+
+  const activeKindergartenSubtopicIndex = useMemo(() => {
+    if (!activeKindergartenSubtopic) return 0;
+    const idx = currentKindergartenSubtopics.indexOf(activeKindergartenSubtopic);
+    return idx >= 0 ? idx : 0;
+  }, [currentKindergartenSubtopics, activeKindergartenSubtopic]);
+
+  const getKindergartenAssignmentForSubtopic = (stName: string, idx: number): AssignmentItem => {
+    const targetUnit = idx + 1;
+    const found = selectedSubject?.assignmentItems?.find(a => a.unitNumber === targetUnit || a.name === stName);
+    if (found) return found;
+    return {
+      id: `asg-k-${targetUnit}-1`,
+      name: stName,
+      unitNumber: targetUnit,
+      maxScore: activeRubricMaxLevel
+    };
+  };
+
+  const displayedKindergartenAssignments: AssignmentItem[] = useMemo(() => {
+    if (!isSelectedSubjectKindergarten || !selectedSubject) return [];
+    const activeSub = activeKindergartenSubtopic;
+    if (!activeSub) return [];
+
+    const targetUnit = activeKindergartenSubtopicIndex + 1;
+    const currentItems = selectedSubject.assignmentItems || [];
+    
+    // Items that have unitNumber matching this subtopic index
+    const matches = currentItems.filter(a => a.unitNumber === targetUnit);
+    if (matches.length > 0) {
+      return matches;
+    }
+
+    // Fallback: check matching name if legacy unitNumber not set
+    const nameMatches = currentItems.filter(a => a.name === activeSub);
+    if (nameMatches.length > 0) {
+      return nameMatches;
+    }
+
+    // If subject explicitly marked custom assignments or subtopics/assignmentItems explicitly defined
+    if (selectedSubject.hasCustomAssignments || selectedSubject.subtopics !== undefined || selectedSubject.assignmentItems !== undefined) {
+      return [];
+    }
+
+    // Default fallback column for this subtopic page
+    return [{
+      id: `asg-k-${targetUnit}-1`,
+      name: `${activeSub}`,
+      unitNumber: targetUnit,
+      maxScore: activeRubricMaxLevel
+    }];
+  }, [isSelectedSubjectKindergarten, selectedSubject, activeKindergartenSubtopic, activeKindergartenSubtopicIndex, activeRubricMaxLevel]);
+
+  // Helper to calculate student's summary rubric rating specifically for the current subtopic page
+  const getStudentSubtopicSummary = (studentId: string, items: AssignmentItem[]) => {
+    const row = scoreRows[studentId];
+    if (!row?.assignmentScores || items.length === 0) {
+      return { score: null, label: 'ยังไม่ประเมิน', average: null, count: 0 };
+    }
+
+    const scoredValues = items
+      .map(it => row.assignmentScores[it.id])
+      .filter((v): v is number => typeof v === 'number' && v > 0);
+
+    if (scoredValues.length === 0) {
+      return { score: null, label: 'ยังไม่ประเมิน', average: null, count: 0 };
+    }
+
+    const avg = scoredValues.reduce((sum, v) => sum + v, 0) / scoredValues.length;
+    const roundedLevel = Math.min(activeRubricMaxLevel, Math.max(1, Math.round(avg)));
+    const rubric = activeRubricLevels.find(r => r.level === roundedLevel);
+
+    return {
+      score: roundedLevel,
+      label: rubric?.label || `ระดับ ${roundedLevel}`,
+      average: avg.toFixed(1),
+      count: scoredValues.length
+    };
+  };
+
+  // Helper to calculate student's overall rubric rating across all subtopics
+  const getStudentOverallRubric = (studentId: string) => {
+    const row = scoreRows[studentId];
+    if (!row?.assignmentScores) return { score: null, label: '-', average: null, count: 0 };
+
+    const items = selectedSubject?.assignmentItems || [];
+    const scoredValues = items
+      .map(it => row.assignmentScores[it.id])
+      .filter((v): v is number => typeof v === 'number' && v > 0);
+
+    if (scoredValues.length === 0) {
+      return { score: null, label: 'ยังไม่ประเมิน', average: null, count: 0 };
+    }
+
+    const avg = scoredValues.reduce((sum, v) => sum + v, 0) / scoredValues.length;
+    const roundedLevel = Math.min(activeRubricMaxLevel, Math.max(1, Math.round(avg)));
+    const rubric = activeRubricLevels.find(r => r.level === roundedLevel);
+
+    return {
+      score: roundedLevel,
+      label: rubric?.label || `ระดับ ${roundedLevel}`,
+      average: avg.toFixed(1),
+      count: scoredValues.length
+    };
+  };
+
+  const handleSetRubricScore = (studentId: string, asgId: string, score: number) => {
+    const cur = scoreRows[studentId] || {
+      coursework: 0,
+      exam: 0,
+      readingWriting: 3,
+      characteristics: 3,
+      competency: 3,
+      assignmentScores: {}
+    };
+    const nextScores = { ...cur.assignmentScores, [asgId]: score };
+    const next = {
+      ...scoreRows,
+      [studentId]: {
+        ...cur,
+        assignmentScores: nextScores
+      }
+    };
+    setScoreRows(next);
+    autoSaveGrades(next);
+  };
+
+  // Batch fill score for all students in a kindergarten assignment column
+  const handleBatchSetRubricScore = (asgId: string, score: number) => {
+    if (gradeStudents.length === 0) return;
+    const next = { ...scoreRows };
+    gradeStudents.forEach(st => {
+      const cur = next[st.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {}
+      };
+      next[st.id] = {
+        ...cur,
+        assignmentScores: {
+          ...(cur.assignmentScores || {}),
+          [asgId]: score
+        }
+      };
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+    onShowToast('success', 'บันทึกคะแนนยกกลุ่มแล้ว 🎉', `บันทึกระดับคะแนน ${score} แก่นักเรียนทุกคนเรียบร้อยแล้ว`);
+  };
+
+  // Batch fill score for all assignment columns in a specific subtopic page for all students
+  const handleBatchSetRubricScoreForPage = (subtopicName: string, score: number) => {
+    if (gradeStudents.length === 0 || !selectedSubject) return;
+
+    const subtopicIndex = currentKindergartenSubtopics.indexOf(subtopicName);
+    const pageUnitNum = subtopicIndex >= 0 ? subtopicIndex + 1 : 1;
+
+    let pageAssignments = (selectedSubject.assignmentItems || []).filter(
+      it => it.unitNumber === pageUnitNum || it.name === subtopicName
+    );
+    if (pageAssignments.length === 0) {
+      pageAssignments = [{
+        id: `asg-k-${pageUnitNum}-1`,
+        name: subtopicName,
+        unitNumber: pageUnitNum,
+        maxScore: activeRubricMaxLevel
+      }];
+    }
+
+    const assignmentIds = pageAssignments.map(a => a.id);
+
+    const next = { ...scoreRows };
+    gradeStudents.forEach(st => {
+      const cur = next[st.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {}
+      };
+      const updatedScores = { ...(cur.assignmentScores || {}) };
+      assignmentIds.forEach(asgId => {
+        updatedScores[asgId] = score;
+      });
+      next[st.id] = {
+        ...cur,
+        assignmentScores: updatedScores
+      };
+    });
+
+    setScoreRows(next);
+    autoSaveGrades(next);
+    setStarMenuOpenSubtopic(null);
+    onShowToast('success', 'บันทึกคะแนนดาวเรียบร้อย 🎉', `ให้คะแนนระดับ ${score} แก่ทุกช่องตารางในหน้า "${subtopicName}" สำหรับนักเรียนทุกคนแล้ว`);
+  };
+
+  // Add new unit / page on top bar (for kindergarten อ.1 - อ.3)
+  const handleAddKindergartenSubtopicSubmit = (newTitle: string, standard?: string, indicator?: string) => {
+    if (!selectedSubject) return;
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+
+    const baseSubs = selectedSubject.subtopics !== undefined && selectedSubject.subtopics !== null
+      ? [...selectedSubject.subtopics]
+      : [...currentKindergartenSubtopics];
+    const updatedSubtopics = [...baseSubs, trimmed];
+    const targetUnit = updatedSubtopics.length;
+
+    const defaultCol: AssignmentItem = {
+      id: `asg-k-${Date.now()}-${targetUnit}`,
+      name: `${trimmed}`,
+      unitNumber: targetUnit,
+      maxScore: activeRubricMaxLevel
+    };
+    const updatedAssignments = [...(selectedSubject.assignmentItems || []), defaultCol];
+
+    // Maintain learningUnitDetails with standard & indicator
+    const existingDetails = selectedSubject.learningUnitDetails ? [...selectedSubject.learningUnitDetails] : [];
+    const newDetail: LearningUnitDetail = {
+      unitNumber: targetUnit,
+      name: trimmed,
+      standard: standard?.trim() || '',
+      indicator: indicator?.trim() || ''
+    };
+    const updatedDetails = [...existingDetails.filter(d => d.unitNumber !== targetUnit), newDetail];
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      subtopics: updatedSubtopics,
+      assignmentItems: updatedAssignments,
+      learningUnits: updatedSubtopics.map((_, i) => i + 1),
+      learningUnitDetails: updatedDetails
+    };
+
+    onSaveSubject(updatedSubject);
+    setSelectedKindergartenSubtopic(trimmed);
+    setIsAddKindergartenSubtopicModalOpen(false);
+    setNewKindergartenSubtopicInput('');
+    setNewKindergartenStandardInput('');
+    setNewKindergartenIndicatorInput('');
+    onShowToast('success', 'เพิ่มหน้าหน่วยสำเร็จ 🎉', `สร้างหน้าชื่อหน่วย "${trimmed}" เรียบร้อยแล้ว`);
+  };
+
+  // Open Edit Unit modal for kindergarten
+  const handleOpenEditKindergartenUnitModal = (stName: string) => {
+    if (!selectedSubject) return;
+    const baseSubs = selectedSubject.subtopics !== undefined && selectedSubject.subtopics !== null
+      ? [...selectedSubject.subtopics]
+      : [...currentKindergartenSubtopics];
+    const unitIndex = baseSubs.indexOf(stName);
+    const targetUnit = unitIndex >= 0 ? unitIndex + 1 : -1;
+    const detail = selectedSubject.learningUnitDetails?.find(
+      d => (targetUnit > 0 && d.unitNumber === targetUnit) || d.name === stName
+    );
+
+    setSubtopicToRename(stName);
+    setRenameSubtopicInput(stName);
+    setRenameStandardInput(detail?.standard || '');
+    setRenameIndicatorInput(detail?.indicator || '');
+  };
+
+  // Delete unit / page on top bar (triggers confirmation modal)
+  const handleDeleteKindergartenSubtopic = (stName: string) => {
+    setSubtopicToDelete(stName);
+  };
+
+  // Confirm delete unit / page (modal confirmed, safe for sandboxed iframes)
+  const confirmDeleteKindergartenSubtopic = (stName: string) => {
+    if (!selectedSubject) return;
+
+    const baseSubs = selectedSubject.subtopics !== undefined && selectedSubject.subtopics !== null
+      ? [...selectedSubject.subtopics]
+      : [...currentKindergartenSubtopics];
+
+    const stIndex = baseSubs.indexOf(stName);
+    const targetUnit = stIndex >= 0 ? stIndex + 1 : -1;
+    const updatedSubtopics = baseSubs.filter(s => s !== stName);
+
+    let currentItems = selectedSubject.assignmentItems;
+    if (!currentItems || currentItems.length === 0) {
+      currentItems = baseSubs.map((s, idx) => ({
+        id: `asg-k-${idx + 1}-1`,
+        name: s,
+        unitNumber: idx + 1,
+        maxScore: activeRubricMaxLevel
+      }));
+    }
+
+    const deletedItemIds = new Set(
+      currentItems
+        .filter(it => it.name === stName || (targetUnit > 0 && it.unitNumber === targetUnit))
+        .map(it => it.id)
+    );
+    const remainingItems = currentItems.filter(it => !deletedItemIds.has(it.id));
+
+    // Shift unitNumber for remaining items whose unitNumber was greater than targetUnit
+    const updatedAssignments = remainingItems.map(it => {
+      if (it.unitNumber && targetUnit > 0 && it.unitNumber > targetUnit) {
+        return { ...it, unitNumber: it.unitNumber - 1 };
+      }
+      return it;
+    });
+
+    // Update learningUnitDetails
+    const updatedDetails = (selectedSubject.learningUnitDetails || [])
+      .filter(d => !(d.unitNumber === targetUnit || d.name === stName))
+      .map(d => {
+        if (targetUnit > 0 && d.unitNumber > targetUnit) {
+          return { ...d, unitNumber: d.unitNumber - 1 };
+        }
+        return d;
+      });
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      subtopics: updatedSubtopics,
+      assignmentItems: updatedAssignments,
+      learningUnits: updatedSubtopics.map((_, i) => i + 1),
+      learningUnitDetails: updatedDetails,
+      hasCustomAssignments: true
+    };
+
+    onSaveSubject(updatedSubject);
+
+    // Clean scores from scoreRows
+    const next = { ...scoreRows };
+    gradeStudents.forEach(st => {
+      if (next[st.id]?.assignmentScores) {
+        const newScores = { ...(next[st.id].assignmentScores || {}) };
+        deletedItemIds.forEach(id => delete newScores[id]);
+        next[st.id] = { ...next[st.id], assignmentScores: newScores };
+      }
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    const nextActive = updatedSubtopics[0] || null;
+    setSelectedKindergartenSubtopic(nextActive);
+    setSubtopicToDelete(null);
+    onShowToast('info', 'ลบหน้าหน่วยแล้ว', `ลบหน้า "${stName}" เรียบร้อยแล้ว`);
+  };
+
+  // Edit unit name, standard, and indicator for kindergarten
+  const handleEditKindergartenSubtopicSubmit = (oldName: string, newName: string, standard?: string, indicator?: string) => {
+    if (!selectedSubject) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    const baseSubs = selectedSubject.subtopics !== undefined && selectedSubject.subtopics !== null
+      ? [...selectedSubject.subtopics]
+      : [...currentKindergartenSubtopics];
+
+    const unitIndex = baseSubs.indexOf(oldName);
+    const targetUnit = unitIndex >= 0 ? unitIndex + 1 : baseSubs.length;
+
+    const updatedSubtopics = baseSubs.map(s => s === oldName ? trimmed : s);
+    const updatedAssignments = (selectedSubject.assignmentItems || []).map(a => 
+      a.name === oldName ? { ...a, name: trimmed } : a
+    );
+
+    // Update learningUnitDetails
+    const existingDetails = selectedSubject.learningUnitDetails ? [...selectedSubject.learningUnitDetails] : [];
+    const existingDetailIndex = existingDetails.findIndex(d => d.unitNumber === targetUnit || d.name === oldName);
+    const updatedDetail: LearningUnitDetail = {
+      unitNumber: targetUnit,
+      name: trimmed,
+      standard: standard?.trim() || '',
+      indicator: indicator?.trim() || ''
+    };
+
+    let updatedDetails: LearningUnitDetail[];
+    if (existingDetailIndex >= 0) {
+      updatedDetails = existingDetails.map((d, i) => i === existingDetailIndex ? updatedDetail : d);
+    } else {
+      updatedDetails = [...existingDetails, updatedDetail];
+    }
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      subtopics: updatedSubtopics,
+      assignmentItems: updatedAssignments,
+      learningUnits: updatedSubtopics.map((_, i) => i + 1),
+      learningUnitDetails: updatedDetails
+    };
+
+    onSaveSubject(updatedSubject);
+    if (selectedKindergartenSubtopic === oldName) {
+      setSelectedKindergartenSubtopic(trimmed);
+    }
+    setSubtopicToRename(null);
+    setRenameSubtopicInput('');
+    setRenameStandardInput('');
+    setRenameIndicatorInput('');
+    onShowToast('success', 'บันทึกข้อมูลหน่วยสำเร็จ 🎉', `อัปเดตข้อมูลหน่วย "${trimmed}" เรียบร้อยแล้ว`);
+  };
+
+  // Rename subtopic / page (backward-compatible wrapper)
+  const handleRenameKindergartenSubtopic = (oldName: string, newName: string) => {
+    handleEditKindergartenSubtopicSubmit(oldName, newName, renameStandardInput, renameIndicatorInput);
+  };
+
+  // Add a new column directly in the current subtopic's table
+  const handleAddKindergartenColumnSubmit = (columnName: string) => {
+    if (!selectedSubject || !activeKindergartenSubtopic) return;
+    const trimmed = columnName.trim();
+    if (!trimmed) return;
+
+    const targetUnit = activeKindergartenSubtopicIndex + 1;
+    const currentItems = selectedSubject.assignmentItems || [];
+    const existingForPage = currentItems.filter(it => it.unitNumber === targetUnit || it.name === activeKindergartenSubtopic);
+
+    const newCol: AssignmentItem = {
+      id: `asg-k-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: trimmed,
+      unitNumber: targetUnit,
+      maxScore: activeRubricMaxLevel
+    };
+
+    let updatedItems: AssignmentItem[];
+    if (existingForPage.length === 0) {
+      const defaultCol: AssignmentItem = {
+        id: `asg-k-${targetUnit}-1`,
+        name: activeKindergartenSubtopic,
+        unitNumber: targetUnit,
+        maxScore: activeRubricMaxLevel
+      };
+      updatedItems = [...currentItems, defaultCol, newCol];
+    } else {
+      updatedItems = [...currentItems, newCol];
+    }
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: updatedItems
+    };
+
+    onSaveSubject(updatedSubject);
+    setIsAddKindergartenColumnModalOpen(false);
+    setNewKindergartenColumnInput('');
+    onShowToast('success', 'เพิ่มช่องตารางประเมินสำเร็จ 🎉', `เพิ่มช่อง "${trimmed}" ในหน้า "${activeKindergartenSubtopic}" แล้ว`);
+  };
+
+  // Rename a column in current subtopic's table
+  const handleRenameKindergartenColumn = (colId: string, newName: string) => {
+    if (!selectedSubject) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    const currentItems = selectedSubject.assignmentItems || [];
+    const targetUnit = activeKindergartenSubtopicIndex + 1;
+    const exists = currentItems.some(it => it.id === colId);
+    let updatedItems: AssignmentItem[];
+    if (exists) {
+      updatedItems = currentItems.map(it => it.id === colId ? { ...it, name: trimmed } : it);
+    } else {
+      const newCol: AssignmentItem = {
+        id: colId,
+        name: trimmed,
+        unitNumber: targetUnit,
+        maxScore: activeRubricMaxLevel
+      };
+      updatedItems = [...currentItems, newCol];
+    }
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: updatedItems
+    };
+
+    onSaveSubject(updatedSubject);
+    setKindergartenColumnToEdit(null);
+    setEditKindergartenColumnInput('');
+    onShowToast('success', 'เปลี่ยนชื่อสำเร็จ 🎉', `แก้ไขชื่อช่องเป็น "${trimmed}" เรียบร้อยแล้ว`);
+  };
+
+  // Delete a column from current subtopic's table
+  const handleDeleteKindergartenColumn = (colId: string, colName: string) => {
+    if (!selectedSubject) return;
+    if (!window.confirm(`คุณต้องการลบช่องตารางประเมิน "${colName}" ใช่หรือไม่?`)) return;
+
+    let currentItems = selectedSubject.assignmentItems;
+    const targetUnit = activeKindergartenSubtopicIndex + 1;
+    if (!currentItems || currentItems.length === 0) {
+      currentItems = currentKindergartenSubtopics.map((s, idx) => ({
+        id: `asg-k-${idx + 1}-1`,
+        name: s,
+        unitNumber: idx + 1,
+        maxScore: activeRubricMaxLevel
+      }));
+    }
+
+    const updatedItems = currentItems.filter(it => it.id !== colId && !(it.unitNumber === targetUnit && it.name === colName));
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      subtopics: selectedSubject.subtopics ?? currentKindergartenSubtopics,
+      assignmentItems: updatedItems,
+      hasCustomAssignments: true
+    };
+
+    onSaveSubject(updatedSubject);
+
+    // Remove scores for this column
+    const next = { ...scoreRows };
+    gradeStudents.forEach(st => {
+      if (next[st.id]?.assignmentScores) {
+        const newScores = { ...(next[st.id].assignmentScores || {}) };
+        delete newScores[colId];
+        delete newScores[`asg-k-${targetUnit}-1`];
+        next[st.id] = { ...next[st.id], assignmentScores: newScores };
+      }
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    onShowToast('info', 'ลบช่องตารางแล้ว', `ลบช่อง "${colName}" เรียบร้อยแล้ว`);
+  };
+
+  // Sync initial schedule from selectedSubject
+  React.useEffect(() => {
+    if (selectedSubject) {
+      if (selectedSubject.teachingSchedule && Object.keys(selectedSubject.teachingSchedule).length > 0) {
+        setTeachingScheduleDays({ ...selectedSubject.teachingSchedule });
+      } else {
+        setTeachingScheduleDays({});
+      }
+    }
+  }, [selectedSubject?.id, isTeachingScheduleModalOpen]);
+
+  const DAYS_OF_WEEK = [
+    { day: 1, name: 'วันจันทร์', shortName: 'จ.', color: 'amber', bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-800', badge: 'bg-amber-500 text-white' },
+    { day: 2, name: 'วันอังคาร', shortName: 'อ.', color: 'pink', bg: 'bg-pink-50', border: 'border-pink-200', text: 'text-pink-800', badge: 'bg-pink-500 text-white' },
+    { day: 3, name: 'วันพุธ', shortName: 'พ.', color: 'emerald', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', badge: 'bg-emerald-500 text-white' },
+    { day: 4, name: 'วันพฤหัสบดี', shortName: 'พฤ.', color: 'orange', bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-800', badge: 'bg-orange-500 text-white' },
+    { day: 5, name: 'วันศุกร์', shortName: 'ศ.', color: 'blue', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', badge: 'bg-blue-500 text-white' },
+  ];
+
+  // ครูประจำชั้นของระดับชั้นนี้
+  const homeroomTeacher = useMemo(() => {
+    if (!selectedSubject) return null;
+    return members.find(m => m.gradeLevel === selectedSubject.gradeLevel) || null;
+  }, [members, selectedSubject]);
+
+  // นักเรียนในระดับชั้นของวิชาที่เลือก
+  const subjectGradeStudents = useMemo(() => {
+    if (!selectedSubject) return [];
+    return students
+      .filter(s => s.gradeLevel === selectedSubject.gradeLevel)
+      .sort((a, b) => (a.rollNumber || 999) - (b.rollNumber || 999));
+  }, [students, selectedSubject]);
+
+  // วันที่มีสอน (วันจันทร์ - ศุกร์ ที่ติ๊กเลือก)
+  const activeTeachingDays = useMemo(() => {
+    return [1, 2, 3, 4, 5].filter(d => (teachingScheduleDays[d] || 0) > 0);
+  }, [teachingScheduleDays]);
+
+  const totalWeeklyTeachingHours = useMemo(() => {
+    return activeTeachingDays.reduce((acc, d) => acc + (teachingScheduleDays[d] || 0), 0);
+  }, [activeTeachingDays, teachingScheduleDays]);
+
+  // คำนวณข้อมูลเวลาเรียนที่เชื่อมโยงจากหน้า 100 วันของครูประจำชั้น
+  const teachingAttendanceStats = useMemo(() => {
+    if (!selectedSubject || activeTeachingDays.length === 0) {
+      return {
+        hasData: false,
+        totalCheckedSessions: 0,
+        totalPresentRecords: 0,
+        totalAbsentRecords: 0,
+        totalLeaveRecords: 0,
+        totalSickRecords: 0,
+        totalPersonalLeaveRecords: 0,
+        overallAttendanceRate: 100,
+        studentStats: [],
+        teachingDates: []
+      };
+    }
+
+    const allRecords = attendance && attendance.length > 0 ? attendance : StorageService.getAttendance();
+
+    // กรองเฉพาะบันทึกเวลาเรียนของระดับชั้นนี้ ในภาคเรียน/ปีการศึกษานี้ และตรงกับวันที่มีสอน (1=จันทร์...5=ศุกร์)
+    const subjectRecords = allRecords.filter(r => {
+      if (r.gradeLevel !== selectedSubject.gradeLevel) return false;
+      if (r.semester && r.semester !== currentSemester) return false;
+      if (r.academicYear && r.academicYear !== currentAcademicYear) return false;
+      const d = new Date(r.date + 'T00:00:00');
+      return activeTeachingDays.includes(d.getDay());
+    });
+
+    const uniqueDates = Array.from(new Set(subjectRecords.map(r => r.date))).sort();
+
+    let totalPresentRecords = 0;
+    let totalAbsentRecords = 0;
+    let totalSickRecords = 0;
+    let totalPersonalLeaveRecords = 0;
+
+    subjectRecords.forEach(r => {
+      if (r.status === 'present') totalPresentRecords++;
+      else if (r.status === 'absent') totalAbsentRecords++;
+      else if (r.status === 'sick') totalSickRecords++;
+      else if (r.status === 'leave') totalPersonalLeaveRecords++;
+    });
+
+    const totalLeaveRecords = totalSickRecords + totalPersonalLeaveRecords;
+    const totalRecords = totalPresentRecords + totalAbsentRecords + totalLeaveRecords;
+    const overallAttendanceRate = totalRecords > 0 
+      ? Number(((totalPresentRecords / totalRecords) * 100).toFixed(1)) 
+      : 100;
+
+    // คำนวณรายบุคคล
+    const studentStats = subjectGradeStudents.map(student => {
+      const sRecs = subjectRecords.filter(r => r.studentId === student.id);
+      let sPresentCount = 0;
+      let sAbsentCount = 0;
+      let sSickCount = 0;
+      let sPersonalCount = 0;
+
+      let sPresentHours = 0;
+      let sAbsentHours = 0;
+      let sSickHours = 0;
+      let sPersonalHours = 0;
+
+      sRecs.forEach(r => {
+        const dayOfWeek = new Date(r.date + 'T00:00:00').getDay();
+        const hrs = teachingScheduleDays[dayOfWeek] || 1;
+        if (r.status === 'present') {
+          sPresentCount++;
+          sPresentHours += hrs;
+        } else if (r.status === 'absent') {
+          sAbsentCount++;
+          sAbsentHours += hrs;
+        } else if (r.status === 'sick') {
+          sSickCount++;
+          sSickHours += hrs;
+        } else if (r.status === 'leave') {
+          sPersonalCount++;
+          sPersonalHours += hrs;
+        }
+      });
+
+      const sTotalCheckedDays = sPresentCount + sAbsentCount + sSickCount + sPersonalCount;
+      const sTotalHours = sPresentHours + sAbsentHours + sSickHours + sPersonalHours;
+      const sRate = sTotalHours > 0 
+        ? Math.round((sPresentHours / sTotalHours) * 100) 
+        : 100;
+      const isEligible = sRate >= 80;
+
+      return {
+        student,
+        presentCount: sPresentCount,
+        absentCount: sAbsentCount,
+        sickCount: sSickCount,
+        personalCount: sPersonalCount,
+        totalCheckedDays: sTotalCheckedDays,
+        presentHours: sPresentHours,
+        absentHours: sAbsentHours,
+        sickHours: sSickHours,
+        personalHours: sPersonalHours,
+        totalHours: sTotalHours,
+        attendanceRate: sRate,
+        isEligible
+      };
+    });
+
+    // สรุปแยกตามวันที่สอน
+    const teachingDates = uniqueDates.map(dateStr => {
+      const dObj = new Date(dateStr + 'T00:00:00');
+      const dayNum = dObj.getDay();
+      const hrs = teachingScheduleDays[dayNum] || 1;
+      const dayRecs = subjectRecords.filter(r => r.date === dateStr);
+      const present = dayRecs.filter(r => r.status === 'present').length;
+      const absent = dayRecs.filter(r => r.status === 'absent').length;
+      const sick = dayRecs.filter(r => r.status === 'sick').length;
+      const leave = dayRecs.filter(r => r.status === 'leave').length;
+      return {
+        date: dateStr,
+        dayNum,
+        hours: hrs,
+        present,
+        absent,
+        sick,
+        leave,
+        total: dayRecs.length
+      };
+    });
+
+    return {
+      hasData: subjectRecords.length > 0,
+      totalCheckedSessions: uniqueDates.length,
+      totalPresentRecords,
+      totalAbsentRecords,
+      totalLeaveRecords,
+      totalSickRecords,
+      totalPersonalLeaveRecords,
+      overallAttendanceRate,
+      studentStats,
+      teachingDates
+    };
+  }, [selectedSubject, activeTeachingDays, teachingScheduleDays, attendance, currentSemester, currentAcademicYear, subjectGradeStudents]);
+
+  // บันทึกตารางชั่วโมงสอน
+  const handleSaveTeachingSchedule = () => {
+    if (!selectedSubject) return;
+    const totalWeeklyHours = Object.values(teachingScheduleDays).reduce((acc, h) => acc + (Number(h) > 0 ? Number(h) : 0), 0);
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      teachingSchedule: teachingScheduleDays,
+      hoursPerWeek: totalWeeklyHours > 0 ? totalWeeklyHours : selectedSubject.hoursPerWeek
+    };
+    onSaveSubject(updatedSubject);
+    onShowToast('success', 'บันทึกสำเร็จ 🎉', `บันทึกตารางชั่วโมงสอนวิชา ${selectedSubject.name} (${totalWeeklyHours} ชม./สัปดาห์) เรียบร้อยแล้ว`);
+  };
+
+  // จำลองข้อมูลการเช็กชื่อของครูประจำชั้นในวันที่มีสอน (สำหรับทดสอบ)
+  const handleSimulateAttendanceForSubject = () => {
+    if (!selectedSubject || activeTeachingDays.length === 0) {
+      onShowToast('warning', 'เลือกวันสอนก่อน', 'กรุณาเลือกวันที่มีสอนอย่างน้อย 1 วันก่อนจำลองข้อมูล');
+      return;
+    }
+    const termConfigs = StorageService.getAttendanceConfigsByTerm();
+    const termConfig = termConfigs[`${currentSemester}_${currentAcademicYear}`] || termConfigs['1_2569'] || attendanceConfig;
+    const schoolDays = termConfig?.schoolDays || [];
+    
+    let datesToSeed: string[] = [];
+    const activeDates = schoolDays
+      .filter(sd => !sd.isHoliday && activeTeachingDays.includes(new Date(sd.date + 'T00:00:00').getDay()))
+      .map(sd => sd.date);
+    
+    if (activeDates.length > 0) {
+      datesToSeed = activeDates.slice(0, 10);
+    } else {
+      const base = new Date(currentAcademicYear === '2568' ? '2025-05-19' : '2026-05-18');
+      for (let i = 0; i < 40 && datesToSeed.length < 8; i++) {
+        const curr = new Date(base);
+        curr.setDate(base.getDate() + i);
+        if (activeTeachingDays.includes(curr.getDay())) {
+          datesToSeed.push(curr.toISOString().split('T')[0]);
+        }
+      }
+    }
+
+    const currentRecords = attendance && attendance.length > 0 ? attendance : StorageService.getAttendance();
+    const newRecs: AttendanceRecord[] = [];
+    const gradeStds = students.filter(s => s.gradeLevel === selectedSubject.gradeLevel);
+    
+    datesToSeed.forEach(dt => {
+      gradeStds.forEach((st, idx) => {
+        let status: 'present' | 'absent' | 'leave' | 'sick' = 'present';
+        const seedRand = (idx * 17 + dt.charCodeAt(dt.length - 1)) % 100;
+        if (seedRand < 6) status = 'absent';
+        else if (seedRand < 11) status = 'sick';
+        else if (seedRand < 15) status = 'leave';
+
+        newRecs.push({
+          id: `att-sim-${st.id}-${dt}`,
+          date: dt,
+          studentId: st.id,
+          studentName: `${st.prefix}${st.firstName} ${st.lastName}`,
+          gradeLevel: selectedSubject.gradeLevel,
+          status,
+          semester: currentSemester,
+          academicYear: currentAcademicYear
+        });
+      });
+    });
+
+    const combined = [...currentRecords.filter(r => !r.id.startsWith('att-sim-')), ...newRecs];
+    if (onSaveBulkAttendance) {
+      onSaveBulkAttendance(combined);
+    } else {
+      StorageService.saveBulkAttendance(combined);
+    }
+    onShowToast('success', 'จำลองข้อมูลสำเร็จ 🎉', `ดึงและจำลองข้อมูลการเช็กชื่อของครูประจำชั้น ${selectedSubject.gradeLevel} จำนวน ${datesToSeed.length} วันเรียนเรียบร้อยแล้ว`);
+  };
+
+  // Displayed assignments (filtered by selectedUnit if a unit circle is active)
+  const displayedAssignments = selectedUnit === null
+    ? assignmentItems
+    : assignmentItems.filter(asg => (asg.unitNumber === selectedUnit) || (!asg.unitNumber && selectedUnit === 1));
+
+  // Member enrollment and permissions check:
+  // Is this subject registered by a member/teacher?
+  const isSubjectRegisteredByMember = Boolean(
+    selectedSubject && (
+      Boolean(selectedSubject.teacherId && selectedSubject.teacherId.trim() !== '') ||
+      Boolean(selectedSubject.teacherName && selectedSubject.teacherName.trim() !== '')
+    )
+  );
+
+  // Is this subject enrolled by the CURRENT member?
+  const isEnrolledByMember = Boolean(
+    selectedSubject && (
+      (selectedSubject.teacherId && selectedSubject.teacherId.trim() === user.id.trim()) ||
+      (selectedSubject.teacherName && selectedSubject.teacherName.trim() === user.fullName.trim()) ||
+      (user.role === 'member' && myRegisteredSubjects.some(s => s.id === selectedSubject.id))
+    )
+  );
+
+  // Member is read-only if admin has locked this semester (เพื่อป้องกันการกรอกผิดภาคเรียน)
+  const isMemberLockedReadOnly = user.role === 'member' && isCurrentSemLocked;
+
+  // Admin cannot edit scores of registered members, view only ("Admin ไม่สามารถปรับแก้คะแนนของสมาชิกที่ลงทะเบียนได้ ดูได้อย่างเดียว")
+  const isAdminReadOnly = user.role === 'admin' && isSubjectRegisteredByMember;
+
+  // Only the enrolled member can enter/edit scores! Admin is view-only for registered subjects.
+  // If semester is locked, member cannot enter/edit scores.
+  const canGradeSubject = user.role === 'member' && isEnrolledByMember && !isCurrentSemLocked;
+  // Can manage learning units (เพิ่ม/ลบหน่วยการเรียนรู้สำหรับสมาชิกและแอดมิน)
+  const canManageUnits = (user.role === 'admin') || (user.role === 'member' && !isMemberLockedReadOnly);
+  // Can manage kindergarten pages and evaluation columns (แอดมิน และครูผู้สอนที่ยังไม่ถูกล็อก)
+  const canManageKindergartenTopics = (user.role === 'admin') || (user.role === 'member' && !isMemberLockedReadOnly);
+
+  // Sort students by roll number (เรียงตามเลขที่)
+  const gradeStudents = [...students.filter(s => s.gradeLevel === selectedSubject?.gradeLevel)].sort((a, b) => {
+    if (a.rollNumber !== undefined && b.rollNumber !== undefined) {
+      return a.rollNumber - b.rollNumber;
+    }
+    if (a.rollNumber !== undefined) return -1;
+    if (b.rollNumber !== undefined) return 1;
+    return (a.studentCode || '').localeCompare(b.studentCode || '');
+  });
+
+  // Thai GPA calculation standard (0-100 score -> GPA)
+  const calculateThaiGrade = (total: number): number => {
+    if (total >= 80) return 4.0;
+    if (total >= 75) return 3.5;
+    if (total >= 70) return 3.0;
+    if (total >= 65) return 2.5;
+    if (total >= 60) return 2.0;
+    if (total >= 55) return 1.5;
+    if (total >= 50) return 1.0;
+    return 0.0;
+  };
+
+  // Helper to calculate coursework score scaled from assignment average (0-5 scale) per unit
+  const calculateCourseworkScore = (
+    asgScores: Record<string, number>,
+    subjectOrItems?: Subject | AssignmentItem[] | undefined,
+    maxCwInput?: number
+  ): { 
+    average: number; 
+    coursework: number;
+    unitBreakdown: Record<number, { earned: number; max: number; avgRating: number; count: number }>;
+    isExceeded: boolean;
+  } => {
+    let subjectObj: Subject | undefined;
+    let items: AssignmentItem[] = [];
+    let maxCw = maxCwInput || 70;
+
+    if (Array.isArray(subjectOrItems)) {
+      items = subjectOrItems;
+      subjectObj = selectedSubject;
+      maxCw = maxCwInput || selectedSubject?.courseworkScore || 70;
+    } else if (subjectOrItems && typeof subjectOrItems === 'object') {
+      subjectObj = subjectOrItems;
+      items = subjectObj.assignmentItems || [];
+      maxCw = subjectObj.courseworkScore || 70;
+    } else {
+      subjectObj = selectedSubject;
+      items = selectedSubject?.assignmentItems || [];
+      maxCw = selectedSubject?.courseworkScore || 70;
+    }
+
+    if (items.length === 0) {
+      return { average: 0, coursework: 0, unitBreakdown: {}, isExceeded: false };
+    }
+
+    const units = subjectObj?.learningUnits !== undefined && subjectObj.learningUnits.length > 0
+      ? subjectObj.learningUnits
+      : [1, 2, 3];
+    const unitDetails = subjectObj?.learningUnitDetails || [];
+
+    const unitBreakdown: Record<number, { earned: number; max: number; avgRating: number; count: number }> = {};
+    let totalCw = 0;
+
+    units.forEach(uNum => {
+      const detail = unitDetails.find(d => d.unitNumber === uNum);
+      const unitMax = typeof detail?.score === 'number' && detail.score > 0
+        ? detail.score
+        : Math.round(maxCw / (units.length || 1));
+
+      const itemsInUnit = items.filter(it => (it.unitNumber || 1) === uNum);
+      const scoredInUnit = itemsInUnit.filter(it => typeof asgScores[it.id] === 'number' && !isNaN(asgScores[it.id]));
+
+      if (scoredInUnit.length > 0) {
+        const sumVal = scoredInUnit.reduce((acc, it) => acc + Number(asgScores[it.id]), 0);
+        const avg = sumVal / scoredInUnit.length;
+        const earned = Math.round((avg / 5) * unitMax);
+        unitBreakdown[uNum] = {
+          earned,
+          max: unitMax,
+          avgRating: Math.round(avg * 10) / 10,
+          count: scoredInUnit.length
+        };
+        totalCw += earned;
+      } else {
+        unitBreakdown[uNum] = {
+          earned: 0,
+          max: unitMax,
+          avgRating: 0,
+          count: 0
+        };
+      }
+    });
+
+    const allScored = items.filter(it => typeof asgScores[it.id] === 'number' && !isNaN(asgScores[it.id]));
+    const sumAll = allScored.reduce((acc, it) => acc + Number(asgScores[it.id]), 0);
+    const overallAvg = allScored.length > 0 ? Math.round((sumAll / allScored.length) * 100) / 100 : 0;
+    const isExceeded = totalCw > maxCw;
+
+    return {
+      average: overallAvg,
+      coursework: totalCw,
+      unitBreakdown,
+      isExceeded
+    };
+  };
+
+  // Local state for score entry matrix
+  const [scoreRows, setScoreRows] = useState<Record<string, {
+    coursework: number;
+    exam: number;
+    readingWriting: number;
+    characteristics: number;
+    competency: number;
+    assignmentScores: Record<string, number>;
+  }>>({});
+
+  // Initialize row data when subject or currentSemester changes
+  React.useEffect(() => {
+    if (!selectedSubject) return;
+    const initialRows: Record<string, any> = {};
+    const items = selectedSubject.assignmentItems || [];
+
+    gradeStudents.forEach(s => {
+      const existing = grades.find(g => 
+        g.studentId === s.id && 
+        g.subjectId === selectedSubject.id && 
+        g.semester === currentSemester
+      );
+
+      const asgScores = existing?.assignmentScores ? { ...existing.assignmentScores } : {};
+      
+      // Calculate coursework from assignments if any exist
+      let cw = existing ? existing.courseworkScore : 0;
+      if (items.length > 0) {
+        const { coursework } = calculateCourseworkScore(asgScores, selectedSubject);
+        if (existing?.assignmentScores && Object.keys(existing.assignmentScores).length > 0) {
+          cw = coursework;
+        } else if (!existing) {
+          cw = coursework;
+        }
+      }
+
+      initialRows[s.id] = {
+        coursework: cw,
+        exam: existing ? existing.examScore : 0,
+        readingWriting: existing ? existing.readingWritingScore : 3,
+        characteristics: existing ? existing.desiredCharacteristicsScore : 3,
+        competency: existing ? existing.competencyScore : 3,
+        assignmentScores: asgScores
+      };
+    });
+
+    setScoreRows(initialRows);
+  }, [selectedSubjectId, currentSemester, grades]);
+
+  // When students list changes (e.g. Admin adds or updates student later), auto-add into scoreRows
+  React.useEffect(() => {
+    if (!selectedSubject) return;
+    const items = selectedSubject.assignmentItems || [];
+
+    setScoreRows((prev: Record<string, any>) => {
+      let hasChange = false;
+      const next = { ...prev };
+      gradeStudents.forEach(s => {
+        if (!next[s.id]) {
+          hasChange = true;
+          const existing = grades.find(g => 
+            g.studentId === s.id && 
+            g.subjectId === selectedSubject.id && 
+            g.semester === currentSemester
+          );
+          const asgScores = existing?.assignmentScores ? { ...existing.assignmentScores } : {};
+          let cw = existing ? existing.courseworkScore : 0;
+          if (items.length > 0) {
+            const { coursework } = calculateCourseworkScore(asgScores, selectedSubject);
+            cw = coursework;
+          }
+          next[s.id] = {
+            coursework: cw,
+            exam: existing ? existing.examScore : 0,
+            readingWriting: existing ? existing.readingWritingScore : 3,
+            characteristics: existing ? existing.desiredCharacteristicsScore : 3,
+            competency: existing ? existing.competencyScore : 3,
+            assignmentScores: asgScores
+          };
+        }
+      });
+      return hasChange ? next : prev;
+    });
+  }, [students, selectedSubjectId, currentSemester]);
+
+  // Auto-save grades helper without noisy toast popups (จำกัดคะแนนระหว่างภาคไม่ให้เกินคะแนนเต็มระหว่างภาค)
+  const autoSaveGrades = (updatedRows: Record<string, any>) => {
+    if (!selectedSubject || !canGradeSubject) return;
+    const maxCw = selectedSubject.courseworkScore || 70;
+
+    const recordsToSave: GradeRecord[] = gradeStudents.map(s => {
+      const row = updatedRows[s.id] || { 
+        coursework: 0, 
+        exam: 0, 
+        readingWriting: 3, 
+        characteristics: 3, 
+        competency: 3,
+        assignmentScores: {}
+      };
+      
+      const safeCw = Math.min(maxCw, Number(row.coursework) || 0);
+      const safeExam = Math.min(selectedSubject.examScore || 30, Number(row.exam) || 0);
+      const total = Math.min(selectedSubject.totalScore || 100, safeCw + safeExam);
+      const gpa = calculateThaiGrade(total);
+
+      return {
+        id: `grd-${s.id}-${selectedSubject.id}-${currentSemester}`,
+        studentId: s.id,
+        studentName: `${s.prefix}${s.firstName} ${s.lastName}`,
+        gradeLevel: selectedSubject.gradeLevel,
+        subjectId: selectedSubject.id,
+        subjectCode: selectedSubject.code,
+        subjectName: selectedSubject.name,
+        semester: currentSemester,
+        academicYear,
+        assignmentScores: row.assignmentScores || {},
+        courseworkScore: safeCw,
+        examScore: safeExam,
+        totalScore: total,
+        gradeGpa: gpa,
+        readingWritingScore: Number(row.readingWriting) || 3,
+        desiredCharacteristicsScore: Number(row.characteristics) || 3,
+        competencyScore: Number(row.competency) || 3
+      };
+    });
+    onSaveBulkGrades(recordsToSave);
+  };
+
+  // Handle direct row score change (e.g. coursework / exam score)
+  const handleScoreChange = (studentId: string, field: string, value: number) => {
+    if (isMemberLockedReadOnly) {
+      onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ`);
+      return;
+    }
+    const currentRow = scoreRows[studentId] || {
+      coursework: 0,
+      exam: 0,
+      readingWriting: 3,
+      characteristics: 3,
+      competency: 3,
+      assignmentScores: {}
+    };
+    const next = {
+      ...scoreRows,
+      [studentId]: {
+        ...currentRow,
+        [field]: value
+      }
+    };
+    setScoreRows(next);
+    autoSaveGrades(next);
+  };
+
+  // Handle selecting an assignment score: 0, 1, 2, 3, 4, 5
+  const handleSelectAssignmentScore = (studentId: string, assignmentId: string, val: number) => {
+    if (isMemberLockedReadOnly) {
+      onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ`);
+      return;
+    }
+    const currentRow = scoreRows[studentId] || {
+      coursework: 0,
+      exam: 0,
+      readingWriting: 3,
+      characteristics: 3,
+      competency: 3,
+      assignmentScores: {}
+    };
+
+    const updatedScores = {
+      ...(currentRow.assignmentScores || {}),
+      [assignmentId]: val
+    };
+
+    const items = selectedSubject?.assignmentItems || [];
+    const maxCw = selectedSubject?.courseworkScore || 70;
+    const { coursework } = calculateCourseworkScore(updatedScores, items, maxCw);
+
+    const next = {
+      ...scoreRows,
+      [studentId]: {
+        ...currentRow,
+        assignmentScores: updatedScores,
+        coursework: coursework
+      }
+    };
+    setScoreRows(next);
+    autoSaveGrades(next);
+  };
+
+  // Quick batch fill an assignment score for all students
+  const handleBatchFillAssignment = (assignmentId: string, val: number) => {
+    const next = { ...scoreRows };
+    const items = selectedSubject?.assignmentItems || [];
+    const maxCw = selectedSubject?.courseworkScore || 70;
+
+    gradeStudents.forEach(s => {
+      const currentRow = next[s.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {}
+      };
+      const updatedScores = {
+        ...(currentRow.assignmentScores || {}),
+        [assignmentId]: val
+      };
+      const { coursework } = calculateCourseworkScore(updatedScores, items, maxCw);
+      next[s.id] = {
+        ...currentRow,
+        assignmentScores: updatedScores,
+        coursework: coursework
+      };
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+    onShowToast('info', 'เติมคะแนนสำเร็จ', `บันทึกคะแนน ${val} คะแนน ให้กับนักเรียนทุกคนเรียบร้อย`);
+  };
+
+  // Current student in mobile / popup grading modal
+  const currentGradingStudent = mobileGradingStudentId
+    ? gradeStudents.find(s => s.id === mobileGradingStudentId) || null
+    : null;
+  const currentGradingIndex = currentGradingStudent
+    ? gradeStudents.findIndex(s => s.id === currentGradingStudent.id)
+    : -1;
+
+  const handlePrevGradingStudent = () => {
+    if (currentGradingIndex > 0) {
+      setMobileGradingStudentId(gradeStudents[currentGradingIndex - 1].id);
+    }
+  };
+
+  const handleNextGradingStudent = () => {
+    if (currentGradingIndex >= 0 && currentGradingIndex < gradeStudents.length - 1) {
+      setMobileGradingStudentId(gradeStudents[currentGradingIndex + 1].id);
+    }
+  };
+
+  // เปิด Modal เพิ่มหน่วยการเรียนรู้ใหม่
+  const handleOpenAddUnitModal = () => {
+    if (!selectedSubject) return;
+    const units = selectedSubject.learningUnits && selectedSubject.learningUnits.length > 0
+      ? [...selectedSubject.learningUnits]
+      : [1, 2, 3];
+    const nextUnit = units.length > 0 ? Math.max(...units) + 1 : 1;
+    setUnitModalMode('add');
+    setUnitModalTargetNum(nextUnit);
+    setUnitNameInput(`หน่วยที่ ${nextUnit}`);
+    setUnitScoreInput('');
+    setIsUnitModalOpen(true);
+  };
+
+  // เปิด Modal แก้ไขหน่วยการเรียนรู้
+  const handleOpenEditUnitModal = (uNum: number) => {
+    if (!selectedSubject) return;
+    const existingDetail = selectedSubject.learningUnitDetails?.find(d => d.unitNumber === uNum);
+    setUnitModalMode('edit');
+    setUnitModalTargetNum(uNum);
+    setUnitNameInput(existingDetail?.name || `หน่วยที่ ${uNum}`);
+    setUnitScoreInput(typeof existingDetail?.score === 'number' ? existingDetail.score : '');
+    setIsUnitModalOpen(true);
+  };
+
+  // บันทึกการเพิ่ม/แก้ไขหน่วยการเรียนรู้
+  // บันทึกการเพิ่ม/แก้ไขหน่วยการเรียนรู้
+  const handleSaveUnitModalSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedSubject || unitModalTargetNum === null) return;
+
+    const maxCw = selectedSubject.courseworkScore || 70;
+    const otherUnitsScoreSum = (selectedSubject.learningUnitDetails || [])
+      .filter(d => d.unitNumber !== unitModalTargetNum)
+      .reduce((sum, d) => sum + (Number(d.score) || 0), 0);
+    const remainingAllowed = Math.max(0, maxCw - otherUnitsScoreSum);
+    const parsedScore = typeof unitScoreInput === 'number' ? unitScoreInput : (unitScoreInput === '' ? undefined : Number(unitScoreInput));
+
+    if (parsedScore !== undefined && parsedScore > remainingAllowed) {
+      onShowToast(
+        'error', 
+        'คะแนนเกินกำหนด ⚠️', 
+        `คะแนนเต็มของหน่วยนี้ไม่สามารถเกิน ${remainingAllowed} คะแนน (คะแนนระหว่างภาคเต็ม ${maxCw} คะแนน, หน่วยอื่นใช้ไปแล้ว ${otherUnitsScoreSum} คะแนน)`
+      );
+      return;
+    }
+
+    const nameTrimmed = unitNameInput.trim() || `หน่วยที่ ${unitModalTargetNum}`;
+
+    const units = selectedSubject.learningUnits && selectedSubject.learningUnits.length > 0
+      ? [...selectedSubject.learningUnits]
+      : [1, 2, 3];
+
+    let updatedUnits = [...units];
+    if (!updatedUnits.includes(unitModalTargetNum)) {
+      updatedUnits.push(unitModalTargetNum);
+      updatedUnits.sort((a, b) => a - b);
+    }
+
+    const existingDetails = selectedSubject.learningUnitDetails ? [...selectedSubject.learningUnitDetails] : [];
+    const detailIndex = existingDetails.findIndex(d => d.unitNumber === unitModalTargetNum);
+
+    const newDetailObj: LearningUnitDetail = {
+      unitNumber: unitModalTargetNum,
+      name: nameTrimmed,
+      score: parsedScore !== undefined && !isNaN(parsedScore) ? parsedScore : undefined
+    };
+
+    if (detailIndex >= 0) {
+      existingDetails[detailIndex] = newDetailObj;
+    } else {
+      existingDetails.push(newDetailObj);
+    }
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      learningUnits: updatedUnits,
+      learningUnitDetails: existingDetails
+    };
+
+    onSaveSubject(updatedSubject);
+    setIsUnitModalOpen(false);
+
+    if (unitModalMode === 'add') {
+      setSelectedUnit(unitModalTargetNum);
+      onShowToast('success', 'เพิ่มหน่วยการเรียนรู้สำเร็จ 🎉', `เพิ่ม "${nameTrimmed}" เรียบร้อยแล้ว`);
+    } else {
+      onShowToast('success', 'แก้ไขหน่วยการเรียนรู้สำเร็จ 🎉', `ปรับปรุงข้อมูล "${nameTrimmed}" เรียบร้อยแล้ว`);
+    }
+  };
+
+  // Delete a learning unit (ลบจริงและบันทึกข้อมูลเรียบร้อย)
+  const handleDeleteLearningUnit = (unitNum: number) => {
+    if (!selectedSubject) return;
+    const existingDetail = selectedSubject.learningUnitDetails?.find(d => d.unitNumber === unitNum);
+    const unitName = existingDetail?.name ? `"${existingDetail.name}"` : `หน่วยที่ ${unitNum}`;
+
+    const units = selectedSubject.learningUnits !== undefined && selectedSubject.learningUnits.length > 0
+      ? [...selectedSubject.learningUnits]
+      : [1, 2, 3];
+
+    const updatedUnits = units.filter(u => u !== unitNum);
+    const updatedDetails = (selectedSubject.learningUnitDetails || []).filter(d => d.unitNumber !== unitNum);
+    const currentAssignments = selectedSubject.assignmentItems || [];
+    const updatedAssignments = currentAssignments.filter(a => a.unitNumber !== unitNum);
+
+    const updatedSub: Subject = {
+      ...selectedSubject,
+      learningUnits: updatedUnits,
+      learningUnitDetails: updatedDetails,
+      assignmentItems: updatedAssignments
+    };
+
+    if (selectedUnit === unitNum) {
+      setSelectedUnit(null);
+    }
+    onSaveSubject(updatedSub);
+
+    // Recalculate coursework if any assignment was removed
+    const next = { ...scoreRows };
+    const deletedIds = new Set(currentAssignments.filter(a => a.unitNumber === unitNum).map(a => a.id));
+    Object.keys(next).forEach(stId => {
+      const row = next[stId];
+      if (row) {
+        const newScores = { ...(row.assignmentScores || {}) };
+        deletedIds.forEach(id => {
+          delete newScores[id];
+        });
+        const { coursework } = calculateCourseworkScore(newScores, updatedSub);
+        next[stId] = {
+          ...row,
+          assignmentScores: newScores,
+          coursework
+        };
+      }
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    onShowToast('info', 'ลบหน่วยการเรียนรู้แล้ว', `ลบ ${unitName} เรียบร้อยแล้ว`);
+  };
+
+  // Add new assignment column
+  const handleAddAssignment = (name: string) => {
+    if (!selectedSubject) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const currentItems = selectedSubject.assignmentItems || [];
+    const targetUnit = assignmentUnitInput || (selectedUnit || 1);
+    const newAsg: AssignmentItem = {
+      id: 'asg-' + Date.now(),
+      name: trimmed,
+      maxScore: 5,
+      unitNumber: targetUnit
+    };
+
+    const updatedItems = [...currentItems, newAsg];
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: updatedItems
+    };
+
+    onSaveSubject(updatedSubject);
+
+    // Recalculate coursework for all students with new assignment
+    const next = { ...scoreRows };
+    const maxCw = selectedSubject.courseworkScore || 70;
+
+    gradeStudents.forEach(s => {
+      const row = next[s.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {}
+      };
+      const updatedScores = { ...(row.assignmentScores || {}) };
+      // New assignment score remains undefined (displays as "-")
+      const { coursework } = calculateCourseworkScore(updatedScores, updatedItems, maxCw);
+      next[s.id] = {
+        ...row,
+        assignmentScores: updatedScores,
+        coursework: coursework
+      };
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    setIsAddAssignmentModalOpen(false);
+    setAssignmentNameInput('');
+    onShowToast('success', 'เพิ่มช่องงานสำเร็จ 🎉', `เพิ่มช่อง "${trimmed}" (หน่วย ${targetUnit}) แล้ว`);
+  };
+
+  // Edit / Rename assignment column
+  const handleEditAssignment = (assignmentId: string, newName: string, newUnit?: number) => {
+    if (!selectedSubject) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+
+    const currentItems = selectedSubject.assignmentItems || [];
+    const updatedItems = currentItems.map(it => it.id === assignmentId 
+      ? { ...it, name: trimmed, unitNumber: newUnit !== undefined ? newUnit : it.unitNumber } 
+      : it
+    );
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: updatedItems
+    };
+
+    onSaveSubject(updatedSubject);
+    setEditingAssignment(null);
+    setAssignmentNameInput('');
+    onShowToast('success', 'เปลี่ยนชื่องานสำเร็จ', `แก้ไขชื่อเป็น "${trimmed}" เรียบร้อย`);
+  };
+
+  // Delete assignment column
+  const handleDeleteAssignment = (assignmentId: string, asgName: string) => {
+    if (!selectedSubject) return;
+
+    const currentItems = selectedSubject.assignmentItems || [];
+    const updatedItems = currentItems.filter(it => it.id !== assignmentId);
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: updatedItems
+    };
+
+    onSaveSubject(updatedSubject);
+
+    // Recalculate coursework without this assignment and auto-save
+    const next = { ...scoreRows };
+    const maxCw = selectedSubject.courseworkScore || 70;
+
+    gradeStudents.forEach(s => {
+      const row = next[s.id];
+      if (row) {
+        const updatedScores = { ...(row.assignmentScores || {}) };
+        delete updatedScores[assignmentId];
+        const { coursework } = calculateCourseworkScore(updatedScores, updatedItems, maxCw);
+        next[s.id] = {
+          ...row,
+          assignmentScores: updatedScores,
+          coursework: coursework
+        };
+      }
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    onShowToast('info', 'ลบช่องงานแล้ว', `ลบช่อง "${asgName}" เรียบร้อยแล้ว`);
+  };
+
+  // Preload default assignment columns if empty
+  const handleLoadSampleAssignments = () => {
+    if (!selectedSubject) return;
+    const samples: AssignmentItem[] = [
+      { id: 'asg-01', name: 'งานที่ 1: แบบฝึกหัด', maxScore: 5, unitNumber: 1 },
+      { id: 'asg-02', name: 'งานที่ 2: ใบงาน', maxScore: 5, unitNumber: 2 },
+      { id: 'asg-03', name: 'งานที่ 3: ชิ้นงาน/นำเสนอ', maxScore: 5, unitNumber: 3 }
+    ];
+
+    const updatedSubject: Subject = {
+      ...selectedSubject,
+      assignmentItems: samples
+    };
+
+    onSaveSubject(updatedSubject);
+
+    // Give default scores 5 to everyone
+    const next = { ...scoreRows };
+    const maxCw = selectedSubject.courseworkScore || 70;
+
+    gradeStudents.forEach(s => {
+      const row = next[s.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {}
+      };
+      const updatedScores = {
+        'asg-01': 5,
+        'asg-02': 4,
+        'asg-03': 5
+      };
+      const { coursework } = calculateCourseworkScore(updatedScores, samples, maxCw);
+      next[s.id] = {
+        ...row,
+        assignmentScores: updatedScores,
+        coursework: coursework
+      };
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+
+    onShowToast('success', 'โหลดช่องงานสำเร็จ', 'เพิ่มช่องงานตัวอย่าง 3 รายการพร้อมปุ่มเลือกคะแนน 0-5 เรียบร้อย');
+  };
+
+  // Save all entered scores
+  const handleSaveAllScores = () => {
+    if (!selectedSubject) return;
+
+    if (!canGradeSubject) {
+      if (isMemberLockedReadOnly) {
+        onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ เพื่อป้องกันการกรอกผิดภาคเรียน`);
+      } else if (isAdminReadOnly) {
+        onShowToast('info', 'โหมดดูคะแนนเท่านั้น', 'ผู้ดูแลระบบไม่สามารถปรับแก้คะแนนของสมาชิกที่ลงทะเบียนได้');
+      } else {
+        onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถบันทึกคะแนนได้');
+      }
+      return;
+    }
+
+    const recordsToSave: GradeRecord[] = gradeStudents.map(s => {
+      const row = scoreRows[s.id] || { 
+        coursework: 0, 
+        exam: 0, 
+        readingWriting: 3, 
+        characteristics: 3, 
+        competency: 3,
+        assignmentScores: {}
+      };
+      const total = Math.min(selectedSubject.totalScore, (Number(row.coursework) || 0) + (Number(row.exam) || 0));
+      const gpa = calculateThaiGrade(total);
+
+      return {
+        id: `grd-${s.id}-${selectedSubject.id}-${currentSemester}`,
+        studentId: s.id,
+        studentName: `${s.prefix}${s.firstName} ${s.lastName}`,
+        gradeLevel: selectedSubject.gradeLevel,
+        subjectId: selectedSubject.id,
+        subjectCode: selectedSubject.code,
+        subjectName: selectedSubject.name,
+        semester: currentSemester,
+        academicYear,
+        assignmentScores: row.assignmentScores || {},
+        courseworkScore: Number(row.coursework) || 0,
+        examScore: Number(row.exam) || 0,
+        totalScore: total,
+        gradeGpa: gpa,
+        readingWritingScore: Number(row.readingWriting) || 3,
+        desiredCharacteristicsScore: Number(row.characteristics) || 3,
+        competencyScore: Number(row.competency) || 3
+      };
+    });
+
+    onSaveBulkGrades(recordsToSave);
+    onShowToast('success', 'บันทึกคะแนนสำเร็จ', `บันทึกคะแนนภาคเรียนที่ ${currentSemester} รายวิชา ${selectedSubject.name} จำนวน ${recordsToSave.length} คน เรียบร้อย`);
+  };
+
+  // Teacher enroll in subject (Member registers per semester independently)
+  // แยกจริงว่ารายวิชาไหนใครลงทะเบียนสอนคือภาคเรียนที่ 1 รายวิชาไหนใครลงทะเบียนสอนคือภาคเรียนที่ 2
+  // เวลาถอนชื่อผู้สอน ไม่กระทบกับภาคเรียนอื่น เช่น ถอนชื่อภาคเรียนที่ 2 โดยให้อีกคนลงทะเบียนแทน ภาคเรียนที่ 1 ก็ยังเป็นชื่อเดิมไม่เปลี่ยน
+  const handleTeacherEnrollSubject = (subject: Subject) => {
+    if (isMemberLockedReadOnly) {
+      onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ไม่สามารถลงทะเบียนได้เนื่องจากภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ`);
+      return;
+    }
+    const updatedSubject: Subject = {
+      ...subject,
+      teacherId: user.id,
+      teacherName: user.fullName
+    };
+
+    onSaveSubject(updatedSubject);
+
+    setSelectedSubjectId(updatedSubject.id);
+    setActiveTab('grading');
+    onShowToast(
+      'success', 
+      'ลงทะเบียนผู้สอนสำเร็จ 🎉', 
+      `ลงทะเบียนเป็นผู้สอนวิชา ${subject.name} (ชั้น ${subject.gradeLevel} ภาคเรียนที่ ${subject.semester || currentSemester}) เรียบร้อยแล้ว เริ่มบันทึกคะแนนได้ทันที`
+    );
+  };
+
+  // Admin withdraw teacher enrollment (เฉพาะภาคเรียนที่เลือก ไม่กระทบภาคเรียนอื่นเด็ดขาด)
+  const handleAdminWithdrawSubjectTeacher = (subject: Subject) => {
+    if (user.role !== 'admin') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะ Admin เท่านั้นที่สามารถถอนชื่อผู้สอนได้');
+      return;
+    }
+    const currentTeacher = subject.teacherName || 'ผู้สอน';
+    const updated: Subject = {
+      ...subject,
+      teacherId: '',
+      teacherName: ''
+    };
+    onSaveSubject(updated);
+
+    // Switch to first remaining registered subject (sorted by grade) or empty
+    const remainingRegistered = sortSubjectsByGrade(subjects.filter(s => 
+      s.id !== subject.id &&
+      isSubjectInYear(s, currentAcademicYear) &&
+      (!s.semester || s.semester === currentSemester) &&
+      Boolean(s.teacherId || s.teacherName)
+    ));
+    setSelectedSubjectId(remainingRegistered[0]?.id || '');
+    onShowToast(
+      'success', 
+      'ถอนชื่อผู้สอนสำเร็จ', 
+      `ถอนชื่อ ${currentTeacher} ออกจากวิชา ${subject.name} (เฉพาะภาคเรียนที่ ${subject.semester}) เรียบร้อยแล้ว (ภาคเรียนอื่นยังคงเดิมและคะแนนไม่สูญหาย)`
+    );
+  };
+
+
+  // Copy Assignment Template from Previous Year (Member & Admin: บังคับคัดลอกเฉพาะภาคเรียนเดียวกันเท่านั้น)
+  const handleOpenCopyAssignmentTemplateModal = () => {
+    if (!selectedSubject) return;
+
+    const targetSemester = selectedSubject.semester || currentSemester;
+    
+    // Filter matches that strictly match the CURRENT SEMESTER (ภาคเรียนเดียวกันเท่านั้น!)
+    const matchesForSameSemester = subjects.filter(s => 
+      s.id !== selectedSubject.id &&
+      s.assignmentItems && s.assignmentItems.length > 0 &&
+      (s.semester || '1') === targetSemester &&
+      (
+        s.code.trim().toLowerCase() === selectedSubject.code.trim().toLowerCase() ||
+        (s.name.trim().toLowerCase() === selectedSubject.name.trim().toLowerCase() && s.gradeLevel === selectedSubject.gradeLevel)
+      )
+    );
+
+    if (matchesForSameSemester.length === 0) {
+      onShowToast(
+        'info', 
+        'ไม่พบตารางงานในภาคเรียนนี้', 
+        `ไม่พบตารางหัวข้องานเดิมของวิชา ${selectedSubject.name} (${selectedSubject.code}) ในภาคเรียนที่ ${targetSemester} จากปีการศึกษาอื่น คุณสามารถกดปุ่ม "+ เพิ่มงาน" เพื่อสร้างหัวข้องานใหม่ได้ทันที`
+      );
+      return;
+    }
+
+    // Default source year to first match's academic year
+    const defaultYear = matchesForSameSemester[0].academicYear || currentAcademicYear;
+    setCopyTemplateSourceYear(defaultYear);
+    setSelectedTemplateSubject(matchesForSameSemester[0]);
+    setIsCopyAssignmentModalOpen(true);
+  };
+
+  const handleConfirmCopyAssignmentTemplate = () => {
+    if (!selectedSubject || !selectedTemplateSubject || !selectedTemplateSubject.assignmentItems) return;
+
+    const clonedItems: AssignmentItem[] = selectedTemplateSubject.assignmentItems.map((it, idx) => ({
+      id: `asg-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      name: it.name,
+      maxScore: it.maxScore || 5
+    }));
+
+    const updatedSub: Subject = {
+      ...selectedSubject,
+      assignmentItems: clonedItems
+    };
+
+    onSaveSubject(updatedSub);
+
+    // Reset scores for this subject (คะแนนห้ามตามมาเด็ดขาด)
+    setScoreRows(prev => {
+      const next = { ...prev };
+      gradeStudents.forEach(st => {
+        const row = next[st.id] || {
+          coursework: 0,
+          exam: 0,
+          readingWriting: 3,
+          characteristics: 3,
+          competency: 3,
+          assignmentScores: {}
+        };
+        next[st.id] = {
+          ...row,
+          assignmentScores: {},
+          coursework: 0
+        };
+      });
+      autoSaveGrades(next);
+      return next;
+    });
+
+    setIsCopyAssignmentModalOpen(false);
+    onShowToast(
+      'success', 
+      'คัดลอกตารางงานสำเร็จ 🎉', 
+      `นำตารางและหัวข้องานจำนวน ${clonedItems.length} ช่องจากปี ${selectedTemplateSubject.academicYear || 'ก่อนหน้า'} มาใช้เรียบร้อยแล้ว (คะแนนเริ่มต้นใหม่ทั้งหมด)`
+    );
+  };
+
+  // Admin: เพิ่มปีการศึกษาถัดไป (สามารถคัดลอกรายวิชาปีการศึกษาก่อนหน้านี้ได้ โดยเพิ่มรายวิชาเท่านั้น คะแนนห้ามคัดลอกตามเด็ดขาด)
+  const handleAddAcademicYear = () => {
+    const trimmed = newYearInput.trim();
+    if (!trimmed) {
+      onShowToast('warning', 'กรุณาระบุปีการศึกษา', 'โปรดระบุปีการศึกษา เช่น 2569');
+      return;
+    }
+    if (academicYears.includes(trimmed)) {
+      onShowToast('warning', 'มีปีการศึกษานี้แล้ว', `ปีการศึกษา ${trimmed} มีอยู่ในระบบแล้ว`);
+      return;
+    }
+
+    const updatedYears = [...academicYears, trimmed].sort((a, b) => Number(a) - Number(b));
+    setAcademicYears(updatedYears);
+    StorageService.saveAcademicYears(updatedYears);
+
+    if (copyPreviousSubjects && sourceYearToCopy) {
+      const sourceSubs = subjects.filter(s => isSubjectInYear(s, sourceYearToCopy));
+      if (sourceSubs.length > 0) {
+        const newSubjectsToCreate: Subject[] = sourceSubs.map((s, idx) => ({
+          ...s,
+          id: `sub-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          academicYear: trimmed,
+          teacherId: '',
+          teacherName: '',
+          assignmentItems: s.assignmentItems ? s.assignmentItems.map(it => ({ ...it })) : []
+        }));
+
+        if (onSaveBulkSubjects) {
+          onSaveBulkSubjects(newSubjectsToCreate);
+        } else {
+          newSubjectsToCreate.forEach(ns => onSaveSubject(ns));
+        }
+        onShowToast(
+          'success', 
+          `เพิ่มปีการศึกษา ${trimmed} สำเร็จ`, 
+          `คัดลอกรายวิชาจากปี ${sourceYearToCopy} จำนวน ${newSubjectsToCreate.length} วิชาเรียบร้อย (คะแนนว่างเปล่า พร้อมให้สมาชิกลงทะเบียน)`
+        );
+      } else {
+        onShowToast('success', `เพิ่มปีการศึกษา ${trimmed} สำเร็จ`, `สร้างปีการศึกษา ${trimmed} เรียบร้อยแล้ว`);
+      }
+    } else {
+      onShowToast('success', `เพิ่มปีการศึกษา ${trimmed} สำเร็จ`, `สร้างปีการศึกษา ${trimmed} เรียบร้อยแล้ว`);
+    }
+
+    handleAcademicYearChange(trimmed);
+    setIsAddYearModalOpen(false);
+    setNewYearInput('');
+  };
+
+  // Admin: ลบปีการศึกษา และยืนยันด้วยรหัส Admin
+  const handleDeleteAcademicYearConfirm = () => {
+    if (!deletingYear) return;
+    if (user.role !== 'admin') {
+      onShowToast('error', 'ไม่มีสิทธิ์', 'เฉพาะ Admin เท่านั้นที่สามารถลบปีการศึกษาได้');
+      return;
+    }
+
+    const currentAdmin = allMembers.find(m => m.role === 'admin');
+    const inputPass = adminPasswordInput.trim();
+    const validPasswords = ['123456', 'admin', 'admin123', '1234'];
+    if (currentAdmin && currentAdmin.password) {
+      validPasswords.push(currentAdmin.password);
+    }
+
+    if (!validPasswords.includes(inputPass)) {
+      onShowToast('error', 'รหัสผ่าน Admin ไม่ถูกต้อง', 'กรุณาระบุรหัสผ่าน Admin ให้ถูกต้องเพื่อยืนยันการลบ');
+      return;
+    }
+
+    const res = StorageService.deleteAcademicYear(deletingYear);
+    setAcademicYears(res.years);
+    if (onUpdateSubjectsList) {
+      onUpdateSubjectsList(res.subjects);
+    }
+
+    const nextActiveYear = res.years[res.years.length - 1] || '2568';
+    if (currentAcademicYear === deletingYear) {
+      handleAcademicYearChange(nextActiveYear);
+    }
+
+    onShowToast('success', 'ลบปีการศึกษาสำเร็จ', `ลบปีการศึกษา ${deletingYear} และรายวิชาที่เกี่ยวข้องเรียบร้อยแล้ว`);
+    setDeletingYear(null);
+    setAdminPasswordInput('');
+  };
+
+  // Admin: คัดลอกรายวิชาจากปีก่อนหน้ามายังปีการศึกษาปัจจุบัน (ในแท็บโครงสร้างรายวิชา)
+  const handleCopySubjectsFromSourceYear = () => {
+    if (!copyModalSourceYear || copyModalSourceYear === currentAcademicYear) {
+      onShowToast('warning', 'เลือกปีการศึกษาต้นทาง', 'กรุณาเลือกปีการศึกษาต้นทางที่แตกต่างจากปีปัจจุบัน');
+      return;
+    }
+    const sourceSubs = subjects.filter(s => isSubjectInYear(s, copyModalSourceYear));
+    if (sourceSubs.length === 0) {
+      onShowToast('info', 'ไม่พบรายวิชา', `ไม่พบรายวิชาในปีการศึกษา ${copyModalSourceYear}`);
+      return;
+    }
+
+    const existingKeysInCurrentYear = new Set(
+      subjects.filter(s => isSubjectInYear(s, currentAcademicYear)).map(s => `${s.code}_${s.semester}`)
+    );
+
+    const subsToCopy = sourceSubs.filter(s => !existingKeysInCurrentYear.has(`${s.code}_${s.semester}`));
+
+    if (subsToCopy.length === 0) {
+      onShowToast('info', 'มีรายวิชาครบแล้ว', `รายวิชาจากปี ${copyModalSourceYear} มีอยู่ในปี ${currentAcademicYear} ครบทุกวิชาแล้ว`);
+      setIsCopySubjectsModalOpen(false);
+      return;
+    }
+
+    const newSubjectsToCreate: Subject[] = subsToCopy.map((s, idx) => ({
+      ...s,
+      id: `sub-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      academicYear: currentAcademicYear,
+      teacherId: '',
+      teacherName: '',
+      assignmentItems: s.assignmentItems ? s.assignmentItems.map(it => ({ ...it })) : []
+    }));
+
+    if (onSaveBulkSubjects) {
+      onSaveBulkSubjects(newSubjectsToCreate);
+    } else {
+      newSubjectsToCreate.forEach(ns => onSaveSubject(ns));
+    }
+
+    onShowToast(
+      'success', 
+      'คัดลอกรายวิชาสำเร็จ 🎉', 
+      `คัดลอกรายวิชาจากปี ${copyModalSourceYear} มายังปี ${currentAcademicYear} จำนวน ${newSubjectsToCreate.length} วิชาเรียบร้อย (คะแนนว่างเปล่า พร้อมให้สมาชิกลงทะเบียน)`
+    );
+    setIsCopySubjectsModalOpen(false);
+  };
+
+  // Handle Save Subject (Admin เพิ่มรายวิชาได้)
+  const handleSaveSubjectSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (user.role !== 'admin') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่กำหนดโครงสร้างวิชา');
+      return;
+    }
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    const fullScore = Number(formData.get('totalScore') || 100);
+    const coursework = Number(formData.get('courseworkScore') || 70);
+    const exam = Number(formData.get('examScore') || 30);
+    const semChoice = formData.get('semester') as string;
+
+    const gradeLevel = (formData.get('gradeLevel') as GradeLevel) || modalGradeLevel;
+    const isKindergarten = isKindergartenGrade(gradeLevel);
+
+    let cleanedSubtopics: string[] = [];
+    let rubricLevelsToSave: RubricLevel[] = [];
+    let rubricMax = 3;
+
+    if (isKindergarten) {
+      cleanedSubtopics = kindergartenSubtopics.map(s => s.trim()).filter(Boolean);
+      if (cleanedSubtopics.length === 0) {
+        cleanedSubtopics = ['พัฒนาการและการเรียนรู้'];
+      }
+      rubricMax = kindergartenRubricCount;
+      rubricLevelsToSave = kindergartenRubricLevels.slice(0, rubricMax);
+    }
+
+    const unitNums = isKindergarten
+      ? cleanedSubtopics.map((_, i) => i + 1)
+      : (subjectUnitDetails.length > 0
+          ? subjectUnitDetails.map(u => u.unitNumber)
+          : (editingSubject?.learningUnits && editingSubject.learningUnits.length > 0 ? editingSubject.learningUnits : [1, 2, 3]));
+
+    const unitDetails = isKindergarten
+      ? []
+      : subjectUnitDetails.map(u => ({
+          unitNumber: u.unitNumber,
+          name: u.name.trim(),
+          score: typeof u.score === 'number' ? u.score : (Number(u.score) || 0)
+        }));
+
+    // Generate or update initial assignments based on unit details or kindergarten subtopics
+    let initialAssignments: AssignmentItem[] = editingSubject?.assignmentItems ? [...editingSubject.assignmentItems] : [];
+    if (isKindergarten) {
+      initialAssignments = cleanedSubtopics.map((st, i) => {
+        const existing = editingSubject?.assignmentItems?.[i];
+        return {
+          id: existing ? existing.id : `asg-k-${Date.now()}-${i + 1}`,
+          name: st,
+          unitNumber: i + 1,
+          maxScore: rubricMax
+        };
+      });
+    } else if (!editingSubject && unitDetails.length > 0) {
+      initialAssignments = unitDetails.map((ud) => ({
+        id: `asg-${Date.now()}-${ud.unitNumber}`,
+        name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
+        maxScore: ud.score > 0 ? ud.score : 5,
+        unitNumber: ud.unitNumber
+      }));
+    } else if (editingSubject && unitDetails.length > 0) {
+      const existing = [...(editingSubject.assignmentItems || [])];
+      unitDetails.forEach(ud => {
+        const found = existing.find(a => a.unitNumber === ud.unitNumber);
+        if (found) {
+          if (ud.name) found.name = ud.name;
+          if (ud.score > 0) found.maxScore = ud.score;
+        } else {
+          existing.push({
+            id: `asg-${Date.now()}-${ud.unitNumber}`,
+            name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
+            maxScore: ud.score > 0 ? ud.score : 5,
+            unitNumber: ud.unitNumber
+          });
+        }
+      });
+      initialAssignments = existing;
+    }
+
+    if (semChoice === 'both' && !editingSubject) {
+      const sub1: Subject = {
+        id: `sub-${Date.now()}-sem1`,
+        code: formData.get('code') as string,
+        name: formData.get('name') as string,
+        gradeLevel: gradeLevel,
+        hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+        semester: '1',
+        academicYear: currentAcademicYear,
+        totalScore: isKindergarten ? 100 : fullScore,
+        courseworkScore: isKindergarten ? 70 : coursework,
+        examScore: isKindergarten ? 30 : exam,
+        teacherId: '',
+        teacherName: '',
+        assignmentItems: initialAssignments,
+        learningUnits: unitNums,
+        learningUnitDetails: unitDetails,
+        subtopics: isKindergarten ? cleanedSubtopics : undefined,
+        rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
+        rubricMaxLevel: isKindergarten ? rubricMax : undefined
+      };
+      const sub2: Subject = {
+        id: `sub-${Date.now()}-sem2`,
+        code: formData.get('code') as string,
+        name: formData.get('name') as string,
+        gradeLevel: gradeLevel,
+        hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+        semester: '2',
+        academicYear: currentAcademicYear,
+        totalScore: isKindergarten ? 100 : fullScore,
+        courseworkScore: isKindergarten ? 70 : coursework,
+        examScore: isKindergarten ? 30 : exam,
+        teacherId: '',
+        teacherName: '',
+        assignmentItems: initialAssignments.map(a => ({ ...a, id: `${a.id}-sem2` })),
+        learningUnits: unitNums,
+        learningUnitDetails: unitDetails,
+        subtopics: isKindergarten ? cleanedSubtopics : undefined,
+        rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
+        rubricMaxLevel: isKindergarten ? rubricMax : undefined
+      };
+      if (onSaveBulkSubjects) {
+        onSaveBulkSubjects([sub1, sub2]);
+      } else {
+        onSaveSubject(sub1);
+        onSaveSubject(sub2);
+      }
+      setSelectedSubjectId(sub1.id);
+      setIsSubjectModalOpen(false);
+      setEditingSubject(null);
+      setSubjectUnitCountInput('');
+      setSubjectUnitDetails([]);
+      setKindergartenSubtopics(['']);
+      setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+      setKindergartenRubricCount(3);
+      onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${sub1.code} ${sub1.name} (ทั้งเทอม 1 และเทอม 2) เรียบร้อยแล้ว`);
+      return;
+    }
+
+    const sem = (semChoice as '1' | '2') || currentSemester;
+    const newSub: Subject = {
+      id: editingSubject ? editingSubject.id : 'sub-' + Date.now(),
+      code: formData.get('code') as string,
+      name: formData.get('name') as string,
+      gradeLevel: gradeLevel,
+      hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+      semester: sem,
+      academicYear: editingSubject?.academicYear || currentAcademicYear,
+      totalScore: isKindergarten ? 100 : fullScore,
+      courseworkScore: isKindergarten ? 70 : coursework,
+      examScore: isKindergarten ? 30 : exam,
+      teacherId: editingSubject?.teacherId || '',
+      teacherName: editingSubject?.teacherName || '',
+      assignmentItems: initialAssignments,
+      learningUnits: unitNums,
+      learningUnitDetails: unitDetails,
+      subtopics: isKindergarten ? cleanedSubtopics : undefined,
+      rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
+      rubricMaxLevel: isKindergarten ? rubricMax : undefined
+    };
+
+    onSaveSubject(newSub);
+    setSelectedSubjectId(newSub.id);
+    if (sem !== currentSemester) {
+      setCurrentSemester(sem);
+      if (onSemesterChange) onSemesterChange(sem);
+    }
+    setIsSubjectModalOpen(false);
+    setEditingSubject(null);
+    setSubjectUnitCountInput('');
+    setSubjectUnitDetails([]);
+    setKindergartenSubtopics(['']);
+    setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+    setKindergartenRubricCount(3);
+    onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${newSub.code} ${newSub.name} (ภาคเรียนที่ ${sem}) เรียบร้อยแล้ว`);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header: Tabs on left, Year & Semester adjacent, ลบAll, Lock icon aligned cleanly */}
+      <div className="bg-amber-50/80 p-3 rounded-2xl border border-amber-200/90 shadow-xs">
+        {/* Mobile: 2x2 Grid for คะแนน, ประเมิน 3 เล่ม, ปีการศึกษา, ภาค */}
+        <div className="grid grid-cols-2 gap-2 sm:hidden mb-2">
+          {/* 1. คะแนน */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('grading')}
+            className={`w-full h-10 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+              activeTab === 'grading'
+                ? 'bg-amber-600 text-white'
+                : 'text-slate-700 hover:text-slate-900 bg-white border border-amber-200/80'
+            }`}
+          >
+            <Award className="w-4 h-4 shrink-0" />
+            <span className="truncate">คะแนน</span>
+          </button>
+
+          {/* 2. ประเมิน 3 เล่ม */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('assessments')}
+            className={`w-full h-10 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+              activeTab === 'assessments'
+                ? 'bg-amber-600 text-white'
+                : 'text-slate-700 hover:text-slate-900 bg-white border border-amber-200/80'
+            }`}
+          >
+            <FileText className="w-4 h-4 shrink-0" />
+            <span className="truncate">ประเมิน 3 เล่ม</span>
+          </button>
+
+          {/* 3. ปีการศึกษา */}
+          <div className="w-full h-10 bg-white px-2 rounded-xl border border-amber-200/90 shadow-xs flex items-center justify-center gap-1">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="text-[11px] font-bold text-slate-600 shrink-0">ปี:</span>
+            <select
+              value={currentAcademicYear}
+              disabled={user.role !== 'admin'}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'add_new') {
+                  if (user.role === 'admin') {
+                    const nextYr = String(Math.max(...academicYears.map(Number), 2568) + 1);
+                    setNewYearInput(nextYr);
+                    setSourceYearToCopy(currentAcademicYear);
+                    setCopyPreviousSubjects(true);
+                    setIsAddYearModalOpen(true);
+                  }
+                } else {
+                  handleAcademicYearChange(val);
+                }
+              }}
+              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer truncate"
+            >
+              {academicYears.map(yr => (
+                <option key={yr} value={yr}>{yr}</option>
+              ))}
+              {user.role === 'admin' && (
+                <option value="add_new" className="text-amber-600 font-bold">+ ปีการศึกษา</option>
+              )}
+            </select>
+          </div>
+
+          {/* 4. ภาคเรียน */}
+          <div className="w-full h-10 bg-white px-2 rounded-xl border border-amber-200/90 shadow-xs flex items-center justify-center gap-1">
+            <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="text-[11px] font-bold text-slate-600 shrink-0">ภาค:</span>
+            <select
+              value={currentSemester}
+              disabled={user.role !== 'admin'}
+              onChange={(e) => handleSemesterChange(e.target.value as '1' | '2')}
+              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+            >
+              <option value="1">ภาค 1 {isSem1Locked ? '🔒' : ''}</option>
+              <option value="2">ภาค 2 {isSem2Locked ? '🔒' : ''}</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Mobile Extra Controls Row (รายวิชา / ลบAll / ล็อก) */}
+        <div className="flex sm:hidden items-center justify-between pt-2 border-t border-amber-200/60 gap-2">
+          {user.role === 'admin' ? (
+            <button
+              type="button"
+              onClick={() => setActiveTab('subjects')}
+              className={`flex-1 h-9 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs ${
+                activeTab === 'subjects'
+                  ? 'bg-amber-600 text-white'
+                  : 'text-slate-700 bg-white border border-amber-200/80'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+              <span>รายวิชา</span>
+            </button>
+          ) : (
+            <div className="text-[11px] font-bold text-slate-600">
+              สถานะ: {user.fullName || 'สมาชิก'}
+            </div>
+          )}
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {user.role === 'admin' && academicYears.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDeletingYear(currentAcademicYear);
+                  setAdminPasswordInput('');
+                }}
+                className="h-9 px-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl transition-all cursor-pointer shadow-xs flex items-center gap-1 text-xs font-bold"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>ลบAll</span>
+              </button>
+            )}
+
+            {user.role === 'admin' ? (
+              <button
+                type="button"
+                onClick={handleToggleLockCurrentSemester}
+                className={`h-9 px-3 rounded-xl border transition-all cursor-pointer shadow-xs flex items-center gap-1 text-xs font-bold ${
+                  isCurrentSemLocked
+                    ? 'bg-rose-50 text-rose-700 border-rose-300'
+                    : 'bg-white text-slate-700 border-slate-200/90'
+                }`}
+              >
+                {isCurrentSemLocked ? <Lock className="w-3.5 h-3.5 text-rose-600" /> : <Unlock className="w-3.5 h-3.5 text-emerald-600" />}
+                <span>{isCurrentSemLocked ? 'ล็อก' : 'ปกติ'}</span>
+              </button>
+            ) : (
+              isCurrentSemLocked && (
+                <div className="h-9 px-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 shadow-xs flex items-center gap-1 text-xs font-bold">
+                  <Lock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>ล็อก</span>
+                </div>
+              )
+            )}
+          </div>
+        </div>
+
+        {/* Desktop Header Layout (hidden on mobile, visible on sm+) */}
+        <div className="hidden sm:flex sm:items-center justify-between gap-3">
+          {/* Tabs Row: คะแนน / ประเมิน 3 เล่ม / รายวิชา */}
+          <div className={`grid ${user.role === 'admin' ? 'grid-cols-3' : 'grid-cols-2'} sm:flex sm:items-center gap-1.5`}>
+            {/* Tab 1: คะแนน */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('grading')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === 'grading'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-slate-200/80'
+              }`}
+            >
+              <Award className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap">คะแนน</span>
+            </button>
+
+            {/* Tab 2: ประเมิน 3 เล่ม */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('assessments')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                activeTab === 'assessments'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-slate-200/80'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              <span className="whitespace-nowrap truncate">ประเมิน 3 เล่ม</span>
+            </button>
+
+            {/* Tab 3: รายวิชา (เฉพาะ Admin เท่านั้น) */}
+            {user.role === 'admin' && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('subjects')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === 'subjects'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-slate-200/80'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                <span className="whitespace-nowrap">รายวิชา</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right side controls: ปีการศึกษา & ภาค อยู่ติดกัน -> ลบAll -> ล็อก */}
+          <div className="flex items-center justify-end gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* ปีการศึกษา */}
+              <div className="flex items-center bg-white p-0.5 rounded-xl border border-amber-200/90 shadow-2xs shrink-0">
+                <span className="text-[11px] font-bold text-slate-600 px-1 flex items-center">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                </span>
+                <select
+                  value={currentAcademicYear}
+                  disabled={user.role !== 'admin'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === 'add_new') {
+                      if (user.role === 'admin') {
+                        const nextYr = String(Math.max(...academicYears.map(Number), 2568) + 1);
+                        setNewYearInput(nextYr);
+                        setSourceYearToCopy(currentAcademicYear);
+                        setCopyPreviousSubjects(true);
+                        setIsAddYearModalOpen(true);
+                      }
+                    } else {
+                      handleAcademicYearChange(val);
+                    }
+                  }}
+                  className={`text-xs font-bold px-1.5 py-1 rounded-lg ${
+                    user.role !== 'admin'
+                      ? 'bg-slate-100 text-slate-600 cursor-not-allowed'
+                      : 'bg-transparent text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer'
+                  }`}
+                  title={user.role !== 'admin' ? 'กำหนดโดย Admin (ผู้ดูแลระบบ)' : 'เลือกปีการศึกษา'}
+                >
+                  {academicYears.map(yr => (
+                    <option key={yr} value={yr}>{yr}</option>
+                  ))}
+                  {user.role === 'admin' && (
+                    <option value="add_new" className="text-amber-600 font-bold">+ ปีการศึกษา</option>
+                  )}
+                </select>
+                {user.role !== 'admin' && <Lock className="w-3 h-3 text-slate-400 mr-1" />}
+              </div>
+
+              {/* ภาคเรียน (อยู่ติดกับปีการศึกษาพอดี) */}
+              <div className="flex items-center bg-white p-0.5 rounded-xl border border-amber-200/90 shadow-2xs shrink-0">
+                <span className="text-[11px] font-bold text-slate-600 px-1 flex items-center">
+                  <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                </span>
+                <select
+                  value={currentSemester}
+                  disabled={user.role !== 'admin'}
+                  onChange={(e) => handleSemesterChange(e.target.value as '1' | '2')}
+                  className={`text-xs font-bold px-1.5 py-1 rounded-lg ${
+                    user.role !== 'admin'
+                      ? 'bg-slate-100 text-slate-600 cursor-not-allowed'
+                      : 'bg-transparent text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer'
+                  }`}
+                  title={user.role !== 'admin' ? 'กำหนดโดย Admin (ผู้ดูแลระบบ)' : 'เลือกภาคเรียน'}
+                >
+                  <option value="1">1 {isSem1Locked ? '🔒' : ''}</option>
+                  <option value="2">2 {isSem2Locked ? '🔒' : ''}</option>
+                </select>
+                {user.role !== 'admin' && <Lock className="w-3 h-3 text-slate-400 mr-1" />}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* ปุ่มลบปีการศึกษา (เปลี่ยนชื่อเป็น ลบAll) */}
+              {user.role === 'admin' && academicYears.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeletingYear(currentAcademicYear);
+                    setAdminPasswordInput('');
+                  }}
+                  className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl transition-all cursor-pointer shadow-2xs shrink-0 flex items-center gap-1 text-xs font-bold active:scale-95"
+                  title={`ลบปีการศึกษา ${currentAcademicYear}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>ลบAll</span>
+                </button>
+              )}
+
+              {/* ปุ่มล็อกภาคเรียน */}
+              {user.role === 'admin' ? (
+                <button
+                  type="button"
+                  onClick={handleToggleLockCurrentSemester}
+                  className={`p-1.5 sm:p-2 rounded-xl border transition-all cursor-pointer shadow-2xs active:scale-95 shrink-0 flex items-center gap-1 ${
+                    isCurrentSemLocked
+                      ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-300 ring-2 ring-rose-200/60'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border-slate-200/90'
+                  }`}
+                  title={isCurrentSemLocked ? `ปลดล็อกภาคเรียนที่ ${currentSemester}` : `ล็อกภาคเรียนที่ ${currentSemester}`}
+                >
+                  {isCurrentSemLocked ? (
+                    <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                  ) : (
+                    <Unlock className="w-4 h-4 text-emerald-600 shrink-0" />
+                  )}
+                </button>
+              ) : (
+                isCurrentSemLocked && (
+                  <div className="p-1.5 sm:p-2 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 shadow-2xs shrink-0" title="ภาคเรียนนี้ถูกล็อก (ปิดรับการกรอกคะแนน)">
+                    <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* TAB 1: GRADING MATRIX */}
+      {activeTab === 'grading' && (
+        <div className="space-y-4">
+          {/* Banner แจ้งเตือนเมื่อภาคเรียนถูกล็อกการกรอกคะแนน */}
+          {isCurrentSemLocked && (
+            <div className="bg-amber-50/90 border border-amber-200/90 text-amber-900 px-4 py-3 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-100 rounded-xl text-amber-700 shrink-0">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="font-bold text-amber-950 flex items-center gap-2">
+                    <span>ภาคเรียนที่ {currentSemester} ปีการศึกษา {currentAcademicYear} ถูกล็อกการกรอกคะแนน</span>
+                    <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-bold text-[10px]">LOCKED</span>
+                  </div>
+                  <div className="text-amber-800 text-[11px] mt-0.5">
+                    {user.role === 'admin'
+                      ? 'ผู้ดูแลระบบได้ล็อกภาคเรียนนี้ไว้เพื่อป้องกันไม่ให้สมาชิกกรอกหรือแก้ไขคะแนนผิดภาคเรียน (Admin สามารถกดปลดล็อกได้ตลอดเวลา)'
+                      : 'ผู้ดูแลระบบ (Admin) ได้ล็อกภาคเรียนนี้ไว้เพื่อป้องกันการกรอกคะแนนผิดภาคเรียน (เปิดให้ดูคะแนนได้เท่านั้น ไม่สามารถแก้ไขหรือบันทึกได้)'}
+                  </div>
+                </div>
+              </div>
+              {user.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={handleToggleLockCurrentSemester}
+                  className="shrink-0 px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95"
+                >
+                  <Unlock className="w-3.5 h-3.5 text-rose-600" />
+                  <span>ปลดล็อกภาค {currentSemester}</span>
+                </button>
+              )}
+            </div>
+          )}
+          {/* Subject Selector Bar */}
+          <div className="bg-white p-2.5 sm:p-3.5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
+              <label className="text-xs font-bold text-slate-700 whitespace-nowrap flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <BookOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span className="hidden sm:inline">รายวิชา (ภาค {currentSemester}):</span>
+                <span className="sm:hidden">วิชา:</span>
+              </label>
+
+              {/* Subject Dropdown: ปรับให้เต็มความกว้างพอดีหน้าจอบน Mobile ไม่ยาวล้น */}
+              <select
+                value={selectedSubjectId}
+                onChange={(e) => setSelectedSubjectId(e.target.value)}
+                className="text-xs px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-semibold text-slate-800 bg-white flex-1 min-w-0 truncate cursor-pointer shadow-2xs"
+              >
+                {user.role === 'admin' ? (
+                  <>
+                    {sortedRegisteredSubjects.length > 0 ? (
+                      <optgroup label={`รายวิชาที่สมาชิกลงทะเบียนแล้ว (ภาค ${currentSemester})`}>
+                        {sortedRegisteredSubjects.map(sub => (
+                          <option key={sub.id} value={sub.id}>
+                            ชั้น {sub.gradeLevel} : {sub.name} — {sub.teacherName || 'ผู้สอน'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : (
+                      <option value="">-- ยังไม่มีสมาชิกลงทะเบียนรายวิชาในภาคเรียนที่ {currentSemester} --</option>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {sortedMyRegisteredSubjects.length > 0 ? (
+                      <optgroup label={`รายวิชาที่คุณลงทะเบียนสอน (ภาค ${currentSemester})`}>
+                        {sortedMyRegisteredSubjects.map(sub => (
+                          <option key={sub.id} value={sub.id}>
+                            ชั้น {sub.gradeLevel} : {sub.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : (
+                      <option value="">-- คุณยังไม่มีรายวิชาที่ลงทะเบียน (เลือกลงทะเบียนด้านล่าง) --</option>
+                    )}
+                  </>
+                )}
+              </select>
+            </div>
+
+            {/* ปุ่ม ชั่วโมงสอน ตรงบรรทัดเดียวกับรายวิชาที่เลือกแต่ให้อยู่ฝั่งขวาสุด */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!selectedSubject) {
+                  onShowToast('warning', 'กรุณาเลือกรายวิชา', 'กรุณาเลือกรายวิชาที่ต้องการก่อนเปิดกำหนดตารางชั่วโมงสอน');
+                  return;
+                }
+                setIsTeachingScheduleModalOpen(true);
+              }}
+              className="px-2.5 sm:px-3 py-1.5 sm:py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl text-xs font-bold shadow-xs hover:shadow-sm transition-all flex items-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
+              title="กำหนดตารางชั่วโมงสอน และดึงข้อมูลการมาเรียนจากครูประจำชั้น"
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span>ชั่วโมงสอน</span>
+            </button>
+          </div>
+
+          {/* If No Subject Selected */}
+          {!selectedSubject ? (
+            <div className="bg-white p-8 rounded-2xl border border-dashed border-slate-300 text-center space-y-3 shadow-xs">
+              <div className="w-12 h-12 bg-amber-50 rounded-2xl text-amber-600 flex items-center justify-center mx-auto">
+                <BookOpen className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">
+                {user.role === 'admin' 
+                  ? `ยังไม่มีสมาชิกลงทะเบียนรายวิชาในภาคเรียนที่ ${currentSemester}`
+                  : `คุณยังไม่ได้ลงทะเบียนรายวิชาสอนในภาคเรียนที่ ${currentSemester}`}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {user.role === 'admin'
+                  ? `สมาชิกจะลงทะเบียนรายวิชาที่รับผิดชอบสอน เมื่อลงทะเบียนแล้วจะปรากฏรายชื่อให้ตรวจสอบ`
+                  : `กรุณาเลือกลงทะเบียนรายวิชาสอนจากรายการด้านล่าง เพื่อเริ่มบันทึกคะแนน`}
+              </p>
+            </div>
+          ) : (
+            /* Matrix Table */
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+              <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                      <span>ชั้น {selectedSubject?.gradeLevel} {selectedSubject?.name} ({selectedSubject?.code})</span>
+                      {/* ไอคอนคัดลอกตาราง ให้อยู่ด้านหลัง ชื่อวิชา จะได้ประหยัดหน้า */}
+                      {!isAdminReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canGradeSubject) {
+                              onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถคัดลอกตารางงานได้');
+                              return;
+                            }
+                            handleOpenCopyAssignmentTemplateModal();
+                          }}
+                          disabled={!canGradeSubject}
+                          className={`p-1.5 text-xs font-semibold rounded-lg border transition-all inline-flex items-center justify-center ${
+                            canGradeSubject 
+                              ? 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 shadow-2xs active:scale-95 cursor-pointer' 
+                              : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                          }`}
+                          title="คัดลอกตารางจากปีก่อน"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-amber-600" />
+                        </button>
+                      )}
+
+                      {/* ปุ่มสรุป อยู่ข้างๆ กับปุ่มคัดลอกตาราง เขียนแค่ว่า 'สรุป' ก็พอ (สำหรับ อ.1, อ.2, อ.3) */}
+                      {isSelectedSubjectKindergarten && (
+                        <button
+                          type="button"
+                          onClick={() => setKindergartenViewMode(kindergartenViewMode === 'inlineSummary' ? 'grading' : 'inlineSummary')}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-all inline-flex items-center gap-1 shadow-2xs active:scale-95 cursor-pointer ${
+                            kindergartenViewMode === 'inlineSummary'
+                              ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-300'
+                              : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200'
+                          }`}
+                          title="สรุปผลการประเมินทั้งหมด (1 ตาราง)"
+                        >
+                          <FileText className={`w-3.5 h-3.5 ${kindergartenViewMode === 'inlineSummary' ? 'text-white' : 'text-amber-600'}`} />
+                          <span>สรุป</span>
+                        </button>
+                      )}
+                    </h3>
+                  </div>
+
+                  {/* สำหรับ อ.1, อ.2, อ.3: แสดงปุ่มหน้าหัวข้อย่อย เรียง 3 ปุ่มต่อบรรทัดและขนาดเท่ากันอย่างเป็นระเบียบ */}
+                  {isSelectedSubjectKindergarten ? (
+                    <div className="w-full bg-slate-50/70 border border-slate-200/80 rounded-2xl p-2.5 space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
+                        {/* ปุ่มหัวข้อย่อยแต่ละหน้า */}
+                        {currentKindergartenSubtopics.map((stName, idx) => {
+                          const isSelected = activeKindergartenSubtopic === stName;
+                          return (
+                            <div
+                              key={idx}
+                              className={`group/tab relative flex items-center justify-between h-11 px-2.5 rounded-xl transition-all shadow-2xs border ${
+                                isSelected
+                                  ? 'bg-amber-600 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                                  : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border-slate-200 hover:border-amber-300'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedKindergartenSubtopic(stName);
+                                  if (kindergartenViewMode === 'inlineSummary') {
+                                    setKindergartenViewMode('grading');
+                                  }
+                                }}
+                                className="flex-1 min-w-0 h-full text-left text-xs font-bold cursor-pointer flex items-center gap-2 py-1"
+                              >
+                                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-mono shrink-0 ${
+                                  isSelected ? 'bg-white text-amber-700 font-black shadow-2xs' : 'bg-slate-100 text-slate-600 font-semibold'
+                                }`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="truncate leading-snug" title={stName}>{stName}</span>
+                              </button>
+
+                               {canManageKindergartenTopics && (
+                                <div className={`flex items-center gap-0.5 shrink-0 ml-1 transition-opacity ${
+                                  isSelected ? 'opacity-100' : 'opacity-70 group-hover/tab:opacity-100'
+                                }`}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenEditKindergartenUnitModal(stName);
+                                    }}
+                                    className={`p-1 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center ${
+                                      isSelected
+                                        ? 'text-white/90 hover:text-white hover:bg-black/20'
+                                        : 'text-slate-400 hover:text-amber-700 hover:bg-amber-100'
+                                    }`}
+                                    title={`แก้ไขชื่อหน่วย มาตรฐาน และตัวชี้วัด`}
+                                  >
+                                    <Edit className="w-3.5 h-3.5 stroke-[2]" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteKindergartenSubtopic(stName);
+                                    }}
+                                    className={`p-1 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center ${
+                                      isSelected
+                                        ? 'text-white/90 hover:text-white hover:bg-rose-900/40'
+                                        : 'text-slate-400 hover:text-rose-600 hover:bg-rose-100'
+                                    }`}
+                                    title={`ลบหน้าชื่อหน่วย "${stName}"`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 stroke-[2]" />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* ปุ่ม '+' สำหรับเพิ่มหน้าหน่วยการเรียนรู้ใหม่ ในกริดขนาดเท่ากัน */}
+                        {canManageKindergartenTopics && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewKindergartenSubtopicInput(`หน่วยที่ ${currentKindergartenSubtopics.length + 1}`);
+                              setNewKindergartenStandardInput('');
+                              setNewKindergartenIndicatorInput('');
+                              setIsAddKindergartenSubtopicModalOpen(true);
+                            }}
+                            className="h-11 px-3 rounded-xl text-xs font-bold bg-amber-100/90 hover:bg-amber-200 text-amber-900 border border-dashed border-amber-400 transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                            title="เพิ่มหน้า (+)"
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                            <span>เพิ่มหน้า</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* แสดงข้อมูลหน่วยที่เลือก: มาตรฐานการเรียนรู้ และ ตัวชี้วัด */}
+                      {activeKindergartenSubtopic && (() => {
+                        const curIdx = currentKindergartenSubtopics.indexOf(activeKindergartenSubtopic);
+                        const curUnitNum = curIdx >= 0 ? curIdx + 1 : 1;
+                        const curDetail = selectedSubject?.learningUnitDetails?.find(
+                          d => (curUnitNum > 0 && d.unitNumber === curUnitNum) || d.name === activeKindergartenSubtopic
+                        );
+                        const std = curDetail?.standard?.trim();
+                        const ind = curDetail?.indicator?.trim();
+
+                        return (
+                          <div className="hidden sm:flex bg-amber-50/80 border border-amber-200/90 rounded-xl p-2.5 text-xs text-amber-950 sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in">
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-amber-950 bg-amber-200/70 px-2 py-0.5 rounded-md text-[11px]">
+                                  หน่วยที่ {curUnitNum}: {activeKindergartenSubtopic}
+                                </span>
+                              </div>
+                              <div className="flex flex-col sm:flex-row gap-1 sm:gap-4 text-[11px] text-amber-900/90 pt-0.5">
+                                <div>
+                                  <span className="font-bold text-amber-950">มาตรฐานการเรียนรู้: </span>
+                                  <span>{std || '-'}</span>
+                                </div>
+                                <div className="sm:border-l sm:border-amber-300 sm:pl-3">
+                                  <span className="font-bold text-amber-950">ตัวชี้วัด: </span>
+                                  <span>{ind || '-'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {canManageKindergartenTopics && activeKindergartenSubtopic && (
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <div className="relative">
+                                  <button
+                                    type="button"
+                                    onClick={() => setStarMenuOpenSubtopic(starMenuOpenSubtopic === activeKindergartenSubtopic ? null : activeKindergartenSubtopic)}
+                                    className="px-2.5 py-1 text-[11px] font-bold text-amber-900 bg-amber-200/80 hover:bg-amber-300 rounded-lg flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
+                                    title="ให้คะแนนระดับเดียวกันทุกคนในหน้านี้"
+                                  >
+                                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-600" />
+                                    <span>ให้คะแนนทั้งหน้า</span>
+                                  </button>
+
+                                  {starMenuOpenSubtopic === activeKindergartenSubtopic && (
+                                    <>
+                                      <div
+                                        className="fixed inset-0 z-30"
+                                        onClick={() => setStarMenuOpenSubtopic(null)}
+                                      />
+                                      <div className="absolute right-0 top-full mt-1.5 z-40 bg-white border border-amber-200 rounded-xl shadow-lg p-1.5 min-w-[140px] animate-in fade-in zoom-in-95 text-slate-800">
+                                        <div className="text-[10px] font-bold text-amber-900 px-2 py-1 border-b border-amber-100 mb-1 flex items-center gap-1">
+                                          <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
+                                          <span>ให้คะแนนเท่ากันทั้งหน้า</span>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                          {Array.from({ length: activeRubricMaxLevel }, (_, i) => activeRubricMaxLevel - i).map((lvl) => {
+                                            const rubricObj = activeRubricLevels.find(r => r.level === lvl);
+                                            return (
+                                              <button
+                                                key={lvl}
+                                                type="button"
+                                                onClick={() => handleBatchSetRubricScoreForPage(activeKindergartenSubtopic, lvl)}
+                                                className="w-full text-left px-2 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-50 text-slate-700 hover:text-amber-900 flex items-center justify-between transition-colors cursor-pointer"
+                                              >
+                                                <div className="flex items-center gap-1.5">
+                                                  <span className={`w-4 h-4 rounded text-[10px] font-bold text-white flex items-center justify-center ${
+                                                    lvl === 3 ? 'bg-emerald-600' :
+                                                    lvl === 2 ? 'bg-sky-600' :
+                                                    lvl === 1 ? 'bg-amber-500' : 'bg-indigo-600'
+                                                  }`}>
+                                                    {lvl}
+                                                  </span>
+                                                  <span>{rubricObj?.label || `ระดับ ${lvl}`}</span>
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditKindergartenUnitModal(activeKindergartenSubtopic)}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-amber-800 hover:text-amber-950 bg-amber-100 hover:bg-amber-200 rounded-lg flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                                  title="แก้ไขชื่อหน่วย มาตรฐานการเรียนรู้ และตัวชี้วัด"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                  <span>แก้ไขมาตรฐาน/ตัวชี้วัด</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    /* สำหรับ ป.1 - ม.6: หน่วยการเรียนรู้ 1, 2, 3 วงกลมเลข + ชื่อหน่วย + คะแนนเต็ม + ปุ่มแก้ไขและลบ */
+                    <div className="flex items-center gap-2 flex-wrap pt-0.5 w-full">
+                      <span className="text-[11px] font-bold text-slate-500 mr-0.5 shrink-0">หน่วยการเรียนรู้:</span>
+                      
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {currentSubjectUnits.map((uNum) => {
+                          const isSelected = selectedUnit === uNum;
+                          return (
+                            <div key={uNum} className="relative group inline-flex items-center">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedUnit(selectedUnit === uNum ? null : uNum)}
+                                className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs transition-all shadow-2xs cursor-pointer select-none ${
+                                  isSelected
+                                    ? 'bg-amber-600 text-white ring-2 ring-amber-300 scale-105'
+                                    : 'bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-900 border border-slate-300/80 hover:border-amber-400'
+                                }`}
+                                title={`หน่วยการเรียนรู้ที่ ${uNum}${isSelected ? ' (กดอีกครั้งเพื่อดูทุกหน่วย)' : ' (คลิกเพื่อเลือกดูเฉพาะหน่วยนี้)'}`}
+                              >
+                                {uNum}
+                              </button>
+                            </div>
+                          );
+                        })}
+
+                        {/* ปุ่ม + เพิ่มหน่วยการเรียนรู้ */}
+                        {canManageUnits && (
+                          <button
+                            type="button"
+                            onClick={handleOpenAddUnitModal}
+                            className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-dashed border-amber-300 hover:border-amber-400 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            title="เพิ่มหน่วยการเรียนรู้ (+)"
+                          >
+                            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* เมื่อกดเลือกหน่วยการเรียนรู้ ให้แสดงชื่อหน่วย คะแนนเต็ม พร้อมปุ่มแก้ไขและลบในบรรทัดเดียวกัน */}
+                      {selectedUnit !== null && (() => {
+                        const activeDetail = selectedSubject?.learningUnitDetails?.find(d => d.unitNumber === selectedUnit);
+                        const uName = activeDetail?.name || '';
+                        const uScore = activeDetail?.score;
+
+                        return (
+                          <div className="flex items-center gap-2 px-2.5 py-1 bg-amber-50/90 text-amber-900 rounded-xl border border-amber-200/80 text-xs font-semibold animate-in fade-in">
+                            <span className="font-bold text-amber-950">
+                              หน่วยที่ {selectedUnit}{uName ? `: ${uName}` : ''}{typeof uScore === 'number' && uScore > 0 ? ` (${uScore} คะแนน)` : ''}
+                            </span>
+
+                            {canManageUnits && (
+                              <div className="flex items-center gap-1 ml-1 border-l border-amber-200 pl-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditUnitModal(selectedUnit)}
+                                  className="p-1 hover:bg-amber-200/80 text-amber-800 rounded-lg transition-all cursor-pointer"
+                                  title={`แก้ไขชื่อและคะแนนเต็มของหน่วยที่ ${selectedUnit}`}
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setUnitToDelete(selectedUnit)}
+                                  className="p-1 hover:bg-rose-100 text-rose-600 rounded-lg transition-all cursor-pointer"
+                                  title={`ลบหน่วยการเรียนรู้ที่ ${selectedUnit}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {!isAdminReadOnly && assignmentItems.length === 0 && (
+                    <button
+                      onClick={() => {
+                        if (!canGradeSubject) {
+                          onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถเพิ่มช่องงานได้');
+                          return;
+                        }
+                        handleLoadSampleAssignments();
+                      }}
+                      disabled={!canGradeSubject}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors flex items-center gap-1 ${
+                        canGradeSubject 
+                          ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 cursor-pointer' 
+                          : 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                      <span>โหลดตัวอย่าง 3 ช่องงาน</span>
+                    </button>
+                  )}
+
+                  {isMemberLockedReadOnly && (
+                    <div className="px-3 py-1 bg-amber-50 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                      <Lock className="w-4 h-4 text-amber-600" />
+                      <span>ภาคเรียนถูกล็อก</span>
+                    </div>
+                  )}
+
+                  {isAdminReadOnly && (
+                    <div className="px-3 py-1 bg-sky-50 text-sky-850 border border-sky-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                      <Eye className="w-4 h-4 text-sky-600" />
+                      <span>ดูได้อย่างเดียว</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+            {gradingViewMode === 'grade' && showGradeButton ? (
+              <div className="p-4 sm:p-6 space-y-4 bg-white border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <Award className="w-4 h-4 text-amber-600" />
+                    <span>ตารางสรุปผลการเรียน (เกรด) ระดับชั้น {selectedSubject?.gradeLevel} ภาคเรียนที่ {currentSemester} ปีการศึกษา {currentAcademicYear}</span>
+                  </h3>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
+                        <th className="py-2.5 px-3 text-center w-12 border-r border-slate-200">เลขที่</th>
+                        <th className="py-2.5 px-3 text-center w-28 border-r border-slate-200">รหัสประจำตัว</th>
+                        <th className="py-2.5 px-4 border-r border-slate-200 min-w-[160px]">ชื่อ - นามสกุล</th>
+                        {subjects.filter(s => s.gradeLevel === selectedSubject?.gradeLevel && (!s.semester || s.semester === currentSemester) && isSubjectInYear(s, currentAcademicYear)).map(subj => (
+                          <th key={subj.id} className="py-2.5 px-2 text-center border-r border-slate-200 bg-amber-50/70 text-amber-950 font-bold min-w-[100px]" title={subj.name}>
+                            <div className="truncate max-w-[130px] mx-auto">{subj.code} {subj.name}</div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gradeStudents.map((student, idx) => {
+                        const semSubs = subjects.filter(s => s.gradeLevel === selectedSubject?.gradeLevel && (!s.semester || s.semester === currentSemester) && isSubjectInYear(s, currentAcademicYear));
+                        return (
+                          <tr key={student.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 text-center font-mono text-slate-500 border-r border-slate-100 font-bold">
+                              {student.rollNumber ?? (idx + 1)}
+                            </td>
+                            <td className="py-2 px-3 text-center font-mono text-slate-600 border-r border-slate-100">
+                              {student.studentCode || '-'}
+                            </td>
+                            <td className="py-2 px-4 font-semibold text-slate-900 border-r border-slate-100">
+                              {student.prefix}{student.firstName} {student.lastName}
+                            </td>
+                            {semSubs.map(subj => {
+                              const gRec = grades.find(g => g.studentId === student.id && g.subjectId === subj.id && g.semester === currentSemester);
+                              const scoreVal = gRec?.totalScore !== undefined ? gRec.totalScore : 0;
+                              const gradeVal = gRec?.totalScore !== undefined ? calculateThaiGrade(scoreVal) : '-';
+
+                              return (
+                                <td key={subj.id} className="py-2 px-2 text-center font-mono font-bold text-amber-950 bg-amber-50/20 border-r border-slate-100 text-sm">
+                                  {gradeVal}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : isSelectedSubjectKindergarten && kindergartenViewMode === 'inlineSummary' ? (
+              <div className="p-2 sm:p-3 space-y-3 bg-white border-t border-slate-200">
+                {/* Header & Control Bar */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 print:hidden">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-base shadow-2xs shrink-0">
+                      📊
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                        <span>ตารางสรุปผลการประเมินพัฒนาการ ({selectedSubject.gradeLevel})</span>
+                        <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">
+                          วิชา {selectedSubject.name} ({selectedSubject.code})
+                        </span>
+                      </h3>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Print Title Header (เฉพาะเวลาสั่งพิมพ์) */}
+                <div className="hidden print:block text-center pb-3 border-b-2 border-slate-800 space-y-1">
+                  <h2 className="text-lg font-black text-slate-900">
+                    แบบรายงานสรุปผลการประเมินพัฒนาการระดับปฐมวัย ({selectedSubject.gradeLevel})
+                  </h2>
+                  <p className="text-xs text-slate-700">
+                    วิชา {selectedSubject.name} ({selectedSubject.code}) • ภาคเรียนที่ {currentSemester} ปีการศึกษา {currentAcademicYear}
+                  </p>
+                </div>
+
+                {/* 1 Single Consolidated Table */}
+                <div className="overflow-x-auto rounded-xl border border-slate-300 shadow-2xs bg-white">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 sticky top-0 z-10">
+                      {/* Upper Header Row: Grouped by Subtopic/Page */}
+                      <tr className="border-b border-slate-200">
+                        <th rowSpan={2} className="py-2 px-1 text-center w-10 min-w-[38px] bg-slate-100 border-r border-b border-slate-300 font-bold text-slate-800 text-[11px] shrink-0">
+                          เลขที่
+                        </th>
+                        <th rowSpan={2} className="py-2 px-2 text-center min-w-[120px] bg-slate-100 border-r border-b border-slate-300 font-bold text-slate-800 text-[11px] shrink-0">
+                          ชื่อ - นามสกุล
+                        </th>
+
+                        {currentKindergartenSubtopics.map((stName, pIdx) => {
+                          const pageUnitNum = pIdx + 1;
+                          const pageAssignments = (selectedSubject.assignmentItems || []).filter(
+                            it => it.unitNumber === pageUnitNum || it.name === stName
+                          );
+                          const cols = pageAssignments.length > 0
+                            ? pageAssignments
+                            : [{ id: `asg-k-${pageUnitNum}-1`, name: stName, unitNumber: pageUnitNum, maxScore: activeRubricMaxLevel }];
+                          const colSpan = cols.length + 1; // score columns + 1 qualitative summary column
+
+                          return (
+                            <th
+                              key={`grp-${pIdx}`}
+                              colSpan={colSpan}
+                              className={`py-1.5 px-1 text-center border-r border-b border-slate-300 ${
+                                pIdx % 2 === 0 ? 'bg-amber-100/90 text-amber-950' : 'bg-orange-100/90 text-orange-950'
+                              }`}
+                            >
+                              <div className="flex items-center justify-center gap-1">
+                                <span className="w-4 h-4 rounded bg-white/90 text-amber-900 font-mono text-[10px] font-black inline-flex items-center justify-center shadow-2xs">
+                                  {pageUnitNum}
+                                </span>
+                                <span className="font-bold text-[11px] truncate max-w-[160px]" title={stName}>
+                                  หน้า: {stName}
+                                </span>
+                              </div>
+                            </th>
+                          );
+                        })}
+
+                        {/* Final 2 Columns Group Header */}
+                        <th colSpan={2} className="py-1.5 px-2 text-center bg-emerald-100 text-emerald-950 border-b border-slate-300 font-bold text-[11px]">
+                          สรุปภาพรวมของหน้าทั้งหมด
+                        </th>
+                      </tr>
+
+                      {/* Lower Header Row: Columns per Page + Standard Quality + Final Overall */}
+                      <tr>
+                        {currentKindergartenSubtopics.map((stName, pIdx) => {
+                          const pageUnitNum = pIdx + 1;
+                          const pageDetail = selectedSubject.learningUnitDetails?.find(
+                            d => (pageUnitNum > 0 && d.unitNumber === pageUnitNum) || d.name === stName
+                          );
+                          const pageAssignments = (selectedSubject.assignmentItems || []).filter(
+                            it => it.unitNumber === pageUnitNum || it.name === stName
+                          );
+                          const cols = pageAssignments.length > 0
+                            ? pageAssignments
+                            : [{ id: `asg-k-${pageUnitNum}-1`, name: stName, unitNumber: pageUnitNum, maxScore: activeRubricMaxLevel }];
+
+                          return (
+                            <React.Fragment key={`subhead-${pIdx}`}>
+                              {cols.map((asg) => (
+                                <th
+                                  key={asg.id}
+                                  className="py-1 px-1 text-center border-r border-b border-slate-200 min-w-[45px] max-w-[65px] bg-white font-semibold text-slate-700 text-[10px]"
+                                  title={asg.name}
+                                >
+                                  <div className="truncate max-w-[65px] font-bold text-slate-800">
+                                    {asg.name}
+                                  </div>
+                                </th>
+                              ))}
+
+                              {/* สรุปคุณภาพ (เขียนตามชื่อ มาตรฐานการเรียนรู้) */}
+                              <th
+                                className="py-1 px-1 text-center border-r border-b border-slate-300 min-w-[75px] max-w-[95px] bg-amber-50/80 text-amber-950 font-bold"
+                                title={pageDetail?.standard || 'มาตรฐานการเรียนรู้'}
+                              >
+                                <div className="text-[10px] font-black text-amber-900 leading-tight">สรุปคุณภาพ</div>
+                                <div className="text-[9px] font-semibold text-amber-800 truncate max-w-[90px]">
+                                  {pageDetail?.standard?.trim() ? `(${pageDetail.standard.trim()})` : '(มฐ.)'}
+                                </div>
+                              </th>
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {/* Column ที่ 2 สุดท้าย: สรุปปริมาณ */}
+                        <th className="py-1 px-1 text-center min-w-[65px] max-w-[80px] bg-amber-200/90 text-amber-950 font-black border-r border-b border-amber-300 text-[10px] leading-tight">
+                          สรุปปริมาณ
+                        </th>
+
+                        {/* Column สุดท้าย: สรุปคุณภาพ */}
+                        <th className="py-1 px-1 text-center min-w-[70px] max-w-[85px] bg-emerald-200 text-emerald-950 font-black border-b border-emerald-300 text-[10px] leading-tight">
+                          สรุปคุณภาพ
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {gradeStudents.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={
+                              2 +
+                              currentKindergartenSubtopics.reduce((sum, st, idx) => {
+                                const pageAssignments = (selectedSubject.assignmentItems || []).filter(
+                                  it => it.unitNumber === idx + 1 || it.name === st
+                                );
+                                return sum + (pageAssignments.length > 0 ? pageAssignments.length : 1) + 1;
+                              }, 0) +
+                              2
+                            }
+                            className="py-8 text-center text-slate-400 text-xs"
+                          >
+                            ไม่มีข้อมูลนักเรียนในระดับชั้นนี้
+                          </td>
+                        </tr>
+                      ) : (
+                        gradeStudents.map((st, sIdx) => {
+                          const row = scoreRows[st.id];
+                          const overall = getStudentOverallRubric(st.id);
+
+                          return (
+                            <tr key={st.id} className="hover:bg-amber-50/30 transition-colors">
+                              {/* Column 1: เลขที่ */}
+                              <td className="py-1 px-1 text-center font-mono font-bold text-slate-700 text-[11px] border-r border-slate-200">
+                                {st.rollNumber ?? (sIdx + 1)}
+                              </td>
+
+                              {/* Column 2: ชื่อ - นามสกุล */}
+                              <td className="py-1 px-1.5 font-semibold text-slate-800 border-r border-slate-200 text-[11px] whitespace-nowrap">
+                                <div className="flex items-center gap-1">
+                                  <span>{st.prefix}{st.firstName} {st.lastName}</span>
+                                  {st.nickname && (
+                                    <span className="text-[9px] text-slate-400 font-normal">({st.nickname})</span>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* Columns for each subtopic page */}
+                              {currentKindergartenSubtopics.map((stName, pIdx) => {
+                                const pageUnitNum = pIdx + 1;
+                                const pageAssignments = (selectedSubject.assignmentItems || []).filter(
+                                  it => it.unitNumber === pageUnitNum || it.name === stName
+                                );
+                                const cols = pageAssignments.length > 0
+                                  ? pageAssignments
+                                  : [{ id: `asg-k-${pageUnitNum}-1`, name: stName, unitNumber: pageUnitNum, maxScore: activeRubricMaxLevel }];
+                                const pSummary = getStudentSubtopicSummary(st.id, cols);
+
+                                return (
+                                  <React.Fragment key={`cell-page-${pIdx}`}>
+                                    {cols.map(asg => {
+                                      const score = row?.assignmentScores?.[asg.id];
+                                      return (
+                                        <td key={asg.id} className="py-1 px-1 text-center font-mono font-bold border-r border-slate-100">
+                                          {typeof score === 'number' && score > 0 ? (
+                                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[10px] text-white font-black shadow-2xs ${
+                                              score === 3 ? 'bg-emerald-600' :
+                                              score === 2 ? 'bg-sky-600' :
+                                              score === 1 ? 'bg-amber-500' : 'bg-indigo-600'
+                                            }`}>
+                                              {score}
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-300 font-normal text-[10px]">-</span>
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+
+                                    {/* สรุปคุณภาพของหน้านี้ */}
+                                    <td className="py-1 px-1 text-center border-r border-slate-300 bg-amber-50/30">
+                                      {pSummary.score !== null ? (
+                                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                                          pSummary.score === 3 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                          pSummary.score === 2 ? 'bg-sky-100 text-sky-800 border border-sky-300' :
+                                          pSummary.score === 1 ? 'bg-amber-100 text-amber-800 border border-amber-300' :
+                                          'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                                        }`}>
+                                          {pSummary.label}
+                                        </span>
+                                      ) : (
+                                        <span className="text-slate-300 text-[10px] font-normal">-</span>
+                                      )}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
+
+                              {/* Column ที่ 2 สุดท้าย: สรุปปริมาณของหน้าทั้งหมด */}
+                              <td className="py-1 px-1 text-center font-mono font-black border-r border-amber-300 bg-amber-50/60 text-amber-950">
+                                {overall.score !== null ? (
+                                  <div className="flex flex-col items-center justify-center leading-none">
+                                    <span className="text-xs font-black text-amber-950">{overall.score}</span>
+                                    {overall.average && (
+                                      <span className="text-[9px] text-amber-800 font-medium font-sans">
+                                        ({overall.average})
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300 font-normal text-[10px]">-</span>
+                                )}
+                              </td>
+
+                              {/* Column สุดท้าย: สรุปคุณภาพของหน้าทั้งหมดที่ได้สร้างไว้ */}
+                              <td className="py-1 px-1 text-center bg-emerald-50/50">
+                                {overall.score !== null ? (
+                                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold shadow-2xs ${
+                                    overall.score === 3 ? 'bg-emerald-600 text-white' :
+                                    overall.score === 2 ? 'bg-sky-600 text-white' :
+                                    overall.score === 1 ? 'bg-amber-600 text-white' :
+                                    'bg-indigo-600 text-white'
+                                  }`}>
+                                    {overall.label}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 text-[10px] font-normal">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+
+                    {/* Table Footer: สรุปจำนวนนักเรียนที่ประเมินแล้ว */}
+                    {gradeStudents.length > 0 && (
+                      <tfoot className="bg-slate-50 font-bold border-t-2 border-slate-300 text-[10px]">
+                        <tr>
+                          <td colSpan={2} className="py-1.5 px-2 text-slate-700 text-right font-bold border-r border-slate-200">
+                            รวมทั้งหมด {gradeStudents.length} คน
+                          </td>
+                          {currentKindergartenSubtopics.map((stName, pIdx) => {
+                            const pageUnitNum = pIdx + 1;
+                            const pageAssignments = (selectedSubject.assignmentItems || []).filter(
+                              it => it.unitNumber === pageUnitNum || it.name === stName
+                            );
+                            const cols = pageAssignments.length > 0
+                              ? pageAssignments
+                              : [{ id: `asg-k-${pageUnitNum}-1`, name: stName, unitNumber: pageUnitNum, maxScore: activeRubricMaxLevel }];
+                            const assessedCount = gradeStudents.filter(
+                              st => getStudentSubtopicSummary(st.id, cols).score !== null
+                            ).length;
+
+                            return (
+                              <React.Fragment key={`foot-${pIdx}`}>
+                                {cols.map(asg => {
+                                  const countScored = gradeStudents.filter(
+                                    st => typeof scoreRows[st.id]?.assignmentScores?.[asg.id] === 'number' && (scoreRows[st.id]?.assignmentScores?.[asg.id] || 0) > 0
+                                  ).length;
+                                  return (
+                                    <td key={`ft-asg-${asg.id}`} className="py-1 px-0.5 text-center font-mono text-[10px] text-slate-600 border-r border-slate-100">
+                                      {countScored}/{gradeStudents.length}
+                                    </td>
+                                  );
+                                })}
+                                <td className="py-1 px-1 text-center font-mono font-bold text-[10px] text-amber-900 bg-amber-50/50 border-r border-slate-300">
+                                  {assessedCount}/{gradeStudents.length}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+
+                          {/* สรุปปริมาณ & คุณภาพ รวม */}
+                          <td className="py-1 px-1 text-center font-mono font-bold text-[10px] text-amber-950 bg-amber-100/60 border-r border-amber-300">
+                            {gradeStudents.filter(st => getStudentOverallRubric(st.id).score !== null).length}/{gradeStudents.length}
+                          </td>
+                          <td className="py-1 px-1 text-center font-mono font-bold text-[10px] text-emerald-950 bg-emerald-100/60">
+                            {gradeStudents.filter(st => getStudentOverallRubric(st.id).score !== null).length}/{gradeStudents.length}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+
+                {/* Rubric Criteria Legend */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-800">เกณฑ์ระดับคุณภาพ:</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {activeRubricLevels.map(rb => (
+                        <span key={rb.level} className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                          <span className={`w-4 h-4 rounded text-[10px] font-bold text-white flex items-center justify-center ${
+                            rb.level === 3 ? 'bg-emerald-600' :
+                            rb.level === 2 ? 'bg-sky-600' :
+                            rb.level === 1 ? 'bg-amber-500' : 'bg-indigo-600'
+                          }`}>
+                            {rb.level}
+                          </span>
+                          <span className="font-semibold text-slate-700">{rb.label}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    * สรุปปริมาณและคุณภาพคำนวณจากค่าเฉลี่ยของคะแนนในแต่ละหน้า
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+            {/* มุมมอง Mobile (เฉพาะหน้าจอมือถือ): สลับระหว่าง อ.1-อ.3 (หัวข้อย่อยและภาพรวม) กับ ป.1-ม.6 (ระหว่างภาค/ปลายภาค/รวม) */}
+            <div className="sm:hidden">
+              <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-2xs w-full">
+                {isSelectedSubjectKindergarten ? (
+                  <table className="w-full text-left text-xs table-fixed">
+                    <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-2 font-bold text-slate-800">ชื่อ-สกุลนักเรียน</th>
+                        <th className="py-2.5 px-1 text-center bg-amber-50/50 w-[70px] shrink-0">
+                          <div className="text-[11px] font-bold text-amber-950 whitespace-nowrap">สรุปปริมาณ</div>
+                          <span className="text-[9px] font-normal text-amber-700">(ตัวเลข)</span>
+                        </th>
+                        <th className="py-2.5 px-1 text-center bg-amber-100/70 w-[95px] shrink-0">
+                          <div className="text-[11px] font-bold text-amber-950 whitespace-nowrap">สรุปคุณภาพ</div>
+                          <span className="text-[9px] font-normal text-amber-700">(คุณภาพ)</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gradeStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="py-8 text-center text-slate-400 text-xs">
+                            ยังไม่มีนักเรียนในระดับชั้น {selectedSubject?.gradeLevel}
+                          </td>
+                        </tr>
+                      ) : (
+                        gradeStudents.map((student, idx) => {
+                          const pageSummary = getStudentSubtopicSummary(student.id, displayedKindergartenAssignments);
+
+                          return (
+                            <tr
+                              key={student.id}
+                              onClick={() => setMobileGradingStudentId(student.id)}
+                              className="hover:bg-amber-50/40 active:bg-amber-100/50 transition-colors cursor-pointer group"
+                            >
+                              <td className="py-2.5 px-2 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="w-5 h-5 rounded-md bg-slate-100 group-hover:bg-amber-100 text-slate-600 group-hover:text-amber-900 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0">
+                                    {student.rollNumber ?? (idx + 1)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-slate-800 text-xs truncate leading-tight flex items-center gap-1">
+                                      <span className="truncate">{student.prefix}{student.firstName} {student.lastName}</span>
+                                      <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-amber-600 shrink-0" />
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2 px-1 text-center font-mono font-bold text-xs">
+                                {pageSummary.score !== null ? (
+                                  <span className={`inline-block font-mono font-bold text-xs px-2 py-0.5 rounded-lg border ${
+                                    pageSummary.score === 3 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                    pageSummary.score === 2 ? 'bg-sky-100 text-sky-800 border-sky-300' :
+                                    pageSummary.score === 1 ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                    'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                  }`}>
+                                    {pageSummary.score}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400">-</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-1 text-center">
+                                {pageSummary.score !== null ? (
+                                  <span className={`inline-block font-bold text-[11px] px-2 py-0.5 rounded-lg border ${
+                                    pageSummary.score === 3 ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                    pageSummary.score === 2 ? 'bg-sky-100 text-sky-800 border-sky-300' :
+                                    pageSummary.score === 1 ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                    'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                  }`}>
+                                    {pageSummary.label}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-slate-400">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="w-full text-left text-xs table-fixed">
+                    <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-2 font-bold text-slate-800">ชื่อ-สกุลนักเรียน</th>
+                        {/* ตารางสรุปคะแนนเต็มของหน่วยที่เลือกก่อนคะแนนระหว่างภาค (แสดงเฉพาะหน่วยที่เลือก) */}
+                        {selectedUnit !== null && (() => {
+                          const detail = selectedSubject?.learningUnitDetails?.find(d => d.unitNumber === selectedUnit);
+                          const uMaxScore = typeof detail?.score === 'number' && detail.score > 0 
+                            ? detail.score 
+                            : Math.round((selectedSubject?.courseworkScore || 70) / (currentSubjectUnits.length || 1));
+
+                          return (
+                            <th key={`muhead-${selectedUnit}`} className="py-2.5 px-1 text-center bg-amber-100/80 w-[55px] shrink-0">
+                              <div className="text-[10px] font-bold text-amber-950 whitespace-nowrap truncate">หน่วย {selectedUnit}</div>
+                              <span className="text-[9px] font-normal text-amber-800">({uMaxScore})</span>
+                            </th>
+                          );
+                        })()}
+                        <th className="py-2.5 px-1 text-center bg-indigo-50/50 w-[72px] shrink-0">
+                          <div className="text-[11px] font-bold text-indigo-950 whitespace-nowrap">ระหว่างภาค</div>
+                          <span className="text-[9px] font-normal text-indigo-700">({selectedSubject?.courseworkScore || 70})</span>
+                        </th>
+                        <th className="py-2.5 px-1 text-center bg-amber-50/50 w-[58px] shrink-0">
+                          <div className="text-[11px] font-bold text-amber-950 whitespace-nowrap">ปลายภาค</div>
+                          <span className="text-[9px] font-normal text-amber-700">({selectedSubject?.examScore || 30})</span>
+                        </th>
+                        <th className="py-2.5 px-1 text-center bg-emerald-50/50 w-[50px] shrink-0">
+                          <div className="text-[11px] font-bold text-emerald-950 whitespace-nowrap">รวม</div>
+                          <span className="text-[9px] font-normal text-emerald-700">({selectedSubject?.totalScore || 100})</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gradeStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={4 + (selectedUnit !== null ? 1 : 0)} className="py-8 text-center text-slate-400 text-xs">
+                            ยังไม่มีนักเรียนในระดับชั้น {selectedSubject?.gradeLevel}
+                          </td>
+                        </tr>
+                      ) : (
+                        gradeStudents.map((student, idx) => {
+                          const row = scoreRows[student.id] || { coursework: 0, exam: 0, assignmentScores: {} };
+                          const { unitBreakdown } = calculateCourseworkScore(row.assignmentScores || {}, selectedSubject);
+                          const total = Math.min(
+                            selectedSubject?.totalScore || 100,
+                            (Number(row.coursework) || 0) + (Number(row.exam) || 0)
+                          );
+
+                          return (
+                            <tr
+                              key={student.id}
+                              onClick={() => setMobileGradingStudentId(student.id)}
+                              className="hover:bg-amber-50/40 active:bg-amber-100/50 transition-colors cursor-pointer group"
+                            >
+                              <td className="py-2.5 px-2 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="w-5 h-5 rounded-md bg-slate-100 group-hover:bg-amber-100 text-slate-600 group-hover:text-amber-900 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0">
+                                    {student.rollNumber ?? (idx + 1)}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-slate-800 text-xs truncate leading-tight flex items-center gap-1">
+                                      <span className="truncate">{student.prefix}{student.firstName} {student.lastName}</span>
+                                      <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-amber-600 shrink-0" />
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+
+                              {/* สรุปคะแนนของหน่วยที่เลือก */}
+                              {selectedUnit !== null && (() => {
+                                const uEarned = unitBreakdown[selectedUnit]?.earned ?? 0;
+                                return (
+                                  <td key={`mubody-${student.id}-${selectedUnit}`} className="py-2.5 px-1 text-center bg-amber-50/40 font-mono font-bold text-amber-900 text-xs tabular-nums">
+                                    {uEarned}
+                                  </td>
+                                );
+                              })()}
+
+                              <td className={`py-2.5 px-1 text-center font-mono font-bold text-xs tabular-nums ${
+                                row.coursework > (selectedSubject?.courseworkScore || 70) ? 'bg-rose-100 text-rose-700 font-extrabold' : 'bg-indigo-50/20 text-indigo-900'
+                              }`}>
+                                {row.coursework ?? 0}
+                              </td>
+                              <td className="py-2.5 px-1 text-center font-mono font-medium text-slate-700 text-xs tabular-nums">
+                                {row.exam ?? 0}
+                              </td>
+                              <td className="py-2.5 px-1 text-center">
+                                <span className={`inline-block font-mono font-bold text-xs tabular-nums px-1 py-0.5 rounded-md ${
+                                  total >= 80 ? 'bg-emerald-100 text-emerald-800' :
+                                  total >= 50 ? 'bg-amber-100 text-amber-800' :
+                                  'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {total}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* มุมมอง Desktop (หน้าจอคอมพิวเตอร์ / แท็บเล็ต): แสดงตารางแบบเต็มทุกช่องงาน */}
+            <div className="hidden sm:block overflow-x-auto pb-3">
+              {isSelectedSubjectKindergarten ? (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-2 w-10 text-center">เลขที่</th>
+                      <th className="py-3 px-2 w-16 text-center">รหัส</th>
+                      <th className="py-3 px-3 min-w-[140px]">ชื่อ - นามสกุล</th>
+
+                      {/* Dynamic Kindergarten Columns for CURRENT Subtopic */}
+                      {displayedKindergartenAssignments.map((asg) => (
+                        <th 
+                          key={asg.id} 
+                          className="py-2.5 px-2 text-center bg-amber-50/50 border-l border-r border-slate-200/80 min-w-[140px] align-top group/head"
+                        >
+                          <div className="flex flex-col items-center justify-between min-h-[52px]">
+                            <div className="flex items-center justify-center gap-1.5 w-full px-1">
+                              <span 
+                                className="text-[12px] font-bold text-slate-800 leading-tight text-center break-words" 
+                                title={asg.name}
+                              >
+                                {asg.name}
+                              </span>
+                              {canManageKindergartenTopics && (
+                                <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setKindergartenColumnToEdit(asg);
+                                      setEditKindergartenColumnInput(asg.name);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-amber-800 hover:bg-amber-100/70 rounded transition-colors cursor-pointer"
+                                    title="เปลี่ยนชื่อช่องประเมิน"
+                                  >
+                                    <Edit className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteKindergartenColumn(asg.id, asg.name)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-100/80 rounded transition-colors cursor-pointer"
+                                    title={`ลบช่องประเมิน "${asg.name}"`}
+                                  >
+                                    <X className="w-3 h-3 stroke-[2]" />
+                                  </button>
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      </th>
+                      ))}
+
+                      {/* ปุ่ม '+' ในตาราง สำหรับเพิ่มช่องประเมินในหน้านี้ (ไม่ใช่เพิ่มหน้าข้างบน) */}
+                      {canManageKindergartenTopics && (
+                        <th className="py-2.5 px-1 text-center bg-amber-50/40 border-l border-r border-dashed border-amber-300 w-12 min-w-[48px] align-middle">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewKindergartenColumnInput(`ช่องที่ ${displayedKindergartenAssignments.length + 1}`);
+                              setIsAddKindergartenColumnModalOpen(true);
+                            }}
+                            className="w-7 h-7 mx-auto rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-2xs hover:scale-105 active:scale-95 cursor-pointer transition-all"
+                            title={`เพิ่มช่องตารางประเมินในหน้า "${activeKindergartenSubtopic}" (+)`}
+                          >
+                            <Plus className="w-4 h-4 stroke-[2.5]" />
+                          </button>
+                        </th>
+                      )}
+
+                      {/* สรุปคะแนนเชิงปริมาณ */}
+                      <th className="py-2.5 px-2 text-center bg-amber-100/90 border-l border-amber-300 min-w-[90px] align-middle">
+                        <div className="flex flex-col items-center justify-center">
+                          <span className="text-[12px] font-bold text-amber-950 leading-tight">
+                            สรุปคะแนนปริมาณ
+                          </span>
+                        </div>
+                      </th>
+
+                      {/* สรุประดับคะแนนเชิงคุณภาพ */}
+                      <th className="py-2.5 px-3 text-center bg-amber-200/80 border-l border-amber-300 min-w-[110px] align-middle">
+                        <div className="flex flex-col items-center justify-center">
+                          <span className="text-[12px] font-bold text-amber-950 leading-tight">
+                            สรุประดับคุณภาพ
+                          </span>
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+                    {gradeStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={3 + displayedKindergartenAssignments.length + (canManageKindergartenTopics ? 1 : 0) + 2} className="py-8 text-center text-slate-400">
+                          ไม่มีข้อมูลนักเรียนในชั้นนี้
+                        </td>
+                      </tr>
+                    ) : (
+                      gradeStudents.map((student, idx) => {
+                        const row = scoreRows[student.id];
+                        const pageSummary = getStudentSubtopicSummary(student.id, displayedKindergartenAssignments);
+
+                        return (
+                          <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 px-2 text-center">
+                              <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-mono font-bold text-xs inline-flex items-center justify-center tabular-nums">
+                                {student.rollNumber ?? (idx + 1)}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-mono text-slate-400 text-xs">
+                              {student.studentCode || '-'}
+                            </td>
+                            <td className="py-2.5 px-3 font-medium text-slate-800">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMobileGradingStudentId(student.id);
+                                }}
+                                className="text-left font-medium text-slate-800 hover:text-amber-700 hover:underline flex items-center gap-1 group cursor-pointer"
+                              >
+                                <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                                <span className="opacity-0 group-hover:opacity-100 text-[10px] text-amber-600 transition-opacity">✏️</span>
+                              </button>
+                            </td>
+
+                            {/* Subtopic score cell: compact appropriate size, click opens popover with 1, 2, 3 */}
+                            {displayedKindergartenAssignments.map((asg) => {
+                              const scoreVal = row?.assignmentScores?.[asg.id];
+                              const currentLevelObj = activeRubricLevels.find(l => l.level === scoreVal);
+                              const isPickerOpen = 
+                                activeScorePicker?.studentId === student.id && 
+                                activeScorePicker?.assignmentId === asg.id;
+
+                              return (
+                                <td 
+                                  key={asg.id} 
+                                  className="relative py-2 px-1 text-center border-l border-r border-slate-100 align-middle bg-amber-50/10"
+                                >
+                                  {isPickerOpen && canGradeSubject && !isMemberLockedReadOnly && !isAdminReadOnly ? (
+                                    <>
+                                      <div 
+                                        className="fixed inset-0 z-30 bg-transparent"
+                                        onClick={() => setActiveScorePicker(null)}
+                                      />
+                                      <div className="relative z-40 flex items-center justify-center gap-1.5 py-0.5 animate-in fade-in zoom-in-95">
+                                        {activeRubricLevels.map((rubric) => {
+                                          const isSelected = scoreVal === rubric.level;
+                                          return (
+                                            <button
+                                              key={rubric.level}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSetRubricScore(student.id, asg.id, rubric.level);
+                                                setActiveScorePicker(null);
+                                              }}
+                                              title={`ระดับ ${rubric.level}: ${rubric.label}`}
+                                              className={`w-7 h-7 rounded-lg text-xs font-bold font-mono transition-all flex items-center justify-center cursor-pointer shadow-2xs active:scale-95 ${
+                                                isSelected
+                                                  ? 'bg-amber-600 text-white ring-2 ring-amber-300 scale-105 shadow-xs font-black'
+                                                  : 'bg-amber-100 hover:bg-amber-500 hover:text-white text-amber-950 border border-amber-300 font-bold'
+                                              }`}
+                                            >
+                                              {rubric.level}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                                      onClick={() => {
+                                        if (!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly) {
+                                          return;
+                                        }
+                                        setActiveScorePicker(prev => 
+                                          prev?.studentId === student.id && prev?.assignmentId === asg.id
+                                            ? null
+                                            : { studentId: student.id, assignmentId: asg.id }
+                                        );
+                                      }}
+                                      className={`w-9 h-8 mx-auto rounded-lg text-xs font-mono font-bold transition-all flex items-center justify-center cursor-pointer shadow-2xs ${
+                                        !canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly
+                                          ? 'cursor-default opacity-85'
+                                          : 'hover:scale-105 active:scale-95'
+                                      } ${
+                                        scoreVal === 3
+                                          ? 'bg-emerald-600 text-white shadow-xs'
+                                          : scoreVal === 2
+                                          ? 'bg-sky-600 text-white shadow-xs'
+                                          : scoreVal === 1
+                                          ? 'bg-amber-500 text-white shadow-xs'
+                                          : scoreVal && scoreVal > 3
+                                          ? 'bg-indigo-600 text-white shadow-xs'
+                                          : 'bg-white hover:bg-amber-50 text-slate-400 hover:text-amber-800 border border-dashed border-slate-300'
+                                      }`}
+                                      title={
+                                        scoreVal
+                                          ? `ระดับคะแนน ${scoreVal}: ${currentLevelObj?.label || ''}`
+                                          : 'คลิกเพื่อเลือกระดับคะแนน 1, 2, 3'
+                                      }
+                                    >
+                                      {scoreVal ? (
+                                        <span className="font-mono text-xs font-bold">{scoreVal}</span>
+                                      ) : (
+                                        <span className="text-[11px] text-slate-400 font-normal">-</span>
+                                      )}
+                                    </button>
+                                  )}
+                                </td>
+                              );
+                            })}
+
+                            {/* Empty TD for + column header */}
+                            {canManageKindergartenTopics && (
+                              <td className="py-2 px-1 text-center border-l border-r border-dashed border-amber-200/60 bg-amber-50/10 align-middle"></td>
+                            )}
+
+                            {/* 1. สรุปคะแนนเชิงปริมาณ (ตัวเลข 1, 2, 3...) */}
+                            <td className="py-2 px-2 text-center border-l border-slate-200 bg-amber-50/20 align-middle">
+                              {pageSummary.score !== null ? (
+                                <div className="flex flex-col items-center justify-center">
+                                  <span className={`inline-flex items-center justify-center min-w-[32px] h-7 px-2 font-mono font-black text-xs rounded-lg shadow-2xs border ${
+                                    pageSummary.score === 3 ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
+                                    pageSummary.score === 2 ? 'bg-sky-100 text-sky-900 border-sky-300' :
+                                    pageSummary.score === 1 ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                                    'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                  }`}>
+                                    {pageSummary.score}
+                                  </span>
+                                  {pageSummary.average && displayedKindergartenAssignments.length > 1 && (
+                                    <span className="text-[10px] font-mono text-slate-500 mt-0.5">
+                                      เฉลี่ย {pageSummary.average}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-medium">-</span>
+                              )}
+                            </td>
+
+                            {/* 2. สรุประดับคะแนนเชิงคุณภาพ (คำอธิบายคุณภาพตามที่ Admin กำหนดใน +วิชา) */}
+                            <td className="py-2 px-3 text-center border-l border-slate-200 bg-amber-50/40 align-middle">
+                              {pageSummary.score !== null ? (
+                                <span className={`inline-block font-bold text-xs px-2.5 py-1 rounded-lg shadow-2xs border ${
+                                  pageSummary.score === 3 ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
+                                  pageSummary.score === 2 ? 'bg-sky-100 text-sky-900 border-sky-300' :
+                                  pageSummary.score === 1 ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                                  'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                }`}>
+                                  {pageSummary.label}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-medium">ยังไม่ประเมิน</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-2 w-10 text-center">เลขที่</th>
+                    <th className="py-3 px-2 w-16 text-center">รหัส</th>
+                    <th className="py-3 px-3 min-w-[130px]">ชื่อ - นามสกุล</th>
+
+                    {/* Dynamic Assignment Columns (Narrow, 2-3 lines title, no "เติมทุกคน", no "เต็ม 5 คะแนน") */}
+                    {displayedAssignments.map((asg) => (
+                      <th 
+                        key={asg.id} 
+                        className="py-2 px-1 text-center bg-amber-50/50 border-l border-r border-slate-200/80 w-16 min-w-[62px] max-w-[76px] align-top"
+                      >
+                        <div className="flex flex-col items-center justify-between min-h-[58px]">
+                          <div 
+                            className="line-clamp-2 text-[11px] font-bold text-slate-800 leading-tight text-center break-words px-0.5" 
+                            title={asg.name}
+                          >
+                            {asg.name}
+                          </div>
+
+                          {asg.unitNumber && selectedUnit === null && (
+                            <span className="text-[9px] font-bold text-amber-700 bg-amber-100/90 px-1.5 py-0.2 rounded-full border border-amber-200 mt-0.5">
+                              หน่วย {asg.unitNumber}
+                            </span>
+                          )}
+
+                          {canGradeSubject && (
+                            <div className="flex items-center justify-center gap-1 mt-1 pt-1 border-t border-amber-200/50 w-full">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingAssignment(asg);
+                                  setAssignmentNameInput(asg.name);
+                                  setAssignmentUnitInput(asg.unitNumber || 1);
+                                }}
+                                className="p-1 text-slate-400 hover:text-amber-700 hover:bg-amber-100/70 rounded-md transition-colors cursor-pointer"
+                                title="เปลี่ยนชื่อช่องงาน"
+                              >
+                                <Edit className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteAssignment(asg.id, asg.name);
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-100/70 rounded-md transition-colors cursor-pointer"
+                                title="ลบช่องงานนี้"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+
+                    {/* ปุ่มไอคอน '+' ตรงตารางข้างช่องงาน สำหรับเพิ่มช่องงาน */}
+                    {!isAdminReadOnly && (
+                      <th className="py-2 px-1 text-center bg-amber-50/30 border-l border-r border-dashed border-amber-300 w-10 min-w-[42px] align-middle">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canGradeSubject) {
+                              onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถเพิ่มช่องงานได้');
+                              return;
+                            }
+                            const targetUnit = selectedUnit || 1;
+                            const countInUnit = assignmentItems.filter(a => (a.unitNumber || 1) === targetUnit).length;
+                            setAssignmentNameInput(`งานที่ ${countInUnit + 1}`);
+                            setAssignmentUnitInput(targetUnit);
+                            setIsAddAssignmentModalOpen(true);
+                          }}
+                          disabled={!canGradeSubject || isMemberLockedReadOnly}
+                          className={`w-7 h-7 mx-auto rounded-lg flex items-center justify-center transition-all ${
+                            canGradeSubject && !isMemberLockedReadOnly
+                              ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 shadow-2xs hover:scale-105 active:scale-95 cursor-pointer'
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-60'
+                          }`}
+                          title="เพิ่มช่องงาน (+)"
+                        >
+                          <Plus className="w-4 h-4 stroke-[2.5]" />
+                        </button>
+                      </th>
+                    )}
+
+                    {/* ตารางสรุปคะแนนเต็มของหน่วยที่เลือกไว้ข้างหน้าตารางคะแนนระหว่างภาค (แสดงเฉพาะหน่วยที่เลือก) */}
+                    {selectedUnit !== null && (() => {
+                      const detail = selectedSubject?.learningUnitDetails?.find(d => d.unitNumber === selectedUnit);
+                      const uName = detail?.name ? detail.name : `หน่วยที่ ${selectedUnit}`;
+                      const uMaxScore = typeof detail?.score === 'number' && detail.score > 0 
+                        ? detail.score 
+                        : Math.round((selectedSubject?.courseworkScore || 70) / (currentSubjectUnits.length || 1));
+
+                      return (
+                        <th 
+                          key={`uhead-${selectedUnit}`} 
+                          className="py-2 px-1 text-center bg-amber-100/80 border-l border-r border-amber-300/80 w-16 min-w-[58px] max-w-[76px] align-top"
+                          title={`สรุปคะแนน ${uName} (เต็ม ${uMaxScore} คะแนน)`}
+                        >
+                          <div className="flex flex-col items-center justify-between min-h-[58px]">
+                            <div className="line-clamp-2 text-[10px] font-bold text-amber-950 leading-tight text-center break-words px-0.5">
+                              {uName}
+                            </div>
+                            <span className="text-[9px] font-bold text-amber-800 bg-amber-200/90 px-1.5 py-0.2 rounded-full mt-0.5 border border-amber-300">
+                              เต็ม {uMaxScore}
+                            </span>
+                          </div>
+                        </th>
+                      );
+                    })()}
+
+                    <th className="py-2 px-1 text-center bg-indigo-50/40 w-16 min-w-[58px] max-w-[68px]">
+                      ระหว่างภาค
+                      <span className="block text-[9px] font-normal text-indigo-700">
+                        ({selectedSubject?.courseworkScore || 70})
+                      </span>
+                    </th>
+
+                    <th className="py-2 px-1 text-center w-14 min-w-[52px] max-w-[62px]">
+                      ปลายภาค
+                      <span className="block text-[9px] font-normal text-slate-500">
+                        ({selectedSubject?.examScore || 30})
+                      </span>
+                    </th>
+
+                    <th className="py-2 px-1 text-center w-12 min-w-[46px] max-w-[56px]">
+                      รวม
+                      <span className="block text-[9px] font-normal text-slate-500">
+                        ({selectedSubject?.totalScore || 100})
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {gradeStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6 + displayedAssignments.length + (!isAdminReadOnly ? 1 : 0) + (selectedUnit !== null ? 1 : 0)} className="py-12 text-center text-slate-400">
+                        ยังไม่มีนักเรียนในระดับชั้น {selectedSubject?.gradeLevel} (สามารถเพิ่มข้อมูลนักเรียนได้ที่เมนู "ข้อมูลพื้นฐานและธุรการชั้นเรียน")
+                      </td>
+                    </tr>
+                  ) : (
+                    gradeStudents.map((student, idx) => {
+                      const row = scoreRows[student.id] || { 
+                        coursework: 0, 
+                        exam: 0, 
+                        readingWriting: 3, 
+                        characteristics: 3, 
+                        competency: 3,
+                        assignmentScores: {}
+                      };
+
+                      const total = Math.min(
+                        selectedSubject?.totalScore || 100,
+                        (Number(row.coursework) || 0) + (Number(row.exam) || 0)
+                      );
+
+                      return (
+                        <tr key={student.id} className="hover:bg-amber-50/20 transition-colors">
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 font-mono font-bold text-xs inline-flex items-center justify-center tabular-nums">
+                              {student.rollNumber ?? (idx + 1)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-center font-mono font-medium text-slate-600 tabular-nums text-xs">
+                            {student.studentCode || '-'}
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setMobileGradingStudentId(student.id)}
+                              className="text-left hover:text-amber-700 hover:underline flex items-center gap-1.5 cursor-pointer font-semibold group/stname"
+                              title="คลิกที่ชื่อเพื่อเปิดหน้าต่างลงคะแนนรายบุคคล"
+                            >
+                              <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                              <ChevronRight className="w-3 h-3 text-slate-300 group-hover/stname:text-amber-600 opacity-60 group-hover/stname:opacity-100 transition-all group-hover/stname:translate-x-0.5" />
+                            </button>
+                          </td>
+
+                          {/* Dynamic Assignment Columns: Click to open score picker (0, 1, 2, 3, 4, 5) */}
+                          {displayedAssignments.map((asg) => {
+                            const isScoreSet = row.assignmentScores?.[asg.id] !== undefined;
+                            const currentVal = isScoreSet ? row.assignmentScores?.[asg.id] : undefined;
+                            const isPickerOpen = 
+                              activeScorePicker?.studentId === student.id && 
+                              activeScorePicker?.assignmentId === asg.id;
+
+                            return (
+                              <td 
+                                key={asg.id} 
+                                className="relative py-2 px-1 text-center bg-amber-50/20 border-l border-r border-slate-200/60 w-16 min-w-[62px] max-w-[76px]"
+                              >
+                                <button
+                                  type="button"
+                                  disabled={!canGradeSubject}
+                                  onClick={() => {
+                                    if (!canGradeSubject) {
+                                      if (isMemberLockedReadOnly) {
+                                        onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ เพื่อป้องกันการกรอกผิดภาคเรียน`);
+                                      } else if (isAdminReadOnly) {
+                                        onShowToast('info', 'โหมดดูคะแนนเท่านั้น', 'ผู้ดูแลระบบไม่สามารถปรับแก้คะแนนของสมาชิกที่ลงทะเบียนได้');
+                                      } else {
+                                        onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถลงคะแนนได้');
+                                      }
+                                      return;
+                                    }
+                                    setActiveScorePicker(prev => 
+                                      prev?.studentId === student.id && prev?.assignmentId === asg.id
+                                        ? null
+                                        : { studentId: student.id, assignmentId: asg.id }
+                                    );
+                                  }}
+                                  className={`w-9 h-9 rounded-xl font-mono font-bold text-xs mx-auto flex items-center justify-center transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 ${
+                                    !canGradeSubject ? 'opacity-85 cursor-not-allowed bg-slate-100 text-slate-700 border border-slate-200' :
+                                    currentVal === 5 ? 'bg-emerald-600 text-white shadow-xs hover:bg-emerald-700' :
+                                    currentVal === 4 ? 'bg-emerald-500 text-white shadow-xs hover:bg-emerald-600' :
+                                    currentVal === 3 ? 'bg-blue-600 text-white shadow-xs hover:bg-blue-700' :
+                                    currentVal === 2 ? 'bg-amber-500 text-white shadow-xs hover:bg-amber-600' :
+                                    currentVal === 1 ? 'bg-orange-500 text-white shadow-xs hover:bg-orange-600' :
+                                    currentVal === 0 ? 'bg-rose-500 text-white shadow-xs hover:bg-rose-600' :
+                                    'bg-slate-100 hover:bg-slate-200 text-slate-400 font-normal border border-dashed border-slate-300'
+                                  }`}
+                                  title={
+                                    isAdminReadOnly
+                                      ? 'ผู้ดูแลระบบ: โหมดดูคะแนนเท่านั้น (ครูผู้สอนเป็นผู้ลงคะแนน)'
+                                      : !canGradeSubject
+                                      ? 'สมาชิกต้องลงทะเบียนรายวิชาก่อนจึงจะสามารถลงคะแนนได้'
+                                      : `คลิกเพื่อเลือกคะแนน (ปัจจุบัน: ${isScoreSet ? currentVal : '-'} คะแนน)`
+                                  }
+                                >
+                                  {isScoreSet ? currentVal : '-'}
+                                </button>
+
+                                {/* Quick Score Picker Popover (ปรับให้แสดงด้านบนช่องสำหรับนักเรียนลำดับล่างๆ เพื่อให้กดคะแนนได้สะดวก) */}
+                                {isPickerOpen && canGradeSubject && (() => {
+                                  const isNearBottom = idx >= Math.max(2, Math.floor(gradeStudents.length / 2));
+                                  return (
+                                    <>
+                                      <div 
+                                        className="fixed inset-0 z-40 bg-transparent"
+                                        onClick={() => setActiveScorePicker(null)}
+                                      />
+                                      <div className={`absolute z-50 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-2xl border border-slate-200 p-2 w-32 animate-in fade-in zoom-in-95 select-none ${
+                                        isNearBottom ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                                      }`}>
+                                        <div className="text-[10px] font-bold text-slate-500 mb-1.5 text-center flex items-center justify-between">
+                                          <span>เลือกคะแนน</span>
+                                          <button 
+                                            type="button" 
+                                            onClick={() => setActiveScorePicker(null)}
+                                            className="text-slate-400 hover:text-slate-600 text-xs px-1"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-1">
+                                          {[5, 4, 3, 2, 1, 0].map(val => (
+                                            <button
+                                              key={val}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleSelectAssignmentScore(student.id, asg.id, val);
+                                                setActiveScorePicker(null);
+                                              }}
+                                              className={`h-7 rounded-lg text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
+                                                currentVal === val 
+                                                  ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-300 scale-105' 
+                                                  : 'bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 border border-slate-200 active:scale-95'
+                                              }`}
+                                            >
+                                              {val}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </>
+                                  );
+                                })()}
+                              </td>
+                            );
+                          })}
+
+                          {/* ช่องว่างในแถวนักเรียนข้างช่องงาน ตรงกับคอลัมน์ '+' */}
+                          {!isAdminReadOnly && (
+                            <td className="py-2 px-1 text-center bg-amber-50/10 border-l border-r border-dashed border-amber-200/50 w-10 min-w-[42px]">
+                              <span className="text-slate-300 text-xs select-none">·</span>
+                            </td>
+                          )}
+
+                          {/* สรุปคะแนนของหน่วยการเรียนรู้ที่เลือก */}
+                          {selectedUnit !== null && (() => {
+                            const { unitBreakdown } = calculateCourseworkScore(row.assignmentScores || {}, selectedSubject);
+                            const unitData = unitBreakdown[selectedUnit];
+                            const uEarned = unitData?.earned ?? 0;
+                            const uMax = unitData?.max ?? 0;
+                            const isUnitExceeded = uEarned > uMax;
+
+                            return (
+                              <td 
+                                key={`ubody-${student.id}-${selectedUnit}`} 
+                                className={`py-2 px-1 text-center border-l border-r border-amber-200/70 w-16 min-w-[58px] max-w-[76px] font-mono font-bold text-xs ${
+                                  isUnitExceeded ? 'bg-rose-100 text-rose-700 font-extrabold ring-2 ring-rose-400' : 'bg-amber-50/40 text-amber-950'
+                                }`}
+                                title={`หน่วยที่ ${selectedUnit}: ได้ ${uEarned} / ${uMax} คะแนน`}
+                              >
+                                <span className="tabular-nums">{uEarned}</span>
+                              </td>
+                            );
+                          })()}
+
+                          {/* Coursework Score (Auto-averaged or direct input, แสดงสีแดงหากเกินคะแนนเต็มระหว่างภาค) */}
+                          <td className={`py-2 px-1 text-center w-16 min-w-[58px] max-w-[68px] ${
+                            row.coursework > (selectedSubject?.courseworkScore || 70) 
+                              ? 'bg-rose-100 text-rose-700 font-extrabold border border-rose-400 ring-2 ring-rose-300' 
+                              : 'bg-indigo-50/20 text-indigo-900'
+                          }`}>
+                            {assignmentItems.length > 0 ? (
+                              <div className="flex flex-col items-center justify-center">
+                                <span className={`font-mono font-bold text-xs tabular-nums ${row.coursework > (selectedSubject?.courseworkScore || 70) ? 'text-rose-700 font-black' : 'text-indigo-900'}`}>
+                                  {row.coursework}
+                                </span>
+                                {row.coursework > (selectedSubject?.courseworkScore || 70) && (
+                                  <span className="text-[8px] font-bold text-rose-600 leading-tight">เกินเต็ม!</span>
+                                )}
+                              </div>
+                            ) : (
+                              <input
+                                type="number"
+                                disabled={!canGradeSubject}
+                                min={0}
+                                max={selectedSubject?.courseworkScore || 70}
+                                value={row.coursework ?? ''}
+                                onChange={(e) => handleScoreChange(student.id, 'coursework', Number(e.target.value))}
+                                title={isAdminReadOnly ? 'ผู้ดูแลระบบ: โหมดดูคะแนนเท่านั้น' : undefined}
+                                className={`w-12 text-center text-xs py-1 px-1 rounded-lg border font-mono font-semibold tabular-nums focus:ring-1 focus:ring-amber-500 focus:outline-none ${
+                                  row.coursework > (selectedSubject?.courseworkScore || 70) 
+                                    ? 'bg-rose-100 text-rose-700 font-extrabold border-rose-400' 
+                                    : 'border-slate-200'
+                                } ${!canGradeSubject ? 'bg-slate-100 text-slate-700 cursor-not-allowed font-bold' : ''}`}
+                              />
+                            )}
+                          </td>
+
+                          {/* Exam Score */}
+                          <td className="py-2 px-1 text-center w-14 min-w-[52px] max-w-[62px]">
+                            <input
+                              type="number"
+                              disabled={!canGradeSubject}
+                              min={0}
+                              max={selectedSubject?.examScore || 30}
+                              value={row.exam ?? ''}
+                              onChange={(e) => handleScoreChange(student.id, 'exam', Number(e.target.value))}
+                              title={isAdminReadOnly ? 'ผู้ดูแลระบบ: โหมดดูคะแนนเท่านั้น' : undefined}
+                              className={`w-12 text-center text-xs py-1 px-1 rounded-lg border border-slate-200 font-mono font-semibold tabular-nums focus:ring-1 focus:ring-amber-500 focus:outline-none ${!canGradeSubject ? 'bg-slate-100 text-slate-700 cursor-not-allowed font-bold' : ''}`}
+                            />
+                          </td>
+
+                          {/* Total Score */}
+                          <td className="py-2 px-1 text-center font-mono font-bold text-slate-800 tabular-nums text-xs w-12 min-w-[46px] max-w-[56px]">
+                            {total}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )}
+
+        {/* ส่วนรายวิชา/สมาชิกที่ยังไม่ลงทะเบียน: Admin เห็นทั้งสมาชิกและวิชา ส่วนสมาชิกเห็นเฉพาะรายวิชาที่ยังไม่มีผู้สอน */}
+        <div className="mt-6 space-y-4">
+          <div className={`grid gap-4 ${user.role === 'admin' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+            {/* Box 1: สมาชิกที่ยังไม่ลงทะเบียนวิชาสอน (มีเฉพาะ Admin ตามคำสั่ง) */}
+            {user.role === 'admin' && (
+              <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
+                <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-amber-600" />
+                    <h4 className="text-xs font-bold text-slate-800">
+                      สมาชิกที่ยังไม่ลงทะเบียนวิชาสอน
+                    </h4>
+                  </div>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                    unregisteredMembers.length > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'
+                  }`}>
+                    {unregisteredMembers.length > 0 ? `${unregisteredMembers.length} คน` : 'ครบทุกคนแล้ว'}
+                  </span>
+                </div>
+
+                <div className="p-3 divide-y divide-slate-100 flex-1 overflow-y-auto max-h-80">
+                  {unregisteredMembers.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-emerald-600 font-medium flex flex-col items-center gap-2">
+                      <CheckCircle className="w-6 h-6 text-emerald-500" />
+                      <span>สมาชิกทุกคนได้ลงทะเบียนวิชาสอนในภาคเรียนที่ {currentSemester} ครบเรียบร้อยแล้ว</span>
+                    </div>
+                  ) : (
+                    unregisteredMembers.map(mem => (
+                      <div key={mem.id} className="py-2.5 px-3 flex items-center justify-between gap-2 rounded-xl hover:bg-slate-50 transition-colors">
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-800">
+                            {mem.fullName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                            <span>ประจำชั้น: <strong>{mem.gradeLevel || 'ไม่ระบุ'}</strong></span>
+                            <span>•</span>
+                            <span>ตำแหน่ง: {mem.position || 'ครูผู้สอน'}</span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 text-right">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-200">
+                            <AlertCircle className="w-3 h-3 text-rose-500" />
+                            <span>ยังไม่ลงทะเบียน</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Box 2: รายวิชาที่ยังไม่มีสมาชิกลงทะเบียนสอน (แสดงชั้น ป.1 นำหน้าชัดเจน) */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
+              <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-amber-600" />
+                  <h4 className="text-xs font-bold text-slate-800">
+                    รายวิชาที่ยังไม่มีสมาชิกลงทะเบียนสอน (ภาค {currentSemester})
+                  </h4>
+                </div>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                  sortedUnregisteredSubjects.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {sortedUnregisteredSubjects.length} วิชา
+                </span>
+              </div>
+
+              <div className="p-3 divide-y divide-slate-100 flex-1 overflow-y-auto max-h-80">
+                {currentSemSubjects.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-slate-400 font-medium flex flex-col items-center gap-2">
+                    <BookOpen className="w-6 h-6 text-slate-300" />
+                    <span>ยังไม่มีรายวิชาที่เปิดในภาคเรียนที่ {currentSemester} (ปีการศึกษา {currentAcademicYear})</span>
+                  </div>
+                ) : sortedUnregisteredSubjects.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-emerald-600 font-medium flex flex-col items-center gap-2">
+                    <CheckCircle className="w-6 h-6 text-emerald-500" />
+                    <span>ทุกรายวิชาในภาคเรียนที่ {currentSemester} มีผู้สอนลงทะเบียนครบแล้ว</span>
+                  </div>
+                ) : (
+                  sortedUnregisteredSubjects.map(sub => (
+                    <div key={sub.id} className="py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50 rounded-xl transition-colors">
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-200 text-xs">
+                            ชั้น {sub.gradeLevel}
+                          </span>
+                          <span>{sub.name}</span>
+                          <span className="font-mono text-slate-500 text-xs">
+                            ({sub.code})
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            • {sub.hoursPerWeek} ชม./สัปดาห์
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {user.role === 'member' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleTeacherEnrollSubject(sub)}
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                            title="คลิกเพื่อลงทะเบียนเป็นผู้สอนวิชานี้เพื่อเริ่มบันทึกคะแนน"
+                          >
+                            <UserCheck className="w-4 h-4" />
+                            <span>ลงทะเบียนสอนวิชานี้</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium flex items-center gap-1">
+                            <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            <span>รอครูลงทะเบียน</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+      {/* TAB 2: ADDITIONAL ASSESSMENTS (ระบบประเมิน 3 เล่ม) */}
+      {activeTab === 'assessments' && (
+        <Assessment3Booklets
+          user={user}
+          students={students}
+          subjects={subjects}
+          grades={grades}
+          currentGradeLevel={selectedSubject?.gradeLevel || (user.assignedGrade as GradeLevel) || 'ป.1'}
+          currentSemester={currentSemester}
+          currentAcademicYear={currentAcademicYear}
+          isLocked={isMemberLockedReadOnly}
+          onSaveGrades={onSaveBulkGrades}
+          onShowToast={onShowToast}
+        />
+      )}
+
+      {/* TAB 3: SUBJECT DEFINITIONS (ADMIN ONLY) */}
+      {activeTab === 'subjects' && user.role === 'admin' && (
+        <div className="space-y-3">
+          {/* Top Bar: ปุ่มเพิ่มปี คัดลอกรายวิชา ลบ เพิ่มวิชา อยู่ข้างบนช่องกับภาคเรียน หน้าจะได้สะอาด */}
+          <div className="bg-white p-3 rounded-2xl border border-slate-200/90 shadow-xs flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* ปุ่ม วิชา */}
+              <button
+                type="button"
+                onClick={() => handleOpenSubjectModal(null)}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                title="Admin เพิ่มรายวิชาใหม่"
+              >
+                <Plus className="w-4 h-4" />
+                <span>วิชา</span>
+              </button>
+
+              {/* ปุ่ม คัดลอกวิชา */}
+              {academicYears.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const otherYear = academicYears.find(y => y !== currentAcademicYear) || academicYears[0];
+                    setCopyModalSourceYear(otherYear || '2568');
+                    setIsCopySubjectsModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  title="คัดลอกรายวิชาจากปีการศึกษาอื่นมายังปีปัจจุบัน (คะแนนจะไม่ตามมา)"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>คัดลอกวิชา</span>
+                </button>
+              )}
+            </div>
+
+
+          </div>
+
+
+
+          {/* Quick Filter Pills by Grade Level with Subject Count */}
+          <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 text-xs">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <span className="text-[11px] font-bold text-slate-500 mr-1 shrink-0">กรองระดับชั้น:</span>
+              {[
+                { id: 'all', label: 'ทั้งหมด' },
+                { id: 'ป.1', label: 'ป.1' },
+                { id: 'ป.2', label: 'ป.2' },
+                { id: 'ป.3', label: 'ป.3' },
+                { id: 'ป.4', label: 'ป.4' },
+                { id: 'ป.5', label: 'ป.5' },
+                { id: 'ป.6', label: 'ป.6' },
+                { id: 'มัธยม', label: 'มัธยมศึกษา' },
+                { id: 'อนุบาล', label: 'อนุบาล' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setSelectedGradeFilter(tab.id)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold shrink-0 transition-colors cursor-pointer ${
+                    selectedGradeFilter === tab.id
+                      ? 'bg-slate-900 text-white shadow-2xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="shrink-0">
+              <span className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                <span>รายวิชา ภาค {currentSemester}: {currentSemSubjects.length} วิชา</span>
+              </span>
+            </div>
+          </div>
+
+          {/* รายการขนาดเล็กเรียงชั้นลงมาเลย */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden divide-y divide-slate-100">
+            {(() => {
+              const semSubjects = yearSubjects.filter(sub => (!sub.semester || sub.semester === currentSemester));
+              const filtered = sortSubjectsByGrade(
+                semSubjects.filter(sub => {
+                  if (selectedGradeFilter === 'all') return true;
+                  if (selectedGradeFilter === 'มัธยม') return sub.gradeLevel.startsWith('ม.');
+                  if (selectedGradeFilter === 'อนุบาล') return sub.gradeLevel.startsWith('อ.');
+                  return sub.gradeLevel === selectedGradeFilter;
+                })
+              );
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+                    <BookOpen className="w-8 h-8 mx-auto text-slate-300" />
+                    <div>ไม่พบรายวิชาในภาคเรียนที่ {currentSemester} ปีการศึกษา {currentAcademicYear} {selectedGradeFilter !== 'all' ? `(ระดับชั้น ${selectedGradeFilter})` : ''}</div>
+                    <div className="text-[11px] text-slate-400">
+                      คุณสามารถกดปุ่ม "+ เพิ่มรายวิชา" หรือ "คัดลอกวิชาจากปีก่อน" ด้านบน
+                    </div>
+                  </div>
+                );
+              }
+
+
+              return filtered.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="py-2.5 px-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
+                >
+                  {/* Left: Class badge, Name, Semester, Ratio */}
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <span className="font-bold text-amber-900 bg-amber-100/90 border border-amber-200/80 px-2 py-0.5 rounded-lg text-xs shrink-0">
+                      ชั้น {sub.gradeLevel}
+                    </span>
+                    <span className="font-bold text-slate-800 text-xs truncate max-w-xs md:max-w-md">
+                      {sub.name}
+                    </span>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-md font-bold shrink-0 ${
+                      sub.semester === '1'
+                        ? 'bg-sky-50 text-sky-700 border border-sky-200/80'
+                        : 'bg-indigo-50 text-indigo-700 border border-indigo-200/80'
+                    }`}>
+                      ภาค {sub.semester}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-mono shrink-0">
+                      สัดส่วน {sub.courseworkScore}:{sub.examScore} (เต็ม {sub.totalScore})
+                    </span>
+                  </div>
+
+                  {/* Right: Teacher status & Action buttons with delete icon at far right */}
+                  <div className="flex items-center gap-2 shrink-0 justify-between md:justify-end">
+                    {sub.teacherName ? (
+                      <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1.5">
+                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>ครูผู้สอน: {sub.teacherName}</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1.5 font-medium">
+                        <Lock className="w-3 h-3 text-amber-500" />
+                        <span>ยังไม่มีผู้สอน (รอสมาชิกลงทะเบียน)</span>
+                      </span>
+                    )}
+
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      {/* Withdraw Teacher Button: ถามเพื่อยืนยันก่อน */}
+                      {sub.teacherName && (
+                        <button
+                          type="button"
+                          onClick={() => setSubjectToWithdraw(sub)}
+                          className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg border border-rose-200 flex items-center gap-1 transition-colors cursor-pointer"
+                          title="ถอนชื่อผู้สอน (เพื่อเปิดให้สมาชิกลงทะเบียนใหม่)"
+                        >
+                          <UserMinus className="w-3.5 h-3.5 text-rose-600" />
+                          <span>ถอนชื่อผู้สอน</span>
+                        </button>
+                      )}
+
+                      {/* Edit Subject */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSubjectModal(sub)}
+                        className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                        title="แก้ไขรายวิชา"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+
+                      {/* Delete Subject: ถามเพื่อยืนยันก่อน - ไอคอนลบอยู่ขวาสุด */}
+                      <button
+                        type="button"
+                        onClick={() => setSubjectToDelete(sub)}
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-rose-200 ml-0.5"
+                        title="ลบรายวิชา (ถามเพื่อยืนยันก่อน)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Admin Add/Edit Subject */}
+      {isSubjectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-amber-200/80">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    {editingSubject ? 'แก้ไขโครงสร้างรายวิชา' : 'เพิ่มรายวิชาใหม่'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    กำหนดข้อมูลวิชา สัดส่วนคะแนน และจำนวนหน่วยการเรียนรู้
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSubjectModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSubjectSubmit} className="space-y-3.5">
+              <div className="grid grid-cols-2 gap-3">
+                {!isKindergartenGrade(modalGradeLevel) && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">รหัสวิชา *</label>
+                    <input
+                      type="text"
+                      name="code"
+                      required
+                      placeholder="เช่น ท11101"
+                      defaultValue={editingSubject?.code || ''}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    />
+                  </div>
+                )}
+                <div className={isKindergartenGrade(modalGradeLevel) ? 'col-span-2' : ''}>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">ระดับชั้น *</label>
+                  <select
+                    name="gradeLevel"
+                    value={modalGradeLevel}
+                    onChange={(e) => {
+                      const newGrade = e.target.value as GradeLevel;
+                      setModalGradeLevel(newGrade);
+                      if (isKindergartenGrade(newGrade)) {
+                        if (kindergartenSubtopics.length === 0 || (kindergartenSubtopics.length === 1 && !kindergartenSubtopics[0])) {
+                          setKindergartenSubtopics(['']);
+                        }
+                      }
+                    }}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
+                  >
+                    {['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">ชื่อรายวิชา *</label>
+                <input
+                  type="text"
+                  name="name"
+                  required
+                  placeholder="เช่น พัฒนาการด้านร่างกาย หรือ ภาษาไทยพื้นฐาน 1"
+                  defaultValue={editingSubject?.name || ''}
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              {/* สำหรับ อ.1, อ.2, อ.3 เท่านั้น: เพิ่มช่องหัวข้อย่อยด้านล่างชื่อวิชา มา 1 ช่องพร้อมเครื่องหมาย + เพื่อเพิ่มหัวข้อต่อ */}
+              {isKindergartenGrade(modalGradeLevel) && (
+                <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                        <span>หัวข้อย่อย (สำหรับ {modalGradeLevel}) *</span>
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setKindergartenSubtopics([...kindergartenSubtopics, ''])}
+                      className="px-2.5 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-2xs flex items-center gap-1 cursor-pointer transition-all active:scale-95 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span>เพิ่มหัวข้อย่อย</span>
+                    </button>
+                  </div>
+
+                  {/* รายการช่องกรอกหัวข้อย่อย */}
+                  <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
+                    {kindergartenSubtopics.map((st, sIdx) => (
+                      <div key={sIdx} className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-lg bg-amber-200/90 text-amber-900 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                          {sIdx + 1}
+                        </span>
+                        <input
+                          type="text"
+                          value={st}
+                          onChange={(e) => {
+                            const next = [...kindergartenSubtopics];
+                            next[sIdx] = e.target.value;
+                            setKindergartenSubtopics(next);
+                          }}
+                          placeholder={`ระบุชื่อหัวข้อย่อยที่ ${sIdx + 1} (เช่น ด้านร่างกาย, ด้านอารมณ์, การทรงตัว...)`}
+                          className="flex-1 text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
+                        />
+                        {kindergartenSubtopics.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setKindergartenSubtopics(kindergartenSubtopics.filter((_, i) => i !== sIdx));
+                            }}
+                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all cursor-pointer shrink-0"
+                            title="ลบหัวข้อย่อยนี้"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* สำหรับ อ.1, อ.2, อ.3: กำหนดระดับคะแนนคุณภาพว่าควรมีกี่ระดับ และในแต่ละระดับควรใช้คำไหน (เริ่มต้น 3 ระดับ: 1=ควรเสริม, 2=ได้บางครั้ง, 3=ปฏิบัติได้) */}
+              {isKindergartenGrade(modalGradeLevel) && (
+                <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/80 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-800 mb-0.5">
+                        ระดับคะแนนคุณภาพ (สำหรับตารางใส่คะแนน)
+                      </label>
+                    </div>
+
+                    {/* ปุ่มเลือกระดับคะแนนว่าควรมีกี่ระดับ */}
+                    <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+                      {[2, 3, 4, 5].map((cnt) => (
+                        <button
+                          key={cnt}
+                          type="button"
+                          onClick={() => handleRubricCountChange(cnt)}
+                          className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                            kindergartenRubricCount === cnt
+                              ? 'bg-amber-600 text-white shadow-2xs'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {cnt} ระดับ{cnt === 3 ? ' (แนะนำ)' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ในแต่ละระดับควรใช้คำไหน ในการบอกคะแนนคุณภาพ */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {kindergartenRubricLevels.slice(0, kindergartenRubricCount).map((lvl, lIdx) => (
+                      <div key={lvl.level} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                            <span className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-white text-[11px] font-bold ${
+                              lvl.level === 3 ? 'bg-emerald-600' :
+                              lvl.level === 2 ? 'bg-amber-500' :
+                              lvl.level === 1 ? 'bg-rose-500' :
+                              lvl.level === 4 ? 'bg-sky-600' : 'bg-indigo-600'
+                            }`}>
+                              {lvl.level}
+                            </span>
+                            <span>ระดับคะแนน {lvl.level}</span>
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          value={lvl.label}
+                          onChange={(e) => {
+                            const next = [...kindergartenRubricLevels];
+                            next[lIdx] = { ...next[lIdx], label: e.target.value };
+                            setKindergartenRubricLevels(next);
+                          }}
+                          placeholder={`คำอธิบายระดับ ${lvl.level}`}
+                          className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 font-semibold text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">ชม./สัปดาห์</label>
+                  <input
+                    type="number"
+                    name="hoursPerWeek"
+                    defaultValue={editingSubject?.hoursPerWeek || 2}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">ภาคเรียน</label>
+                  <select
+                    name="semester"
+                    defaultValue={editingSubject?.semester || currentSemester}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
+                  >
+                    <option value="1">ภาคเรียนที่ 1</option>
+                    <option value="2">ภาคเรียนที่ 2</option>
+                    {!editingSubject && <option value="both">ทั้ง 2 ภาคเรียน (เทอม 1 และ เทอม 2)</option>}
+                  </select>
+                </div>
+              </div>
+
+              {/* สำหรับ ป.1 - ม.6 เท่านั้น: แสดงสัดส่วนคะแนนเต็ม ระหว่างภาค ปลายภาค */}
+              {!isKindergartenGrade(modalGradeLevel) && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">คะแนนเต็ม</label>
+                    <input
+                      type="number"
+                      name="totalScore"
+                      defaultValue={editingSubject?.totalScore || 100}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">ระหว่างภาค</label>
+                    <input
+                      type="number"
+                      name="courseworkScore"
+                      defaultValue={editingSubject?.courseworkScore || 70}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">ปลายภาค</label>
+                    <input
+                      type="number"
+                      name="examScore"
+                      defaultValue={editingSubject?.examScore || 30}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* สำหรับ ป.1 - ม.6 เท่านั้น: ส่วนกำหนดหน่วยที่ / หน่วยการเรียนรู้ (สำหรับ อ.1, อ.2, อ.3 เอาออกช่องหน่วยทั้งหมด) */}
+              {!isKindergartenGrade(modalGradeLevel) && (
+                <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                        <span>หน่วยที่ / จำนวนหน่วยการเรียนรู้</span>
+                      </label>
+                      <p className="text-[11px] text-amber-800/80 mt-0.5">
+                        พิมพ์ตัวเลข (เช่น 1, 2, 3...) ระบบจะแสดงช่องให้กรอกชื่อหน่วยและคะแนนเก็บตามจำนวน
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-xs font-bold text-amber-900">หน่วยที่:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={20}
+                        placeholder="เช่น 2"
+                        value={subjectUnitCountInput}
+                        onChange={(e) => handleUnitCountChange(e.target.value)}
+                        className="w-20 text-xs px-2.5 py-1.5 text-center font-bold font-mono rounded-xl border border-amber-300 bg-white text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-2xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* รายการแสดงช่องกรอกชื่อหน่วย (ไม่บังคับ) และ คะแนนเก็บแต่ละหน่วย */}
+                  {subjectUnitDetails.length > 0 && (
+                    <div className="space-y-2 pt-2 border-t border-amber-200/70 max-h-56 overflow-y-auto pr-1">
+                      {subjectUnitDetails.map((unitItem, uIdx) => (
+                        <div
+                          key={unitItem.unitNumber}
+                          className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs flex items-center gap-2"
+                        >
+                          <span className="w-16 text-center text-[11px] font-bold text-amber-900 bg-amber-100/90 px-2 py-1.5 rounded-lg shrink-0 border border-amber-200/80">
+                            หน่วยที่ {unitItem.unitNumber}
+                          </span>
+
+                          {/* ชื่อหน่วยการเรียนรู้ (ไม่บังคับ) */}
+                          <div className="flex-1 min-w-0">
+                            <input
+                              type="text"
+                              placeholder={`ชื่อหน่วยที่ ${unitItem.unitNumber} (ไม่บังคับชื่อหน่วย)`}
+                              value={unitItem.name}
+                              onChange={(e) => {
+                                const next = [...subjectUnitDetails];
+                                next[uIdx] = { ...next[uIdx], name: e.target.value };
+                                setSubjectUnitDetails(next);
+                              }}
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50/60 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                            />
+                          </div>
+
+                          {/* คะแนนเก็บกี่คะแนน */}
+                          <div className="w-28 shrink-0 flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              placeholder="คะแนนเก็บ"
+                              value={unitItem.score}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? '' : Number(e.target.value);
+                                const next = [...subjectUnitDetails];
+                                next[uIdx] = { ...next[uIdx], score: val };
+                                setSubjectUnitDetails(next);
+                              }}
+                              className="w-full text-xs px-2 py-1.5 text-center font-bold font-mono rounded-lg border border-amber-200 bg-amber-50/40 text-amber-950 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                            <span className="text-[11px] text-slate-600 font-semibold shrink-0">คะแนน</span>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* แสดงสรุปคะแนนเก็บรวมของทุกหน่วย */}
+                      {(() => {
+                        const totalUnitsScore = subjectUnitDetails.reduce((sum, u) => sum + (Number(u.score) || 0), 0);
+                        return (
+                          <div className="flex items-center justify-between text-xs px-1 text-amber-950 font-semibold pt-1">
+                            <span>
+                              รวมคะแนนเก็บทุกหน่วย: <strong className="font-bold text-amber-900 font-mono text-sm">{totalUnitsScore}</strong> คะแนน
+                            </span>
+                            {totalUnitsScore > 0 && (
+                              <span className="text-[11px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                                คะแนนระหว่างภาค
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsSubjectModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  {editingSubject ? 'บันทึกการแก้ไข' : 'บันทึกวิชา'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: เพิ่มหน้าหน่วยการเรียนรู้สำหรับอนุบาล (อ.1 - อ.3) */}
+      {isAddKindergartenSubtopicModalOpen && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Plus className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    เพิ่มหน้าหน่วยการเรียนรู้
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    วิชา {selectedSubject.name} ({selectedSubject.gradeLevel})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddKindergartenSubtopicModalOpen(false);
+                  setNewKindergartenSubtopicInput('');
+                  setNewKindergartenStandardInput('');
+                  setNewKindergartenIndicatorInput('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddKindergartenSubtopicSubmit(
+                  newKindergartenSubtopicInput,
+                  newKindergartenStandardInput,
+                  newKindergartenIndicatorInput
+                );
+              }}
+              className="space-y-3.5"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ชื่อหน่วย <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newKindergartenSubtopicInput}
+                  onChange={(e) => setNewKindergartenSubtopicInput(e.target.value)}
+                  placeholder="เช่น หน่วยที่ 1 ตัวเรา, กิจกรรมประจำวัน..."
+                  autoFocus
+                  required
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  มาตรฐานการเรียนรู้
+                </label>
+                <textarea
+                  rows={2}
+                  value={newKindergartenStandardInput}
+                  onChange={(e) => setNewKindergartenStandardInput(e.target.value)}
+                  placeholder="เช่น มฐ. 1 ร่างกายเจริญเติบโตตามวัยและมีสุขนิสัยที่ดี..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ตัวชี้วัด
+                </label>
+                <textarea
+                  rows={2}
+                  value={newKindergartenIndicatorInput}
+                  onChange={(e) => setNewKindergartenIndicatorInput(e.target.value)}
+                  placeholder="เช่น 1.1 มีน้ำหนักและส่วนสูงตามเกณฑ์, 1.2 สุขภาพอนามัยดี..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddKindergartenSubtopicModalOpen(false);
+                    setNewKindergartenSubtopicInput('');
+                    setNewKindergartenStandardInput('');
+                    setNewKindergartenIndicatorInput('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newKindergartenSubtopicInput.trim()}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่มหน้า</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: แก้ไขข้อมูลหน่วยการเรียนรู้สำหรับอนุบาล (ชื่อหน่วย, มาตรฐาน, ตัวชี้วัด) */}
+      {subtopicToRename && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Edit className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    แก้ไขข้อมูลหน่วยการเรียนรู้
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    วิชา {selectedSubject.name} ({selectedSubject.gradeLevel})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSubtopicToRename(null);
+                  setRenameSubtopicInput('');
+                  setRenameStandardInput('');
+                  setRenameIndicatorInput('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleEditKindergartenSubtopicSubmit(
+                  subtopicToRename,
+                  renameSubtopicInput,
+                  renameStandardInput,
+                  renameIndicatorInput
+                );
+              }}
+              className="space-y-3.5"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ชื่อหน่วย <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={renameSubtopicInput}
+                  onChange={(e) => setRenameSubtopicInput(e.target.value)}
+                  placeholder="ระบุชื่อหน่วยใหม่..."
+                  autoFocus
+                  required
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  มาตรฐานการเรียนรู้
+                </label>
+                <textarea
+                  rows={2}
+                  value={renameStandardInput}
+                  onChange={(e) => setRenameStandardInput(e.target.value)}
+                  placeholder="ระบุมาตรฐานการเรียนรู้..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ตัวชี้วัด
+                </label>
+                <textarea
+                  rows={2}
+                  value={renameIndicatorInput}
+                  onChange={(e) => setRenameIndicatorInput(e.target.value)}
+                  placeholder="ระบุตัวชี้วัด..."
+                  className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = subtopicToRename;
+                    setSubtopicToRename(null);
+                    setRenameSubtopicInput('');
+                    setRenameStandardInput('');
+                    setRenameIndicatorInput('');
+                    if (target) {
+                      setSubtopicToDelete(target);
+                    }
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ลบหน้านี้</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubtopicToRename(null);
+                      setRenameSubtopicInput('');
+                      setRenameStandardInput('');
+                      setRenameIndicatorInput('');
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!renameSubtopicInput.trim()}
+                    className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>บันทึกการแก้ไข</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการลบหน้าหน่วยสำหรับอนุบาล (อ.1 - อ.3) */}
+      {subtopicToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 font-bold">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold text-slate-800 truncate">
+                  ยืนยันการลบหน้าชื่อหน่วย
+                </h3>
+                <p className="text-xs text-rose-600 font-semibold truncate">
+                  {subtopicToDelete}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-rose-50/80 rounded-xl border border-rose-200/80 text-xs text-rose-900 space-y-1.5">
+              <p className="font-semibold">
+                คุณแน่ใจหรือไม่ว่าต้องการลบหน้า "{subtopicToDelete}"?
+              </p>
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                ⚠️ ข้อมูลช่องการประเมินและคะแนนพัฒนาการในหน้านี้ทั้งหมดจะถูกลบออกจากระบบ
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSubtopicToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (subtopicToDelete) {
+                    confirmDeleteKindergartenSubtopic(subtopicToDelete);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* (สรุปผลการประเมินปฐมวัย อ.1 - อ.3 แสดงเป็นตารางเรียงลำดับโดยตรงบนหน้าเว็บ ไม่ใช้ Pop-up ตามข้อกำหนด) */}
+
+      {/* MODAL: เพิ่มช่องตารางประเมินในหน้าย่อยปัจจุบันสำหรับอนุบาล */}
+      {isAddKindergartenColumnModalOpen && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-xs">
+                  <Plus className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    เพิ่มช่องตารางประเมินในหน้านี้
+                  </h3>
+                  <p className="text-xs text-amber-900 font-semibold">
+                    หน้า: {activeKindergartenSubtopic}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddKindergartenColumnModalOpen(false);
+                  setNewKindergartenColumnInput('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleAddKindergartenColumnSubmit(newKindergartenColumnInput);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ชื่อช่องตารางประเมิน / ตัวชี้วัด *
+                </label>
+                <input
+                  type="text"
+                  value={newKindergartenColumnInput}
+                  onChange={(e) => setNewKindergartenColumnInput(e.target.value)}
+                  placeholder="เช่น กล้ามเนิ้อมัดใหญ่, การเคลื่อนไหว หรือ ช่องที่ 2..."
+                  autoFocus
+                  required
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddKindergartenColumnModalOpen(false);
+                    setNewKindergartenColumnInput('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newKindergartenColumnInput.trim()}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                  <span>เพิ่มช่องตาราง</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: เปลี่ยนชื่อช่องตารางประเมินในอนุบาล */}
+      {kindergartenColumnToEdit && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Edit className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    เปลี่ยนชื่อช่องตารางประเมิน
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    หน้า: {activeKindergartenSubtopic}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setKindergartenColumnToEdit(null);
+                  setEditKindergartenColumnInput('');
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRenameKindergartenColumn(kindergartenColumnToEdit.id, editKindergartenColumnInput);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  ชื่อช่องตารางประเมินใหม่ *
+                </label>
+                <input
+                  type="text"
+                  value={editKindergartenColumnInput}
+                  onChange={(e) => setEditKindergartenColumnInput(e.target.value)}
+                  placeholder="ระบุชื่อช่องตารางใหม่..."
+                  autoFocus
+                  required
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKindergartenColumnToEdit(null);
+                    setEditKindergartenColumnInput('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={!editKindergartenColumnInput.trim() || editKindergartenColumnInput.trim() === kindergartenColumnToEdit.name}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>บันทึกการเปลี่ยนชื่อ</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Add New Assignment Column */}
+      {isAddAssignmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    เพิ่มช่องคะแนนงาน / ชิ้นงานใหม่
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    วิชา {selectedSubject?.code} {selectedSubject?.name} (ชั้น {selectedSubject?.gradeLevel})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddAssignmentModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  ชื่อช่องคะแนนงาน / ภาระงาน *
+                </label>
+                <input
+                  type="text"
+                  value={assignmentNameInput}
+                  onChange={(e) => setAssignmentNameInput(e.target.value)}
+                  placeholder="เช่น งานที่ 1: แบบฝึกหัด, ใบงานที่ 2"
+                  autoFocus
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                  ตัวเลือกชื่อที่ใช้บ่อย (คลิกเพื่อเลือก):
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    `งานที่ ${assignmentItems.length + 1}`,
+                    'แบบฝึกหัด',
+                    'ใบงาน',
+                    'ชิ้นงาน/โมเดล',
+                    'รายงาน/โครงงาน',
+                    'การนำเสนอ',
+                    'ทดสอบย่อย'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setAssignmentNameInput(preset)}
+                      className="px-2 py-1 text-[11px] bg-slate-100 hover:bg-amber-100 text-slate-700 hover:text-amber-900 rounded-lg transition-colors border border-slate-200/80"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  หน่วยการเรียนรู้:
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {currentSubjectUnits.map(u => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setAssignmentUnitInput(u)}
+                      className={`w-7 h-7 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        assignmentUnitInput === u
+                          ? 'bg-amber-600 text-white ring-2 ring-amber-300 scale-105'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                      }`}
+                      title={`หน่วยที่ ${u}`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAssignmentModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={!assignmentNameInput.trim()}
+                  onClick={() => handleAddAssignment(assignmentNameInput)}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 active:scale-95 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>เพิ่มช่องคะแนนงาน</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Edit Assignment Column Name */}
+      {editingAssignment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-800">
+                แก้ไขชื่อช่องคะแนนงาน
+              </h3>
+              <button
+                onClick={() => setEditingAssignment(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ชื่อช่องงาน *
+                </label>
+                <input
+                  type="text"
+                  value={assignmentNameInput}
+                  onChange={(e) => setAssignmentNameInput(e.target.value)}
+                  placeholder="ระบุชื่อช่องงาน"
+                  autoFocus
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  หน่วยการเรียนรู้:
+                </label>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {currentSubjectUnits.map(u => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setAssignmentUnitInput(u)}
+                      className={`w-7 h-7 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                        assignmentUnitInput === u
+                          ? 'bg-amber-600 text-white ring-2 ring-amber-300 scale-105'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                      }`}
+                      title={`หน่วยที่ ${u}`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDeleteAssignment(editingAssignment.id, editingAssignment.name);
+                    setEditingAssignment(null);
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ลบช่องงานนี้</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingAssignment(null)}
+                    className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!assignmentNameInput.trim()}
+                    onClick={() => handleEditAssignment(editingAssignment.id, assignmentNameInput, assignmentUnitInput)}
+                    className="px-4 py-1.5 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl shadow-xs cursor-pointer"
+                  >
+                    บันทึกชื่อใหม่
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการถอนชื่อผู้สอน (ถามเพื่อยืนยันก่อน) */}
+      {subjectToWithdraw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  ยืนยันการถอนชื่อผู้สอน
+                </h3>
+                <p className="text-xs text-slate-500">
+                  ถอนชื่อครูผู้สอนออกจากรายวิชา
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50/80 rounded-xl border border-amber-200/80 text-xs text-amber-900 space-y-2">
+              <p>
+                คุณต้องการถอนชื่อ <strong>{subjectToWithdraw.teacherName}</strong> ออกจากรายวิชา <strong>{subjectToWithdraw.name} ({subjectToWithdraw.code})</strong> ชั้น {subjectToWithdraw.gradeLevel} <strong>ภาคเรียนที่ {subjectToWithdraw.semester}</strong> ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-amber-900 font-bold leading-relaxed">
+                • การถอนชื่อนี้จะมีผลเฉพาะ <strong>ภาคเรียนที่ {subjectToWithdraw.semester}</strong> เท่านั้น <strong>จะไม่กระทบหรือลบชื่อผู้สอนในอีกภาคเรียน</strong> และคะแนนทั้งหมดจะไม่ถูกลบ
+              </p>
+              <p className="text-[11px] text-amber-700 leading-relaxed">
+                • เมื่อถอนชื่อแล้ว วิชานี้ในภาคเรียนที่ {subjectToWithdraw.semester} จะกลับสู่สถานะ "รอสมาชิกลงทะเบียน" เพื่อเปิดโอกาสให้สมาชิกท่านใหม่สามารถลงทะเบียนสอนได้
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSubjectToWithdraw(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  handleAdminWithdrawSubjectTeacher(subjectToWithdraw);
+                  setSubjectToWithdraw(null);
+                }}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <UserMinus className="w-4 h-4" />
+                <span>ยืนยันถอนชื่อผู้สอน</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการลบรายวิชา (ถามเพื่อยืนยันก่อน) */}
+      {subjectToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  ยืนยันการลบรายวิชา
+                </h3>
+                <p className="text-xs text-slate-500">
+                  ลบรายวิชานี้ออกจากระบบ
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-50/80 rounded-xl border border-rose-200/80 text-xs text-rose-900 space-y-2">
+              <p>
+                คุณต้องการลบรายวิชา <strong>{subjectToDelete.name} ({subjectToDelete.code})</strong> ชั้น {subjectToDelete.gradeLevel} ภาคเรียนที่ {subjectToDelete.semester} ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                • การลบนี้จะนำรายวิชาออกจากระบบปีการศึกษา {currentAcademicYear}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setSubjectToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteSubject(subjectToDelete.id);
+                  setSubjectToDelete(null);
+                  onShowToast('info', 'ลบรายวิชาแล้ว', `ลบรายวิชา ${subjectToDelete.name} เรียบร้อยแล้ว`);
+                }}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>ยืนยันลบรายวิชา</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: เพิ่มปีการศึกษาถัดไป (สามารถคัดลอกรายวิชาปีการศึกษาก่อนหน้านี้ได้ โดยคะแนนห้ามตามเด็ดขาด) */}
+      {isAddYearModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Calendar className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    เพิ่มปีการศึกษาใหม่
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    เพิ่มปีการศึกษาถัดไปเพื่อจัดการรายวิชา
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddYearModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  ปีการศึกษาใหม่ (พ.ศ.) *
+                </label>
+                <input
+                  type="text"
+                  value={newYearInput}
+                  onChange={(e) => setNewYearInput(e.target.value)}
+                  placeholder="เช่น 2569"
+                  autoFocus
+                  className="w-full text-xs font-bold px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                />
+              </div>
+
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={copyPreviousSubjects}
+                    onChange={(e) => setCopyPreviousSubjects(e.target.checked)}
+                    className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-800">
+                    คัดลอกรายวิชาจากปีการศึกษาก่อนหน้านี้
+                  </span>
+                </label>
+
+                {copyPreviousSubjects && (
+                  <div className="pl-6 space-y-2.5">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        เลือกปีการศึกษาต้นทางที่จะคัดลอก:
+                      </label>
+                      <select
+                        value={sourceYearToCopy}
+                        onChange={(e) => setSourceYearToCopy(e.target.value)}
+                        className="w-full text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white font-medium cursor-pointer"
+                      >
+                        {academicYears.map(yr => (
+                          <option key={yr} value={yr}>
+                            ปีการศึกษา {yr} ({subjects.filter(s => isSubjectInYear(s, yr)).length} วิชา)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="p-2.5 bg-amber-50 rounded-lg border border-amber-200/70 text-[11px] text-amber-900 leading-relaxed space-y-1">
+                      <div className="font-bold flex items-center gap-1 text-amber-800">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>เงื่อนไขความปลอดภัยตามระบบ:</span>
+                      </div>
+                      <p>• เพิ่มเฉพาะ <strong>รายวิชา</strong> เท่านั้น เพื่อให้สมาชิกลงทะเบียนเรียนในปีการศึกษาถัดไป</p>
+                      <p>• <strong>คะแนนห้ามคัดลอกตามเด็ดขาด</strong> (ตารางคะแนนจะว่างเปล่า เริ่มต้นใหม่ทั้งหมด)</p>
+                      <p>• <strong>ห้ามลบปีการศึกษาก่อนหน้านี้</strong> ข้อมูลเดิมจะถูกเก็บรักษาไว้ครบถ้วน</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAddYearModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={!newYearInput.trim()}
+                  onClick={handleAddAcademicYear}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>เพิ่มปีการศึกษา {newYearInput}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ลบปีการศึกษา (ยืนยันด้วยรหัส Admin) */}
+      {deletingYear && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  ยืนยันการลบปีการศึกษา {deletingYear}
+                </h3>
+                <p className="text-xs text-rose-600 font-semibold">
+                  ต้องยืนยันด้วยรหัส Admin
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-900 space-y-1.5">
+              <p className="font-bold flex items-center gap-1">
+                <AlertCircle className="w-4 h-4 text-rose-600" />
+                <span>คำเตือนความปลอดภัย:</span>
+              </p>
+              <p className="text-[11px] leading-relaxed">
+                การลบปีการศึกษา <strong>{deletingYear}</strong> จะลบรายวิชาทั้งหมดที่ผูกกับปีนี้ออกจากระบบ เพื่อความปลอดภัย กรุณากรอกรหัสผ่าน Admin เพื่อยืนยัน
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                รหัสผ่าน Admin *
+              </label>
+              <input
+                type="password"
+                value={adminPasswordInput}
+                onChange={(e) => setAdminPasswordInput(e.target.value)}
+                placeholder="กรอกรหัสผ่าน Admin (เช่น 123456)"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && adminPasswordInput.trim()) {
+                    handleDeleteAcademicYearConfirm();
+                  }
+                }}
+                className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeletingYear(null);
+                  setAdminPasswordInput('');
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={!adminPasswordInput.trim()}
+                onClick={handleDeleteAcademicYearConfirm}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <Lock className="w-4 h-4" />
+                <span>ยืนยันลบปีการศึกษา</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: คัดลอกรายวิชาจากปีก่อนหน้า (ในแท็บโครงสร้างรายวิชา) */}
+      {isCopySubjectsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                  <BookOpen className="w-5 h-5 text-blue-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    คัดลอกรายวิชาจากปีก่อนหน้า
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    นำเข้ารายวิชามายังปีการศึกษา {currentAcademicYear}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCopySubjectsModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  เลือกปีการศึกษาต้นทาง:
+                </label>
+                <select
+                  value={copyModalSourceYear}
+                  onChange={(e) => setCopyModalSourceYear(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                >
+                  {academicYears.filter(yr => yr !== currentAcademicYear).map(yr => (
+                    <option key={yr} value={yr}>
+                      ปีการศึกษา {yr} ({subjects.filter(s => isSubjectInYear(s, yr)).length} รายวิชา)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 space-y-1.5">
+                <p className="font-bold flex items-center gap-1 text-amber-800">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  <span>กติกาการคัดลอก:</span>
+                </p>
+                <p>• ระบบจะคัดลอกเฉพาะ <strong>โครงสร้างรายวิชา</strong> (รหัส, ชื่อวิชา, ระดับชั้น, คาบเรียน, สัดส่วนคะแนน) เท่านั้น</p>
+                <p>• <strong>คะแนนห้ามคัดลอกตามเด็ดขาด</strong> เพื่อให้สมาชิกลงทะเบียนและเริ่มบันทึกคะแนนใหม่ในปี {currentAcademicYear}</p>
+                <p>• <strong>ชื่อครูผู้สอนจะถูกรีเซ็ต</strong> เพื่อเปิดให้สมาชิกสามารถลงทะเบียนสอนใหม่ได้</p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCopySubjectsModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopySubjectsFromSourceYear}
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>คัดลอกรายวิชามาใช้</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: คัดลอกตารางเมื่อปีการศึกษาก่อน (สะอาด กระชับ ไม่มีข้อความเกะกะ) */}
+      {isCopyAssignmentModalOpen && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Sparkles className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    คัดลอกตารางงานจากปีก่อน
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    วิชา {selectedSubject.name} ({selectedSubject.code})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCopyAssignmentModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              {/* เลือกปีการศึกษาต้นทาง */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  เลือกปีการศึกษาต้นทาง:
+                </label>
+                <select
+                  value={copyTemplateSourceYear}
+                  onChange={(e) => {
+                    const newYr = e.target.value;
+                    setTimeout(() => {
+                      setCopyTemplateSourceYear(newYr);
+                      if (selectedSubject) {
+                        const targetSemester = selectedSubject.semester || currentSemester;
+                        const match = subjects.find(s => 
+                          s.id !== selectedSubject.id &&
+                          isSubjectInYear(s, newYr) &&
+                          (s.semester || '1') === targetSemester &&
+                          s.assignmentItems && s.assignmentItems.length > 0 &&
+                          (
+                            s.code.trim().toLowerCase() === selectedSubject.code.trim().toLowerCase() ||
+                            (s.name.trim().toLowerCase() === selectedSubject.name.trim().toLowerCase() && s.gradeLevel === selectedSubject.gradeLevel)
+                          )
+                        );
+                        setSelectedTemplateSubject(match || null);
+                      }
+                    }, 0);
+                  }}
+                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-white font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+                >
+                  {academicYears.filter(yr => yr !== currentAcademicYear).map(yr => (
+                    <option key={yr} value={yr}>
+                      ปีการศึกษา {yr}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedTemplateSubject && selectedTemplateSubject.assignmentItems && selectedTemplateSubject.assignmentItems.length > 0 ? (
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 max-h-48 overflow-y-auto space-y-1.5">
+                  {selectedTemplateSubject.assignmentItems.map((asg, idx) => (
+                    <div key={asg.id || idx} className="text-xs flex items-center justify-between py-1.5 px-3 bg-white rounded-lg border border-slate-200/80 shadow-2xs">
+                      <span className="font-semibold text-slate-800 truncate">
+                        {idx + 1}. {asg.name} <span className="text-[11px] font-normal text-slate-500">(หน่วยที่ {asg.unitNumber || 1})</span>
+                      </span>
+                      <span className="text-[11px] font-mono font-bold text-amber-700 shrink-0 ml-2">
+                        เต็ม {asg.maxScore || 5}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-center text-xs text-slate-500">
+                  ไม่พบตารางงานในภาคเรียนที่ {selectedSubject.semester || currentSemester} ของปีการศึกษา {copyTemplateSourceYear}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCopyAssignmentModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedTemplateSubject || !selectedTemplateSubject.assignmentItems || selectedTemplateSubject.assignmentItems.length === 0}
+                  onClick={handleConfirmCopyAssignmentTemplate}
+                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>ยืนยันนำตารางงานมาใช้</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: กำหนดตารางชั่วโมงสอน & สรุปเวลาเรียนเชื่อมโยงหน้า 100 วัน */}
+      {isTeachingScheduleModalOpen && selectedSubject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-xl w-full my-auto shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95">
+            {/* Modal Header */}
+            <div className="p-3.5 sm:p-4 bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 text-white flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 backdrop-blur-sm rounded-xl shrink-0">
+                  <Clock className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 flex-wrap">
+                    <span>ตารางชั่วโมงสอน & ข้อมูลเวลาเรียน</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/20 text-white">
+                      ภาค {currentSemester}/{currentAcademicYear}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-amber-100">
+                    วิชา {selectedSubject.name} ({selectedSubject.code}) • ชั้น {selectedSubject.gradeLevel}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTeachingScheduleModalOpen(false)}
+                className="p-1.5 rounded-xl text-white/80 hover:text-white hover:bg-white/20 transition-all cursor-pointer shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-3.5 sm:p-4 overflow-y-auto space-y-4 divide-y divide-slate-100">
+              {/* ส่วนที่ 1: กำหนดตารางสอน */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>กำหนดตารางสอน</span>
+                  </h4>
+                  <span className="text-xs font-bold px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 rounded-lg">
+                    รวม: {activeTeachingDays.length} วัน ({totalWeeklyTeachingHours} ชม./สัปดาห์)
+                  </span>
+                </div>
+
+                {/* 5 วันจันทร์ - ศุกร์ รายการให้ติ๊กและระบุชั่วโมง */}
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 pt-0.5">
+                  {DAYS_OF_WEEK.map((d) => {
+                    const isChecked = (teachingScheduleDays[d.day] || 0) > 0;
+                    const hoursVal = teachingScheduleDays[d.day] || 1;
+                    return (
+                      <div
+                        key={d.day}
+                        className={`p-2 rounded-xl border transition-all flex flex-row sm:flex-col items-center justify-between sm:justify-center gap-1.5 ${
+                          isChecked
+                            ? `${d.bg} ${d.border} shadow-2xs ring-1 ring-amber-400/30`
+                            : 'bg-slate-50/70 border-slate-200 text-slate-400 opacity-75'
+                        }`}
+                      >
+                        {/* Checkbox + Day Label */}
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setTeachingScheduleDays(prev => ({ ...prev, [d.day]: 1 }));
+                              } else {
+                                setTeachingScheduleDays(prev => {
+                                  const next = { ...prev };
+                                  delete next[d.day];
+                                  return next;
+                                });
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer accent-amber-600"
+                          />
+                          <span className={`text-xs font-bold ${isChecked ? d.text : 'text-slate-600'}`}>
+                            {d.name}
+                          </span>
+                        </label>
+
+                        {/* Input ชั่วโมงด้านหลังของวัน (ค่าเริ่มต้นเป็น 1 ชั่วโมงเสมอ) */}
+                        <div className="flex items-center gap-1">
+                          {isChecked ? (
+                            <div className="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                              <input
+                                type="number"
+                                min="1"
+                                max="10"
+                                value={hoursVal}
+                                onChange={(e) => {
+                                  const val = Math.max(1, Math.min(10, parseInt(e.target.value) || 1));
+                                  setTeachingScheduleDays(prev => ({ ...prev, [d.day]: val }));
+                                }}
+                                className="w-8 text-center font-mono font-bold text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 py-0.5"
+                              />
+                              <span className="text-[10px] font-semibold text-slate-600">ชม.</span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">ไม่มีสอน</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* ส่วนที่ 2: ข้อมูลเวลาเรียน */}
+              <div className="pt-2 space-y-3">
+                {/* Warning if no days selected */}
+                {activeTeachingDays.length === 0 ? (
+                  <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-center space-y-1">
+                    <AlertCircle className="w-4 h-4 text-amber-600 mx-auto" />
+                    <p className="text-xs font-bold text-amber-900">ยังไม่ได้เลือกวันในตารางสอน</p>
+                  </div>
+                ) : (
+                  <>
+
+                    {/* View Switcher Tabs: สรุปรายชื่อนักเรียน vs แยกตามวันที่สอน */}
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-200 pt-1">
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setScheduleActiveView('students')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer ${
+                            scheduleActiveView === 'students' || scheduleActiveView === 'summary'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          รายชื่อนักเรียน ({subjectGradeStudents.length} คน)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setScheduleActiveView('dates')}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer ${
+                            scheduleActiveView === 'dates'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          แยกตามวันที่สอน ({teachingAttendanceStats.teachingDates.length} วัน)
+                        </button>
+                      </div>
+
+                      {(scheduleActiveView === 'students' || scheduleActiveView === 'summary') && (
+                        <input
+                          type="text"
+                          placeholder="ค้นหาชื่อ/เลขที่..."
+                          value={scheduleSearchQuery}
+                          onChange={(e) => setScheduleSearchQuery(e.target.value)}
+                          className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 bg-white max-w-[150px] focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                      )}
+                    </div>
+
+                    {/* View Content 1: รายชื่อนักเรียนรายบุคคล */}
+                    {(scheduleActiveView === 'students' || scheduleActiveView === 'summary') && (
+                      <div className="space-y-2">
+                        {subjectGradeStudents.length === 0 ? (
+                          <div className="p-4 bg-slate-50 rounded-xl text-center text-xs text-slate-500">
+                            ไม่พบนักเรียนในระดับชั้น {selectedSubject.gradeLevel}
+                          </div>
+                        ) : (
+                          <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                            <table className="w-full text-xs text-left">
+                              <thead className="bg-slate-100/90 text-slate-700 sticky top-0 font-bold border-b border-slate-200">
+                                <tr>
+                                  <th className="py-2 px-2.5 w-12 text-center">เลขที่</th>
+                                  <th className="py-2 px-2.5">ชื่อ - นามสกุล</th>
+                                  <th className="py-2 px-2 text-center text-emerald-800">มา (ชม.)</th>
+                                  <th className="py-2 px-2 text-center text-rose-800">ขาด (ชม.)</th>
+                                  <th className="py-2 px-2 text-center text-amber-800">ลา (ชม.)</th>
+                                  <th className="py-2 px-2 text-center text-orange-800">ป่วย (ชม.)</th>
+                                  <th className="py-2 px-2 text-center">% เวลา</th>
+                                  <th className="py-2 px-2.5 text-center">สิทธิ์สอบ</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white">
+                                {teachingAttendanceStats.studentStats
+                                  .filter(st => {
+                                    if (!scheduleSearchQuery) return true;
+                                    const q = scheduleSearchQuery.toLowerCase();
+                                    return (
+                                      st.student.firstName.toLowerCase().includes(q) ||
+                                      st.student.lastName.toLowerCase().includes(q) ||
+                                      String(st.student.rollNumber || '').includes(q)
+                                    );
+                                  })
+                                  .map((st) => (
+                                    <tr key={st.student.id} className="hover:bg-slate-50 transition-colors">
+                                      <td className="py-2 px-2.5 text-center font-mono font-bold text-slate-600">
+                                        {st.student.rollNumber || '-'}
+                                      </td>
+                                      <td className="py-2 px-2.5">
+                                        <div className="font-semibold text-slate-800">
+                                          {st.student.prefix}{st.student.firstName} {st.student.lastName}
+                                        </div>
+                                        {st.student.nickname && (
+                                          <div className="text-[10px] text-slate-400">({st.student.nickname})</div>
+                                        )}
+                                      </td>
+                                      <td className="py-2 px-2 text-center font-mono font-bold text-emerald-700 bg-emerald-50/40">
+                                        {st.presentHours}
+                                      </td>
+                                      <td className="py-2 px-2 text-center font-mono font-bold text-rose-700 bg-rose-50/40">
+                                        {st.absentHours}
+                                      </td>
+                                      <td className="py-2 px-2 text-center font-mono font-bold text-amber-700 bg-amber-50/40">
+                                        {st.personalHours}
+                                      </td>
+                                      <td className="py-2 px-2 text-center font-mono font-bold text-orange-700 bg-orange-50/40">
+                                        {st.sickHours}
+                                      </td>
+                                      <td className="py-2 px-2 text-center font-mono font-bold">
+                                        <span className={st.attendanceRate >= 80 ? 'text-emerald-700' : 'text-rose-700'}>
+                                          {st.attendanceRate}%
+                                        </span>
+                                      </td>
+                                      <td className="py-2 px-2.5 text-center">
+                                        {st.isEligible ? (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 whitespace-nowrap">
+                                            มีสิทธิ์สอบ
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 whitespace-nowrap">
+                                            มส. (ขาดเรียน)
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* View Content 2: แยกตามวันที่สอน */}
+                    {scheduleActiveView === 'dates' && (
+                      <div className="space-y-2">
+                        {teachingAttendanceStats.teachingDates.length === 0 ? (
+                          <div className="p-4 bg-slate-50 rounded-xl text-center text-xs text-slate-500">
+                            ยังไม่มีข้อมูลการเช็กชื่อในวันสอนดังกล่าว
+                          </div>
+                        ) : (
+                          <div className="max-h-60 overflow-y-auto space-y-1.5">
+                            {teachingAttendanceStats.teachingDates.map((item) => {
+                              const dayInfo = DAYS_OF_WEEK.find(x => x.day === item.dayNum);
+                              return (
+                                <div
+                                  key={item.date}
+                                  className="p-2.5 bg-slate-50/80 rounded-xl border border-slate-200/80 flex items-center justify-between gap-2 text-xs"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${dayInfo?.badge || 'bg-amber-500 text-white'}`}>
+                                      {dayInfo?.name || 'วันสอน'}
+                                    </span>
+                                    <span className="font-semibold text-slate-800">
+                                      {item.date}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                      ({item.hours} ชม.)
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 font-mono text-[11px] flex-wrap justify-end">
+                                    <span className="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60">มา {item.present}</span>
+                                    <span className="text-rose-700 font-bold bg-rose-50 px-1.5 py-0.5 rounded-md border border-rose-200/60">ขาด {item.absent}</span>
+                                    <span className="text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded-md border border-amber-200/60">ลา {item.leave}</span>
+                                    <span className="text-orange-700 font-bold bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-200/60">ป่วย {item.sick}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <span className="text-[11px] text-slate-500 truncate hidden sm:inline">
+                * ข้อมูลเวลาเรียนเชื่อมโยงกับหน้าเวลาเรียน 100 วันของครูประจำชั้นอัตโนมัติ
+              </span>
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsTeachingScheduleModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer"
+                >
+                  ปิดหน้าต่าง
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSaveTeachingSchedule();
+                    setIsTeachingScheduleModalOpen(false);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>บันทึก</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการลบหน่วยการเรียนรู้ (จะถามยืนยันหรือว่ายกเลิก) */}
+      {unitToDelete !== null && (() => {
+        const detail = selectedSubject?.learningUnitDetails?.find(d => d.unitNumber === unitToDelete);
+        const uLabel = detail?.name ? `หน่วยที่ ${unitToDelete}: ${detail.name}` : `หน่วยที่ ${unitToDelete}`;
+        const asgsInUnit = (selectedSubject?.assignmentItems || []).filter(a => a.unitNumber === unitToDelete);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 font-bold">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-bold text-slate-800 truncate">
+                    ยืนยันการลบหน่วยการเรียนรู้
+                  </h3>
+                  <p className="text-xs text-slate-500 truncate">
+                    {uLabel}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-rose-50/80 rounded-xl border border-rose-200/80 text-xs text-rose-900 space-y-1.5">
+                <p className="font-semibold">
+                  คุณแน่ใจหรือไม่ว่าต้องการลบ {uLabel}?
+                </p>
+                {asgsInUnit.length > 0 ? (
+                  <p className="text-[11px] text-rose-700 leading-relaxed">
+                    ⚠️ มีช่องงานที่ผูกกับหน่วยนี้ {asgsInUnit.length} ช่อง (ข้อมูลงานและคะแนนในหน่วยนี้ทั้งหมดจะถูกลบ และคำนวณคะแนนเก็บใหม่อัตโนมัติ)
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-rose-700 leading-relaxed">
+                    หน่วยการเรียนรู้นี้จะถูกนำออกจากวิชา {selectedSubject?.name}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setUnitToDelete(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const u = unitToDelete;
+                    setUnitToDelete(null);
+                    handleDeleteLearningUnit(u);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ยืนยันการลบ</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* MODAL: ยืนยันการลบชิ้นงาน (ถามเพื่อยืนยันก่อนลบเสมอ) */}
+      {deletingAssignmentConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0 font-bold">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold text-slate-800 truncate">
+                  ยืนยันการลบชิ้นงาน
+                </h3>
+                <p className="text-xs text-slate-500 truncate">
+                  {deletingAssignmentConfirm.name} (หน่วยที่ {deletingAssignmentConfirm.unitNumber || 1})
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-rose-50/80 rounded-xl border border-rose-200/80 text-xs text-rose-900 space-y-1">
+              <p className="font-semibold">
+                คุณแน่ใจหรือไม่ว่าต้องการลบช่อง{deletingAssignmentConfirm.name}?
+              </p>
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                ⚠️ คะแนนของนักเรียนทุกคนในชิ้นงานนี้จะถูกลบ และคำนวณคะแนนเก็บใหม่อัตโนมัติ
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setDeletingAssignmentConfirm(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = deletingAssignmentConfirm;
+                  setDeletingAssignmentConfirm(null);
+                  if (target) {
+                    handleDeleteAssignment(target.id, target.name);
+                  }
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยีนลบ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ลงคะแนนรายบุคคลแบบรวดเร็ว (สำหรับมุม Mobile หรือคลิกที่ชื่อนักเรียน) */}
+      {mobileGradingStudentId && currentGradingStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
+            {/* Header: สลับนักเรียน + ปุ่มปิด */}
+            <div className="p-3.5 bg-gradient-to-r from-amber-600 via-amber-700 to-amber-800 text-white shrink-0">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <button
+                  type="button"
+                  disabled={currentGradingIndex <= 0}
+                  onClick={handlePrevGradingStudent}
+                  className="px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                  title="นักเรียนคนก่อนหน้า"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span className="hidden xs:inline text-[11px]">ก่อนหน้า</span>
+                </button>
+
+                {/* Dropdown เลือกนักเรียนคนอื่นต่อได้ทันที เพื่อความเร็ว และสะดวก */}
+                <div className="flex-1 min-w-0 max-w-[220px]">
+                  <select
+                    value={mobileGradingStudentId}
+                    onChange={(e) => setMobileGradingStudentId(e.target.value)}
+                    className="w-full bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl px-2.5 py-1.5 border border-white/30 focus:outline-none focus:ring-2 focus:ring-amber-300 text-center truncate cursor-pointer [&>option]:text-slate-800"
+                  >
+                    {gradeStudents.map((st, idx) => (
+                      <option key={st.id} value={st.id}>
+                        #{st.rollNumber ?? (idx + 1)} {st.prefix}{st.firstName} {st.lastName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={currentGradingIndex >= gradeStudents.length - 1}
+                  onClick={handleNextGradingStudent}
+                  className="px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 disabled:opacity-30 disabled:cursor-not-allowed text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                  title="นักเรียนคนถัดไป"
+                >
+                  <span className="hidden xs:inline text-[11px]">ถัดไป</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileGradingStudentId(null)}
+                  className="w-8 h-8 rounded-xl bg-white/15 hover:bg-white/25 text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1"
+                  title="ปิดหน้าต่าง"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* ข้อมูลนักเรียน */}
+              <div className="flex items-center gap-2.5 pt-0.5">
+                <div className="w-10 h-10 rounded-2xl bg-white text-amber-900 font-mono font-bold text-sm flex items-center justify-center shadow-xs shrink-0">
+                  #{currentGradingStudent.rollNumber ?? (currentGradingIndex + 1)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-sm sm:text-base leading-tight truncate text-white">
+                    {currentGradingStudent.prefix}{currentGradingStudent.firstName} {currentGradingStudent.lastName}
+                  </h3>
+                  <div className="flex items-center gap-2 text-[11px] text-amber-100/90 truncate mt-0.5">
+                    <span>รหัส: {currentGradingStudent.studentCode || '-'}</span>
+                    <span>•</span>
+                    <span>ชั้น: {currentGradingStudent.gradeLevel}</span>
+                    <span>•</span>
+                    <span className="truncate">{selectedSubject?.name}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* แถบสรุปคะแนนสด (ระหว่างภาค / ปลายภาค / รวม หรือ พัฒนาการอนุบาล) */}
+            {isSelectedSubjectKindergarten ? (() => {
+              const overall = getStudentOverallRubric(currentGradingStudent.id);
+              return (
+                <div className="bg-emerald-50/80 border-b border-emerald-200/90 px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="bg-emerald-600 text-white font-mono font-bold text-sm px-3 py-1.5 rounded-xl shadow-xs">
+                      {overall.score !== null ? `${overall.score} / ${activeRubricMaxLevel}` : `- / ${activeRubricMaxLevel}`}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                        <span>ภาพรวมพัฒนาการ:</span>
+                        <span className="text-emerald-700 font-extrabold">{overall.score !== null ? overall.label : 'ยังไม่ประเมิน'}</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-700">
+                        {overall.average ? `คะแนนเฉลี่ย ${overall.average} (${overall.count} หัวข้อที่ประเมิน)` : `กำหนดเกณฑ์เต็ม ${activeRubricMaxLevel} ระดับ`}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 text-[10px] text-emerald-800 font-semibold bg-white/80 px-2 py-1 rounded-lg border border-emerald-200">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>เกณฑ์ {activeRubricMaxLevel} ระดับ</span>
+                  </div>
+                </div>
+              );
+            })() : (() => {
+              const row = scoreRows[currentGradingStudent.id] || { 
+                coursework: 0, 
+                exam: 0, 
+                assignmentScores: {} 
+              };
+              const total = Math.min(
+                selectedSubject?.totalScore || 100,
+                (Number(row.coursework) || 0) + (Number(row.exam) || 0)
+              );
+
+              return (
+                <div className="bg-slate-50 border-b border-slate-200 px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
+                  <div className="grid grid-cols-3 gap-2 flex-1">
+                    <div className="bg-white rounded-xl px-2 py-1.5 border border-indigo-200/80 text-center shadow-2xs">
+                      <div className="text-[10px] text-indigo-700 font-bold">ระหว่างภาค</div>
+                      <div className="font-mono font-bold text-indigo-950 text-xs sm:text-sm">
+                        {row.coursework ?? 0}
+                        <span className="text-[10px] text-indigo-500 font-normal">/{selectedSubject?.courseworkScore || 70}</span>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl px-2 py-1.5 border border-amber-200/80 text-center shadow-2xs">
+                      <div className="text-[10px] text-amber-800 font-bold">ปลายภาค</div>
+                      <div className="font-mono font-bold text-amber-950 text-xs sm:text-sm">
+                        {row.exam ?? 0}
+                        <span className="text-[10px] text-amber-600 font-normal">/{selectedSubject?.examScore || 30}</span>
+                      </div>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl px-2 py-1.5 border border-emerald-200 text-center shadow-2xs">
+                      <div className="text-[10px] text-emerald-800 font-bold">คะแนนรวม</div>
+                      <div className="font-mono font-bold text-emerald-900 text-xs sm:text-sm">
+                        {total}
+                        <span className="text-[10px] text-emerald-600 font-normal">/{selectedSubject?.totalScore || 100}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="hidden xs:flex flex-col items-center justify-center pl-1 text-[10px] text-emerald-700 font-medium">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>บันทึกอัตโนมัติ</span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* เนื้อหาการลงคะแนน */}
+            <div className="p-3.5 sm:p-4 overflow-y-auto space-y-4 flex-1">
+              {(!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly) && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    {isMemberLockedReadOnly ? 'ภาคเรียนนี้ถูกล็อกการลงคะแนนโดยผู้ดูแลระบบ' :
+                     isAdminReadOnly ? 'โหมดดูคะแนนเท่านั้น (ครูผู้สอนเป็นผู้ลงคะแนน)' :
+                     'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถลงคะแนนได้'}
+                  </span>
+                </div>
+              )}
+
+              {isSelectedSubjectKindergarten ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">
+                      หัวข้อย่อยและระดับพัฒนาการ ({currentKindergartenSubtopics.length} หัวข้อ)
+                    </span>
+                    {canGradeSubject && !isAdminReadOnly && !isMemberLockedReadOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setIsAddKindergartenSubtopicModalOpen(true)}
+                        className="text-xs font-bold text-amber-700 hover:text-amber-800 flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>เพิ่มหัวข้อ</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {currentKindergartenSubtopics.map((st, sIdx) => {
+                    const asg = getKindergartenAssignmentForSubtopic(st, sIdx);
+                    const row = scoreRows[currentGradingStudent.id];
+                    const currentScore = row?.assignmentScores?.[asg.id];
+                    const currentLevelObj = activeRubricLevels.find(l => l.level === currentScore);
+
+                    return (
+                      <div key={asg.id} className="p-3 bg-white rounded-2xl border border-slate-200 shadow-2xs space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center shrink-0">
+                              {sIdx + 1}
+                            </span>
+                            <span className="font-bold text-xs text-slate-800 leading-snug">
+                              {st}
+                            </span>
+                          </div>
+                          {currentLevelObj ? (
+                            <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                              currentScore === 3 ? 'bg-emerald-100 text-emerald-800' :
+                              currentScore === 2 ? 'bg-sky-100 text-sky-800' :
+                              currentScore === 1 ? 'bg-amber-100 text-amber-800' :
+                              'bg-indigo-100 text-indigo-800'
+                            }`}>
+                              ระดับ {currentScore}: {currentLevelObj.label}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400 font-medium shrink-0">
+                              ยังไม่ประเมิน
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Large, touch-friendly Rubric buttons: 1, 2, 3... */}
+                        {canGradeSubject && !isAdminReadOnly && !isMemberLockedReadOnly ? (
+                          <div className={`grid gap-1.5 pt-0.5 ${activeRubricLevels.length <= 3 ? 'grid-cols-3' : activeRubricLevels.length === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
+                            {activeRubricLevels.map((rubric) => {
+                              const isSelected = currentScore === rubric.level;
+                              return (
+                                <button
+                                  key={rubric.level}
+                                  type="button"
+                                  onClick={() => handleSetRubricScore(currentGradingStudent.id, asg.id, rubric.level)}
+                                  className={`p-2 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 active:scale-95 ${
+                                    isSelected
+                                      ? rubric.level === 3
+                                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs ring-2 ring-emerald-300'
+                                        : rubric.level === 2
+                                        ? 'bg-sky-600 text-white border-sky-700 shadow-xs ring-2 ring-sky-300'
+                                        : rubric.level === 1
+                                        ? 'bg-amber-500 text-white border-amber-600 shadow-xs ring-2 ring-amber-300'
+                                        : 'bg-indigo-600 text-white border-indigo-700 shadow-xs ring-2 ring-indigo-300'
+                                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  <span className="font-mono font-bold text-sm">
+                                    ระดับ {rubric.level}
+                                  </span>
+                                  <span className={`text-[10px] leading-tight font-medium ${isSelected ? 'text-white/95' : 'text-slate-500'}`}>
+                                    {rubric.label}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <>
+                  {/* ตัวกรองหน่วยการเรียนรู้ & ปุ่ม Test */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    <span className="text-[11px] font-bold text-slate-500 shrink-0">หน่วย:</span>
+                {currentSubjectUnits.map(u => {
+                  const isSelected = mobileGradingUnitTab === u;
+                  return (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setMobileGradingUnitTab(u)}
+                      className={`w-7 h-7 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center justify-center ${
+                        isSelected
+                          ? 'bg-amber-600 text-white shadow-2xs ring-2 ring-amber-300'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  );
+                })}
+
+                {/* ปุ่ม Test สำหรับลงคะแนนปลายภาค */}
+                <button
+                  type="button"
+                  onClick={() => setMobileGradingUnitTab('test')}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center justify-center gap-1 ${
+                    mobileGradingUnitTab === 'test'
+                      ? 'bg-amber-600 text-white shadow-2xs ring-2 ring-amber-300'
+                      : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                  }`}
+                >
+                  <Award className="w-3.5 h-3.5" />
+                  <span>Test</span>
+                </button>
+              </div>
+
+              {/* กรณีเลือก tab Test: แสดงหน้าลงคะแนนสอบปลายภาคเด่นชัด */}
+              {mobileGradingUnitTab === 'test' ? (
+                <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200/90 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-amber-700" />
+                      <h4 className="text-xs font-bold text-amber-950">
+                        📌 ลงคะแนนสอบปลายภาค (Test)
+                      </h4>
+                    </div>
+                    <span className="text-xs font-bold text-amber-800">
+                      เต็ม {selectedSubject?.examScore || 30} คะแนน
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+                    {/* ปุ่มปรับคะแนน -5, -1 */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        onClick={() => {
+                          const cur = Number(scoreRows[currentGradingStudent.id]?.exam) || 0;
+                          handleScoreChange(currentGradingStudent.id, 'exam', Math.max(0, cur - 5));
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg text-xs font-bold text-slate-700 cursor-pointer active:scale-95"
+                      >
+                        -5
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        onClick={() => {
+                          const cur = Number(scoreRows[currentGradingStudent.id]?.exam) || 0;
+                          handleScoreChange(currentGradingStudent.id, 'exam', Math.max(0, cur - 1));
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg text-xs font-bold text-slate-700 cursor-pointer active:scale-95"
+                      >
+                        -1
+                      </button>
+                    </div>
+
+                    {/* ช่องกรอกตัวเลขโดยตรง */}
+                    <div className="flex items-center justify-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={selectedSubject?.examScore || 30}
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        value={scoreRows[currentGradingStudent.id]?.exam ?? ''}
+                        onChange={(e) => handleScoreChange(currentGradingStudent.id, 'exam', Number(e.target.value))}
+                        className="w-16 h-9 text-center font-mono font-bold text-base rounded-xl border border-amber-300 bg-amber-50/30 text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      />
+                      <span className="text-xs font-bold text-slate-500">
+                        /{selectedSubject?.examScore || 30}
+                      </span>
+                    </div>
+
+                    {/* ปุ่มปรับคะแนน +1, +5 */}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        onClick={() => {
+                          const cur = Number(scoreRows[currentGradingStudent.id]?.exam) || 0;
+                          const maxEx = selectedSubject?.examScore || 30;
+                          handleScoreChange(currentGradingStudent.id, 'exam', Math.min(maxEx, cur + 1));
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg text-xs font-bold text-slate-700 cursor-pointer active:scale-95"
+                      >
+                        +1
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        onClick={() => {
+                          const cur = Number(scoreRows[currentGradingStudent.id]?.exam) || 0;
+                          const maxEx = selectedSubject?.examScore || 30;
+                          handleScoreChange(currentGradingStudent.id, 'exam', Math.min(maxEx, cur + 5));
+                        }}
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 rounded-lg text-xs font-bold text-slate-700 cursor-pointer active:scale-95"
+                      >
+                        +5
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* ตัวเลือกด่วนคะแนนปลายภาค */}
+                  <div className="grid grid-cols-6 gap-1 pt-0.5">
+                    {Array.from(new Set([0, 10, 15, 20, 25, selectedSubject?.examScore || 30].filter(v => v <= (selectedSubject?.examScore || 30)))).map((presetVal, idx) => (
+                      <button
+                        key={`preset-test-${presetVal}-${idx}`}
+                        type="button"
+                        disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                        onClick={() => handleScoreChange(currentGradingStudent.id, 'exam', presetVal)}
+                        className={`py-1.5 px-1 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer text-center ${
+                          (scoreRows[currentGradingStudent.id]?.exam ?? 0) === presetVal
+                            ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-300'
+                            : 'bg-white hover:bg-amber-100/70 border border-amber-200 text-amber-900'
+                        }`}
+                      >
+                        {presetVal === (selectedSubject?.examScore || 30) ? 'เต็ม' : presetVal}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                /* กรณีเลือกหน่วยตัวเลข (เช่น 1, 2, 3...): แสดงเฉพาะช่องงานในหน่วยนั้น */
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5 min-w-0">
+                      <BookOpen className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span className="truncate">คะแนนเก็บหน่วยที่ {mobileGradingUnitTab} (0 - 5 คะแนน)</span>
+                    </h4>
+
+                    {/* ปุ่ม + เพื่อเพิ่มช่องการลงคะแนนในชิ้นงาน */}
+                    {!isAdminReadOnly && (
+                      <button
+                        type="button"
+                        disabled={!canGradeSubject}
+                        onClick={() => {
+                          if (!canGradeSubject) {
+                            onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนรายวิชานี้ก่อนจึงจะสามารถเพิ่มช่องงานได้');
+                            return;
+                          }
+                          const targetUnit = typeof mobileGradingUnitTab === 'number' ? mobileGradingUnitTab : 1;
+                          const countInUnit = assignmentItems.filter(a => (a.unitNumber || 1) === targetUnit).length;
+                          setAssignmentUnitInput(targetUnit);
+                          setNewAsgNameInput(`งานที่ ${countInUnit + 1}`);
+                          setIsInlineAddingAsg(true);
+                        }}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shrink-0 ${
+                          canGradeSubject 
+                            ? 'bg-amber-600 text-white hover:bg-amber-700 shadow-2xs active:scale-95'
+                            : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                        }`}
+                        title={`เพิ่มช่องงานใหม่ในหน่วยที่ ${mobileGradingUnitTab}`}
+                      >
+                        <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        <span>เพิ่มงาน</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ช่องกรอกเพิ่มงานแบบด่วน inline */}
+                  {isInlineAddingAsg && (
+                    <div className="p-2.5 bg-amber-50/90 rounded-xl border border-amber-200 flex items-center gap-1.5 my-1.5 animate-in fade-in">
+                      <input
+                        type="text"
+                        value={newAsgNameInput}
+                        onChange={(e) => setNewAsgNameInput(e.target.value)}
+                        placeholder={`ระบุชื่อชิ้นงานใหม่ (หน่วยที่ ${mobileGradingUnitTab})...`}
+                        className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-medium focus:outline-none focus:ring-1 focus:ring-amber-500"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newAsgNameInput.trim()) {
+                            handleAddAssignment(newAsgNameInput.trim());
+                            setNewAsgNameInput('');
+                            setIsInlineAddingAsg(false);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newAsgNameInput.trim()) {
+                            handleAddAssignment(newAsgNameInput.trim());
+                            setNewAsgNameInput('');
+                            setIsInlineAddingAsg(false);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shrink-0 cursor-pointer shadow-2xs"
+                      >
+                        เพิ่ม
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsInlineAddingAsg(false);
+                          setNewAsgNameInput('');
+                        }}
+                        className="px-2.5 py-1.5 text-slate-500 hover:bg-slate-100 rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
+                  )}
+
+                  {(() => {
+                    const itemsInThisUnit = assignmentItems.filter(a => a.unitNumber === mobileGradingUnitTab);
+
+                    if (itemsInThisUnit.length === 0) {
+                      return (
+                        <div className="p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-center space-y-1.5">
+                          <p className="text-xs font-semibold text-slate-600">ยังไม่มีช่องงานในหน่วยการเรียนรู้ที่ {mobileGradingUnitTab}</p>
+                          <p className="text-[11px] text-slate-400">กดปุ่ม "+ เพิ่มงาน" ด้านบนเพื่อเพิ่มชิ้นงานในหน่วยนี้</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-2">
+                        {itemsInThisUnit.map((asg, asgIdx) => {
+                          const currentScore = scoreRows[currentGradingStudent.id]?.assignmentScores?.[asg.id] ?? 0;
+                          const isScored = scoreRows[currentGradingStudent.id]?.assignmentScores?.[asg.id] !== undefined;
+
+                          return (
+                            <div 
+                              key={asg.id} 
+                              className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-2xs space-y-1.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                {editingMobileAsgId === asg.id ? (
+                                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                    <input
+                                      type="text"
+                                      value={editingMobileAsgName}
+                                      onChange={(e) => setEditingMobileAsgName(e.target.value)}
+                                      className="flex-1 text-xs px-2 py-1 rounded-lg border border-amber-400 bg-amber-50/30 font-bold focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                      autoFocus
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && editingMobileAsgName.trim()) {
+                                          handleEditAssignment(asg.id, editingMobileAsgName.trim(), asg.unitNumber);
+                                          setEditingMobileAsgId(null);
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (editingMobileAsgName.trim()) {
+                                          handleEditAssignment(asg.id, editingMobileAsgName.trim(), asg.unitNumber);
+                                          setEditingMobileAsgId(null);
+                                        }
+                                      }}
+                                      className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shrink-0 cursor-pointer"
+                                      title="บันทึกชื่อใหม่"
+                                    >
+                                      <Check className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingMobileAsgId(null)}
+                                      className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-md text-xs shrink-0 cursor-pointer"
+                                      title="ยกเลิก"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                    <span className="text-xs font-bold text-slate-800 truncate" title={asg.name}>
+                                      {asgIdx + 1}. {asg.name}
+                                    </span>
+
+                                    {/* ไอคอนแก้ไข(เปลี่ยนชื่อ) และไอคอนลบ */}
+                                    {!isAdminReadOnly && canGradeSubject && (
+                                      <div className="flex items-center gap-1 shrink-0 ml-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingMobileAsgId(asg.id);
+                                            setEditingMobileAsgName(asg.name);
+                                          }}
+                                          className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
+                                          title="เปลี่ยนชื่องาน"
+                                        >
+                                          <Edit className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => setDeletingAssignmentConfirm(asg)}
+                                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                          title="ลบชิ้นงานนี้"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="text-[10px] text-slate-500">
+                                    คะแนน:
+                                  </span>
+                                  <span className={`w-5 h-5 rounded-md font-mono font-bold text-xs flex items-center justify-center ${
+                                    currentScore === 5 ? 'bg-emerald-600 text-white' :
+                                    currentScore === 4 ? 'bg-emerald-500 text-white' :
+                                    currentScore === 3 ? 'bg-blue-600 text-white' :
+                                    currentScore === 2 ? 'bg-amber-500 text-white' :
+                                    currentScore === 1 ? 'bg-orange-500 text-white' :
+                                    isScored ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-400 font-normal'
+                                  }`}>
+                                    {isScored ? currentScore : '-'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* ปุ่มกดเลือกคะแนน 0, 1, 2, 3, 4, 5 กดได้อัตโนมัติ */}
+                              <div className="grid grid-cols-6 gap-1 pt-0.5">
+                                {[0, 1, 2, 3, 4, 5].map(val => {
+                                  const isCurrent = isScored && currentScore === val;
+                                  return (
+                                    <button
+                                      key={val}
+                                      type="button"
+                                      disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
+                                      onClick={() => handleSelectAssignmentScore(currentGradingStudent.id, asg.id, val)}
+                                      className={`h-8 rounded-lg font-mono font-bold text-xs transition-all flex items-center justify-center cursor-pointer select-none active:scale-95 ${
+                                        isCurrent
+                                          ? val === 5 ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300 scale-105' :
+                                            val === 4 ? 'bg-emerald-500 text-white shadow-xs ring-2 ring-emerald-300 scale-105' :
+                                            val === 3 ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300 scale-105' :
+                                            val === 2 ? 'bg-amber-500 text-white shadow-xs ring-2 ring-amber-300 scale-105' :
+                                            val === 1 ? 'bg-orange-500 text-white shadow-xs ring-2 ring-orange-300 scale-105' :
+                                            'bg-rose-600 text-white shadow-xs ring-2 ring-rose-300 scale-105'
+                                          : 'bg-slate-100 hover:bg-amber-100/80 text-slate-700 hover:text-amber-900 border border-slate-200'
+                                      }`}
+                                    >
+                                      {val}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+                </>
+              )}
+            </div>
+
+            {/* Footer: สลับไปนักเรียนคนอื่นต่อได้เลย */}
+            <div className="p-3 bg-slate-100/90 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={currentGradingIndex <= 0}
+                onClick={handlePrevGradingStudent}
+                className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>คนก่อนหน้า</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMobileGradingStudentId(null)}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+              >
+                เสร็จสิ้น
+              </button>
+
+              <button
+                type="button"
+                disabled={currentGradingIndex >= gradeStudents.length - 1}
+                onClick={handleNextGradingStudent}
+                className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <span>คนถัดไป</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal เพิ่ม / แก้ไข หน่วยการเรียนรู้ (สำหรับ ป.1 - ม.6) */}
+      {isUnitModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-100 scale-in-95 transition-transform duration-200">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-slate-800 text-base">
+                  {unitModalMode === 'add' ? `เพิ่มหน่วยการเรียนรู้ที่ ${unitModalTargetNum}` : `แก้ไขหน่วยการเรียนรู้ที่ ${unitModalTargetNum}`}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsUnitModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {(() => {
+              const maxCw = selectedSubject?.courseworkScore || 70;
+              const otherUnitsScoreSum = (selectedSubject?.learningUnitDetails || [])
+                .filter(d => d.unitNumber !== unitModalTargetNum)
+                .reduce((sum, d) => sum + (Number(d.score) || 0), 0);
+              const remainingAllowed = Math.max(0, maxCw - otherUnitsScoreSum);
+              const enteredScore = typeof unitScoreInput === 'number' ? unitScoreInput : 0;
+              const totalScoreWithCurrent = otherUnitsScoreSum + enteredScore;
+              const isScoreExceeded = totalScoreWithCurrent > maxCw;
+
+              return (
+                <form onSubmit={handleSaveUnitModalSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ชื่อหน่วยการเรียนรู้ <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={unitNameInput}
+                      onChange={(e) => setUnitNameInput(e.target.value)}
+                      placeholder={`เช่น หน่วยที่ ${unitModalTargetNum}: การเรียนรู้ภาษาไทย`}
+                      className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-all font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700">
+                        คะแนนเต็มของหน่วย
+                      </label>
+                      <span className="text-[11px] font-bold text-slate-500">
+                        (คะแนนระหว่างภาคเต็ม {maxCw} คะแนน)
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max={maxCw}
+                        value={unitScoreInput}
+                        onChange={(e) => setUnitScoreInput(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder={`เช่น ${remainingAllowed > 0 ? Math.min(20, remainingAllowed) : 0}`}
+                        className={`w-full px-3 py-2 text-sm rounded-xl font-bold transition-all ${
+                          isScoreExceeded
+                            ? 'border-2 border-rose-500 bg-rose-50/70 text-rose-900 focus:outline-none focus:ring-2 focus:ring-rose-400'
+                            : 'bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 text-slate-800'
+                        }`}
+                      />
+                      {isScoreExceeded && (
+                        <div className="absolute right-3 top-2.5 text-rose-600 font-bold text-xs flex items-center gap-1">
+                          <AlertCircle className="w-4 h-4" />
+                          <span>เกินกำหนด</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* การแสดงเตือนสีแดงและคำแนะนำคะแนน */}
+                    {isScoreExceeded ? (
+                      <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-1.5 animate-in fade-in">
+                        <div className="font-bold flex items-center gap-1.5 text-rose-700">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>คะแนนรวมทุกหน่วยเกินคะแนนเต็มระหว่างภาค ({maxCw} คะแนน)!</span>
+                        </div>
+                        <p className="text-[11px] text-rose-800 leading-relaxed">
+                          หน่วยอื่นรวมกันได้ {otherUnitsScoreSum} คะแนนแล้ว เมื่อใส่หน่วยนี้ {enteredScore} คะแนน รวมเป็น {totalScoreWithCurrent} คะแนน (เกินไป {totalScoreWithCurrent - maxCw} คะแนน) ระบบจึงไม่อนุญาตให้บันทึก
+                        </p>
+                        <div className="pt-1 flex items-center justify-between gap-2 border-t border-rose-200/80">
+                          <span className="text-[11px] font-bold text-rose-900">
+                            💡 คำแนะนำ: ควรใส่ไม่เกิน {remainingAllowed} คะแนน ถึงจะบันทึกได้
+                          </span>
+                          {remainingAllowed > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setUnitScoreInput(remainingAllowed)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95 shadow-2xs"
+                            >
+                              กดใส่ {remainingAllowed} คะแนน
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                        <span>หน่วยอื่นใช้ไปแล้ว {otherUnitsScoreSum} คะแนน</span>
+                        <span className="font-semibold text-amber-700">
+                          (สามารถใส่ได้สูงสุด {remainingAllowed} คะแนน)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsUnitModalOpen(false)}
+                      className="px-4 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer"
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isScoreExceeded}
+                      className={`px-4 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 ${
+                        isScoreExceeded
+                          ? 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-70'
+                          : 'bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer active:scale-95'
+                      }`}
+                      title={isScoreExceeded ? 'คะแนนรวมเกินคะแนนเต็มระหว่างภาค ไม่สามารถบันทึกได้' : undefined}
+                    >
+                      <span>{unitModalMode === 'add' ? 'เพิ่มหน่วยการเรียนรู้' : 'บันทึกการแก้ไข'}</span>
+                    </button>
+                  </div>
+                </form>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,1474 @@
+import React, { useState, useRef } from 'react';
+import { TaskItem, UserSession, MemberAccount, TaskSubmission } from '../types';
+import { 
+  ClipboardList, 
+  Plus,
+  Trash2, 
+  CheckCircle2, 
+  Clock, 
+  Download,
+  Upload,
+  GripVertical,
+  Megaphone,
+  FileText,
+  Calendar,
+  Sparkles,
+  Users,
+  Eye,
+  Edit,
+  X,
+  FileCheck
+} from 'lucide-react';
+
+interface Module4Props {
+  user: UserSession;
+  tasks: TaskItem[];
+  members: MemberAccount[];
+  onSaveTask: (task: TaskItem) => void;
+  onDeleteTask: (id: string) => void;
+  onCompleteTask: (id: string) => void;
+  onReorderTasks?: (tasks: TaskItem[]) => void;
+  onShowToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
+}
+
+export const Module4Assignments: React.FC<Module4Props> = ({
+  user,
+  tasks,
+  members,
+  onSaveTask,
+  onDeleteTask,
+  onCompleteTask,
+  onReorderTasks,
+  onShowToast
+}) => {
+  const [activeSubTab, setActiveSubTab] = useState<'assignment' | 'announcement'>('assignment');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalType, setModalType] = useState<'assignment' | 'announcement'>('assignment');
+  const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
+
+  // Pop-up modal state for viewing full assignment / announcement title on mobile
+  const [selectedTaskDetailModal, setSelectedTaskDetailModal] = useState<TaskItem | null>(null);
+
+  // Form states for creating & editing tasks/announcements
+  const [formTitle, setFormTitle] = useState('');
+  const [formDesc, setFormDesc] = useState('');
+  const [formPriority, setFormPriority] = useState<'urgent' | 'high' | 'normal'>('normal');
+
+  // Compact calendar popup states
+  const [isCalendarPopupOpen, setIsCalendarPopupOpen] = useState(false);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [calYear, setCalYear] = useState<number>(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState<number>(new Date().getMonth());
+  const [startDate, setStartDate] = useState<string>(todayStr);
+  const [endDate, setEndDate] = useState<string>('');
+
+  // Helper to filter out auto-generated description prefixes
+  const cleanDescription = (desc?: string) => {
+    if (!desc) return '';
+    let d = desc.trim();
+    if (
+      d.startsWith('ภาระงานเนื่องใน:') || 
+      d.startsWith('เนื่องใน:') || 
+      d.includes('โดย ผู้ดูแลระบบโรงเรียน') || 
+      d.includes('Administrator')
+    ) {
+      return '';
+    }
+    return d;
+  };
+
+  // Helper: Format date string or range to Thai พ.ศ. DD-MM-YYYY format (e.g. 2026-10-20 -> 20-10-2569)
+  const formatThaiTaskDate = (dateRangeStr?: string) => {
+    if (!dateRangeStr) return '';
+    const convertSingleDate = (dStr: string) => {
+      const trimmed = dStr.trim();
+      if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
+        return trimmed;
+      }
+      const parts = trimmed.split('-');
+      if (parts.length === 3 && parts[0].length === 4) {
+        const year = parseInt(parts[0], 10);
+        const month = parts[1].padStart(2, '0');
+        const day = parts[2].padStart(2, '0');
+        if (!isNaN(year)) {
+          const thaiYear = year > 2400 ? year : year + 543;
+          return `${day}-${month}-${thaiYear}`;
+        }
+      }
+      return trimmed;
+    };
+
+    if (dateRangeStr.includes(' ถึง ')) {
+      const parts = dateRangeStr.split(' ถึง ');
+      return `${convertSingleDate(parts[0])} ถึง ${convertSingleDate(parts[1])}`;
+    }
+    return convertSingleDate(dateRangeStr);
+  };
+
+  const handleOpenModal = (taskToEdit?: TaskItem) => {
+    if (taskToEdit) {
+      setEditingTask(taskToEdit);
+      setModalType(taskToEdit.type || 'assignment');
+      setFormTitle(taskToEdit.title || '');
+      setFormDesc(taskToEdit.description || '');
+      setFormPriority(taskToEdit.priority || 'normal');
+      if (taskToEdit.dueDate) {
+        const parts = taskToEdit.dueDate.split(' ถึง ');
+        setStartDate(parts[0] || todayStr);
+        setEndDate(parts[1] || '');
+      } else {
+        setStartDate(todayStr);
+        setEndDate('');
+      }
+    } else {
+      setEditingTask(null);
+      setModalType(activeSubTab);
+      setFormTitle('');
+      setFormDesc('');
+      setFormPriority('normal');
+      setStartDate(todayStr);
+      setEndDate('');
+    }
+    setIsModalOpen(true);
+  };
+
+  // Admin submission status modal state & preview file modal state
+  const [statusTaskModal, setStatusTaskModal] = useState<TaskItem | null>(null);
+  const [previewFileModal, setPreviewFileModal] = useState<{ url: string; name: string } | null>(null);
+
+  // Submission modal state (for members)
+  const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
+  const [submittedFile, setSubmittedFile] = useState<{ name: string; url: string; size: string } | null>(null);
+
+  // Drag and drop state for reordering
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const filteredTasks = tasks.filter(t => {
+    const tType = t.type || 'assignment';
+    return tType === activeSubTab;
+  });
+
+  // Sort tasks such that fully completed/submitted tasks move to the bottom
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    const aDone = (a.submissions || []).length >= members.length || a.isManualCompleted;
+    const bDone = (b.submissions || []).length >= members.length || b.isManualCompleted;
+    if (aDone && !bDone) return 1;
+    if (!aDone && bDone) return -1;
+    return 0;
+  });
+
+  const isOverdue = (dueDateStr: string) => {
+    if (!dueDateStr) return false;
+    const parts = dueDateStr.split(' ถึง ');
+    const lastDate = parts[parts.length - 1].trim();
+    return todayStr > lastDate;
+  };
+
+  const handleToggleManualComplete = (task: TaskItem) => {
+    const updated: TaskItem = {
+      ...task,
+      isManualCompleted: !task.isManualCompleted
+    };
+    onSaveTask(updated);
+    onShowToast(
+      'success', 
+      updated.isManualCompleted ? 'ทำเครื่องหมายว่าส่งครบแล้ว' : 'ยกเลิกเครื่องหมายส่งครบ', 
+      `อัปเดตสถานะงาน "${task.title}" เรียบร้อย`
+    );
+  };
+
+  const handleReorder = (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const fromIndex = tasks.findIndex(t => t.id === fromId);
+    const toIndex = tasks.findIndex(t => t.id === toId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const next = [...tasks];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+
+    if (onReorderTasks) {
+      onReorderTasks(next);
+    }
+    onShowToast('info', 'จัดลำดับแล้ว', `ย้ายรายการเรียบร้อย`);
+  };
+
+  const handleTouchStart = (id: string) => {
+    if (user.role !== 'admin') return;
+    touchTimerRef.current = setTimeout(() => {
+      setDraggedId(id);
+    }, 250);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (user.role !== 'admin' || !draggedId) return;
+    const touch = e.touches[0];
+    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    const rowEl = targetEl?.closest('[data-task-id]');
+    if (rowEl) {
+      const id = rowEl.getAttribute('data-task-id');
+      if (id && id !== dragOverId) {
+        setDragOverId(id);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+    if (draggedId && dragOverId && draggedId !== dragOverId) {
+      handleReorder(draggedId, dragOverId);
+    }
+    setDraggedId(null);
+    setDragOverId(null);
+  };
+
+  const handleCreateTask = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (user.role !== 'admin') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถสร้างรายการได้');
+      return;
+    }
+
+    const form = e.currentTarget;
+    const formData = new FormData(form);
+
+    let finalDueDate = startDate;
+    if (startDate && endDate && endDate !== startDate) {
+      finalDueDate = `${startDate} ถึง ${endDate}`;
+    } else if (startDate) {
+      finalDueDate = startDate;
+    } else {
+      finalDueDate = todayStr;
+    }
+
+    const titleVal = formTitle.trim() || ((formData.get('title') as string) || '').trim();
+    const descVal = formDesc.trim() || ((formData.get('description') as string) || '').trim();
+    const priorityVal = modalType === 'announcement' ? 'normal' : (formPriority || 'normal');
+
+    if (!titleVal.trim()) {
+      onShowToast('warning', 'กรอกข้อมูลไม่ครบ', 'กรุณาระบุหัวข้อ');
+      return;
+    }
+
+    const taskToSave: TaskItem = {
+      id: editingTask ? editingTask.id : 'task-' + Date.now(),
+      title: titleVal.trim(),
+      description: descVal.trim(),
+      type: modalType,
+      priority: priorityVal,
+      dueDate: finalDueDate,
+      isCompleted: editingTask ? editingTask.isCompleted : false,
+      createdBy: editingTask ? editingTask.createdBy : user.fullName,
+      assignedTo: 'all',
+      submissions: editingTask ? editingTask.submissions : [],
+      isManualCompleted: editingTask ? editingTask.isManualCompleted : false,
+      attachmentUrl: editingTask ? editingTask.attachmentUrl : undefined
+    };
+
+    onSaveTask(taskToSave);
+    setIsModalOpen(false);
+    setEditingTask(null);
+    setStartDate(todayStr);
+    setEndDate('');
+    onShowToast('success', editingTask ? 'แก้ไขเรียบร้อย' : (modalType === 'assignment' ? 'มอบหมายงานสำเร็จ' : 'สร้างประกาศสำเร็จ'), `บันทึก "${taskToSave.title}" เรียบร้อยแล้ว`);
+  };
+
+  const handleCalendarDayClick = (dateStr: string) => {
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(dateStr);
+      setEndDate('');
+    } else if (startDate && !endDate) {
+      if (dateStr === startDate) {
+        setEndDate(dateStr);
+        setIsCalendarPopupOpen(false);
+      } else if (dateStr < startDate) {
+        setStartDate(dateStr);
+      } else {
+        setEndDate(dateStr);
+        setIsCalendarPopupOpen(false);
+      }
+    }
+  };
+
+  const handleFileSubmitUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const sizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setSubmittedFile({ name: file.name, url: base64, size: sizeStr });
+      onShowToast('success', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr})`);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleFinalSubmitTask = (taskId: string) => {
+    if (!submittedFile) {
+      onShowToast('warning', 'กรุณาแนบไฟล์', 'โปรดอัปโหลดไฟล์งานที่ต้องการส่งก่อนกดยืนยัน');
+      return;
+    }
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const newSub: TaskSubmission = {
+      memberId: user.id,
+      memberName: user.fullName,
+      fileUrl: submittedFile.url,
+      fileName: submittedFile.name,
+      fileSize: submittedFile.size,
+      submittedAt: new Date().toISOString()
+    };
+
+    const currentSubs = task.submissions || [];
+    const updatedSubs = [
+      ...currentSubs.filter(s => s.memberId !== user.id),
+      newSub
+    ];
+
+    const updatedTask: TaskItem = {
+      ...task,
+      submissions: updatedSubs,
+      submittedFileUrl: submittedFile.url,
+      submittedFileName: submittedFile.name,
+      submittedFileSize: submittedFile.size,
+      submittedBy: user.id,
+      submittedByName: user.fullName,
+      submittedAt: new Date().toISOString()
+    };
+
+    onSaveTask(updatedTask);
+    onCompleteTask(taskId);
+    setSubmittingTaskId(null);
+    setSubmittedFile(null);
+    onShowToast('success', 'ส่งงานสำเร็จ 🎉', 'ส่งภาระงานและไฟล์แนบเรียบร้อยแล้ว');
+  };
+
+  const handleDeleteMemberSubmission = (taskId: string, memberId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const updatedSubs = (task.submissions || []).filter(s => s.memberId !== memberId);
+    const updatedTask: TaskItem = {
+      ...task,
+      submissions: updatedSubs
+    };
+    onSaveTask(updatedTask);
+    setStatusTaskModal(updatedTask);
+    onShowToast('info', 'ลบงานแล้ว', 'ลบงานที่สมาชิกส่งเรียบร้อยแล้ว');
+  };
+
+  const handleDownloadUrl = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename || 'download';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onShowToast('info', 'กำลังดาวน์โหลด', `กำลังดาวน์โหลดไฟล์ "${filename}"`);
+  };
+
+  // Render Centered Modal Popup Calendar
+  const renderPopupCalendar = () => {
+    const thaiMonths = [
+      'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ];
+
+    const firstDay = new Date(calYear, calMonth, 1).getDay();
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const days = [];
+
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="h-8" />);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const monthStr = String(calMonth + 1).padStart(2, '0');
+      const dayStr = String(d).padStart(2, '0');
+      const dateStr = `${calYear}-${monthStr}-${dayStr}`;
+
+      const isStart = startDate === dateStr;
+      const isEnd = endDate === dateStr;
+      const isInRange = startDate && endDate && dateStr > startDate && dateStr < endDate;
+
+      days.push(
+        <button
+          key={dateStr}
+          type="button"
+          onClick={() => handleCalendarDayClick(dateStr)}
+          className={`h-8 w-8 mx-auto rounded-xl text-xs font-mono font-bold transition-all flex items-center justify-center cursor-pointer ${
+            isStart || isEnd ? 'bg-purple-600 text-white shadow-xs' :
+            isInRange ? 'bg-purple-100 text-purple-900 rounded-none' :
+            'hover:bg-slate-100 text-slate-700'
+          }`}
+        >
+          {d}
+        </button>
+      );
+    }
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+        <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <h4 className="text-sm font-bold text-slate-800">
+              เลือกวันที่
+            </h4>
+            <button
+              type="button"
+              onClick={() => setIsCalendarPopupOpen(false)}
+              className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (calMonth === 0) {
+                  setCalMonth(11);
+                  setCalYear(y => y - 1);
+                } else {
+                  setCalMonth(m => m - 1);
+                }
+              }}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+            >
+              ◀
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              <select
+                value={calMonth}
+                onChange={(e) => setCalMonth(Number(e.target.value))}
+                className="text-xs font-bold bg-slate-100 px-2.5 py-1.5 rounded-xl border-0 cursor-pointer"
+              >
+                {thaiMonths.map((mName, idx) => (
+                  <option key={idx} value={idx}>{mName}</option>
+                ))}
+              </select>
+              <select
+                value={calYear}
+                onChange={(e) => setCalYear(Number(e.target.value))}
+                className="text-xs font-bold bg-slate-100 px-2.5 py-1.5 rounded-xl border-0 cursor-pointer"
+              >
+                {[calYear - 2, calYear - 1, calYear, calYear + 1, calYear + 2].map(y => (
+                  <option key={y} value={y}>{y + 543}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (calMonth === 11) {
+                  setCalMonth(0);
+                  setCalYear(y => y + 1);
+                } else {
+                  setCalMonth(m => m + 1);
+                }
+              }}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+            >
+              ▶
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-500">
+            <span>อา</span><span>จ</span><span>อ</span><span>พ</span><span>พฤ</span><span>ศ</span><span>ส</span>
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {days}
+          </div>
+
+          <div className="flex justify-end pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsCalendarPopupOpen(false)}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
+            >
+              เสร็จสิ้น
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Top Header & Sub-Tab Bar: มอบหมาย (ซ้าย) / ประกาศใหม่ (ขวา) ในบรรทัดสีม่วงอ่อน */}
+      <div className="bg-purple-100/90 p-2 sm:p-2.5 rounded-2xl border border-purple-300/90 shadow-xs flex items-center justify-between gap-2 sm:gap-3 flex-nowrap overflow-x-auto">
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Tab 1: มอบหมาย */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('assignment')}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'assignment'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'bg-white/80 hover:bg-white text-purple-900 border border-purple-200/60'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4 shrink-0" />
+            <span className="truncate">{user.role === 'member' ? 'ส่งงาน' : 'มอบหมาย'}</span>
+            <span className={`text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-mono font-bold shrink-0 ${
+              activeSubTab === 'assignment'
+                ? 'bg-purple-700 text-white'
+                : 'bg-purple-100 text-purple-800'
+            }`}>
+              {tasks.filter(t => (t.type || 'assignment') === 'assignment').length}
+            </span>
+          </button>
+
+          {/* Tab 2: ประกาศใหม่ */}
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('announcement')}
+            className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 sm:gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'announcement'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-white/80 hover:bg-white text-purple-900 border border-purple-200/60'
+            }`}
+          >
+            <Megaphone className="w-4 h-4 shrink-0" />
+            <span className="truncate">ประกาศใหม่</span>
+            <span className={`text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-mono font-bold shrink-0 ${
+              activeSubTab === 'announcement'
+                ? 'bg-amber-700 text-white'
+                : 'bg-amber-100 text-amber-800'
+            }`}>
+              {tasks.filter(t => t.type === 'announcement').length}
+            </span>
+          </button>
+        </div>
+
+        {/* Action Button for Active Tab */}
+        {user.role === 'admin' ? (
+          <button
+            type="button"
+            onClick={() => handleOpenModal()}
+            className={`w-8 h-8 text-white rounded-xl shadow-xs transition-all flex items-center justify-center shrink-0 cursor-pointer active:scale-95 ml-auto ${
+              activeSubTab === 'assignment' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'
+            }`}
+            title={activeSubTab === 'assignment' ? 'สร้างงานมอบหมาย (+)' : 'สร้างประกาศใหม่ (+)'}
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+          </button>
+        ) : null}
+      </div>
+
+      {/* PAGE 1: งานมอบหมาย (ASSIGNMENT PAGE) */}
+      {activeSubTab === 'assignment' && (
+        <div className="bg-slate-50/80 p-4 sm:p-5 rounded-3xl border border-slate-200/80 space-y-4">
+
+          <div className="space-y-3">
+            {tasks.filter(t => (t.type || 'assignment') === 'assignment').length === 0 ? (
+              <div className="py-16 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
+                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                <p className="text-sm font-semibold text-slate-600">ไม่มีภาระงานมอบหมายในขณะนี้</p>
+                <p className="text-xs text-slate-400">เมื่อมีงานใหม่จะปรากฏให้ส่งภาระงานที่นี่</p>
+              </div>
+            ) : (
+              [...tasks.filter(t => (t.type || 'assignment') === 'assignment')]
+                .sort((a, b) => {
+                  const aDone = (a.submissions || []).length >= members.length || a.isManualCompleted;
+                  const bDone = (b.submissions || []).length >= members.length || b.isManualCompleted;
+                  if (aDone && !bDone) return 1;
+                  if (!aDone && bDone) return -1;
+                  return 0;
+                })
+                .map((task, index) => {
+                  const isUrgent = task.priority === 'urgent';
+                  const isHigh = task.priority === 'high';
+                  const isDragging = draggedId === task.id;
+                  const isDragOver = dragOverId === task.id;
+                  const submittedCount = (task.submissions || []).length;
+                  const isFullySubmitted = submittedCount >= members.length || task.isManualCompleted;
+                  const displayDesc = cleanDescription(task.description);
+
+                  return (
+                    <div
+                      key={task.id}
+                      data-task-id={task.id}
+                      onTouchStart={() => handleTouchStart(task.id)}
+                      onTouchMove={handleTouchMove}
+                      onTouchEnd={handleTouchEnd}
+                      onClick={() => setSelectedTaskDetailModal(task)}
+                      className={`p-2.5 sm:py-3 sm:px-4 rounded-2xl border shadow-2xs transition-all flex items-center justify-between gap-2 sm:gap-3 cursor-pointer ${
+                        isFullySubmitted 
+                          ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' 
+                          : 'bg-white border-slate-200/90 hover:border-slate-300 text-slate-800'
+                      } ${isDragging ? 'opacity-50 scale-[1.01]' : ''} ${isDragOver ? 'border-2 border-purple-500' : ''}`}
+                    >
+                      {/* ฝั่งซ้าย: ลำดับ แท็ก วันที่บรรทัดเดียว และชื่อเรื่อง */}
+                      <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
+                        {/* Grip Icon สำหรับ Admin */}
+                        {user.role === 'admin' && (
+                          <div 
+                            onClick={(e) => e.stopPropagation()} 
+                            className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 shrink-0" 
+                            title="กดค้างเพื่อเลื่อนขึ้น-ลง"
+                          >
+                            <GripVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          </div>
+                        )}
+
+                        {/* ลำดับรายการ */}
+                        <span className="w-5 sm:w-7 text-center text-xs sm:text-sm font-bold text-purple-800 font-mono shrink-0">
+                          {index + 1}.
+                        </span>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto max-w-full no-scrollbar pb-0.5">
+                            <span className={`text-[10px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded-lg shrink-0 ${
+                              isFullySubmitted ? 'bg-emerald-200 text-emerald-800' :
+                              isUrgent ? 'bg-rose-100 text-rose-700' :
+                              isHigh ? 'bg-amber-100 text-amber-700' :
+                              'bg-purple-50 text-purple-700 border border-purple-200'
+                            }`}>
+                              {isFullySubmitted ? 'ส่งครบแล้ว' : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
+                            </span>
+
+                            {task.dueDate && (
+                              <span className={`text-[10px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border flex items-center gap-1 whitespace-nowrap shrink-0 ${
+                                isFullySubmitted 
+                                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                                  : 'text-purple-900 bg-purple-50 border-purple-200'
+                              }`}>
+                                <Clock className={`w-3 h-3 shrink-0 ${isFullySubmitted ? 'text-emerald-700' : 'text-purple-600'}`} />
+                                <span className="whitespace-nowrap">กำหนดส่ง: {formatThaiTaskDate(task.dueDate)}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 
+                            className="text-xs sm:text-sm font-bold leading-tight text-slate-800 truncate mt-0.5 hover:text-purple-700 cursor-pointer" 
+                            title="กดเพื่อดูรายละเอียดภาระงานเต็ม"
+                          >
+                            {task.title}
+                          </h4>
+                          {displayDesc && (
+                            <p 
+                              className="text-[11px] text-slate-500 truncate mt-0.5 cursor-pointer hover:text-slate-700 hidden sm:block"
+                            >
+                              {displayDesc}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ไอคอนบอกสถานะกดดูสำหรับ Mobile */}
+                      <div className="sm:hidden text-slate-300 hover:text-purple-600 shrink-0 pl-1">
+                        <Eye className="w-4 h-4" />
+                      </div>
+
+                      {/* ฝั่งขวา (เฉพาะ Desktop): ปุ่มการกระทำแสดงบน Desktop ส่วน Mobile ซ่อนไว้และไปแสดงใน Pop-up */}
+                      <div 
+                        onClick={(e) => e.stopPropagation()} 
+                        className="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
+                      >
+                        {user.role === 'admin' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleManualComplete(task)}
+                              className={`w-7 h-7 sm:w-auto sm:px-2.5 sm:py-1.5 rounded-xl transition-colors cursor-pointer border inline-flex items-center justify-center gap-1 text-[11px] sm:text-xs font-bold shrink-0 ${
+                                isFullySubmitted 
+                                  ? 'bg-emerald-600 text-white border-emerald-600' 
+                                  : 'bg-white hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200'
+                              }`}
+                              title={isFullySubmitted ? 'ยกเลิกเครื่องหมายส่งครบ' : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span className="hidden md:inline">{isFullySubmitted ? 'ส่งครบแล้ว' : 'ส่งครบ'}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setStatusTaskModal(task)}
+                              className="h-7 px-1.5 sm:h-auto sm:px-2.5 sm:py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer border border-purple-200 shrink-0"
+                              title="สถานะการส่งงาน"
+                            >
+                              <Users className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                              <span className="font-mono">({submittedCount}/{members.length})</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenModal(task)}
+                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                              title="แก้ไขงานมอบหมาย"
+                            >
+                              <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`ลบรายการ "${task.title}" หรือไม่?`)) {
+                                  onDeleteTask(task.id);
+                                  onShowToast('info', 'ลบรายการ', 'ลบรายการเรียบร้อยแล้ว');
+                                }
+                              }}
+                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                              title="ลบรายการ"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                            </button>
+                          </>
+                        )}
+
+                        {user.role === 'member' && (
+                          <button
+                            type="button"
+                            onClick={() => setSubmittingTaskId(task.id)}
+                            className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] sm:text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 shrink-0"
+                          >
+                            <Upload className="w-3.5 h-3.5 shrink-0" />
+                            <span>ส่งงาน</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* PAGE 2: ประกาศใหม่ (ANNOUNCEMENT PAGE) */}
+      {activeSubTab === 'announcement' && (
+        <div className="bg-slate-50/80 p-4 sm:p-5 rounded-3xl border border-slate-200/80 space-y-4">
+          <div className="space-y-3">
+            {tasks.filter(t => t.type === 'announcement').length === 0 ? (
+              <div className="py-16 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
+                <Megaphone className="w-10 h-10 text-amber-400 mx-auto" />
+                <p className="text-sm font-semibold text-slate-600">ไม่มีประกาศแจ้งให้ทราบในขณะนี้</p>
+              </div>
+            ) : (
+              tasks.filter(t => t.type === 'announcement').map((task, index) => {
+                const isDragging = draggedId === task.id;
+                const isDragOver = dragOverId === task.id;
+                const displayDesc = cleanDescription(task.description);
+
+                return (
+                  <div
+                    key={task.id}
+                    data-task-id={task.id}
+                    onTouchStart={() => handleTouchStart(task.id)}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                    onClick={() => setSelectedTaskDetailModal(task)}
+                    className={`p-2.5 sm:py-3 sm:px-4 rounded-2xl border bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs transition-all flex items-center justify-between gap-2 sm:gap-3 text-slate-800 cursor-pointer ${
+                      isDragging ? 'opacity-50 scale-[1.01]' : ''
+                    } ${isDragOver ? 'border-2 border-amber-500' : ''}`}
+                  >
+                    {/* ฝั่งซ้าย: ลำดับ วันที่ และหัวข้อประกาศ */}
+                    <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1">
+                      {user.role === 'admin' && (
+                        <div 
+                          onClick={(e) => e.stopPropagation()} 
+                          className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-600 shrink-0" 
+                          title="กดค้างเพื่อเลื่อนขึ้น-ลง"
+                        >
+                          <GripVertical className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        </div>
+                      )}
+
+                      <span className="w-5 sm:w-7 text-center text-xs sm:text-sm font-bold text-amber-800 font-mono shrink-0">
+                        {index + 1}.
+                      </span>
+
+                      <div className="min-w-0 flex-1">
+                        {task.dueDate && (
+                          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto max-w-full no-scrollbar mb-0.5">
+                            <span className="text-[10px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border flex items-center gap-1 text-amber-900 bg-amber-50 border-amber-200 whitespace-nowrap shrink-0">
+                              <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span className="whitespace-nowrap">วันที่: {formatThaiTaskDate(task.dueDate)}</span>
+                            </span>
+                          </div>
+                        )}
+
+                        <h4 
+                          onClick={() => setSelectedTaskDetailModal(task)}
+                          className="text-xs sm:text-sm font-bold leading-tight text-slate-800 truncate hover:text-amber-700 cursor-pointer" 
+                          title="กดเพื่อดูประกาศเต็ม"
+                        >
+                          {task.title}
+                        </h4>
+                        {displayDesc && (
+                          <p 
+                            onClick={() => setSelectedTaskDetailModal(task)}
+                            className="text-[11px] text-slate-500 truncate mt-0.5 cursor-pointer hover:text-slate-700 hidden sm:block"
+                          >
+                            {displayDesc}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ไอคอนบอกสถานะกดดูสำหรับ Mobile */}
+                    <div className="sm:hidden text-slate-300 hover:text-amber-600 shrink-0 pl-1">
+                      <Eye className="w-4 h-4" />
+                    </div>
+
+                    {/* ฝั่งขวา (เฉพาะ Desktop): ปุ่มดาวน์โหลด/แก้ไข/ลบ */}
+                    <div 
+                      onClick={(e) => e.stopPropagation()} 
+                      className="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
+                    >
+                      {task.attachmentUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadUrl(task.attachmentUrl!, 'announcement-attachment')}
+                          className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                          title="ดาวน์โหลดไฟล์แนบ"
+                        >
+                          <Download className="w-3.5 h-3.5 shrink-0" />
+                          <span className="hidden sm:inline">ดาวน์โหลด</span>
+                        </button>
+                      )}
+
+                      {user.role === 'admin' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenModal(task)}
+                            className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                            title="แก้ไขประกาศ"
+                          >
+                            <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`ลบประกาศ "${task.title}" หรือไม่?`)) {
+                                onDeleteTask(task.id);
+                                onShowToast('info', 'ลบประกาศ', 'ลบประกาศเรียบร้อยแล้ว');
+                              }
+                            }}
+                            className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                            title="ลบประกาศ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Admin Submission Status Modal */}
+      {statusTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">
+                  สถานะการส่งงาน: {statusTaskModal.title}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  กำหนดส่ง: {statusTaskModal.dueDate}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusTaskModal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto space-y-2.5 flex-1 pr-1">
+              {members.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400">ไม่มีสมาชิกในระบบ</div>
+              ) : (
+                members.map((mem, idx) => {
+                  const submission = (statusTaskModal.submissions || []).find(s => s.memberId === mem.id);
+                  const hasSubmitted = !!submission;
+                  const overdue = isOverdue(statusTaskModal.dueDate);
+
+                  return (
+                    <div 
+                      key={mem.id}
+                      className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                        hasSubmitted ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50/70 border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-7 h-7 rounded-xl bg-white border border-slate-200 font-mono font-bold text-xs text-slate-700 flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs sm:text-sm text-slate-800 truncate">
+                            {mem.fullName} ({mem.position})
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {hasSubmitted ? (
+                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                                ส่งแล้ว ({submission.fileName})
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                                  ยังไม่ส่งงาน
+                                </span>
+                                {overdue && (
+                                  <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">
+                                    เลยกำหนด
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {hasSubmitted && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Eye icon for viewing file */}
+                          <button
+                            type="button"
+                            onClick={() => setPreviewFileModal({ url: submission.fileUrl, name: submission.fileName })}
+                            className="p-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                            title="ดูไฟล์งานที่สมาชิกส่ง"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+
+                          {/* Download icon */}
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadUrl(submission.fileUrl, submission.fileName)}
+                            className="p-2 bg-white hover:bg-emerald-50 text-emerald-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                            title="ดาวน์โหลดไฟล์"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+
+                          {/* Delete submission icon */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm(`ลบงานที่ส่งของ ${mem.fullName} หรือไม่?`)) {
+                                handleDeleteMemberSubmission(statusTaskModal.id, mem.id);
+                              }
+                            }}
+                            className="p-2 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                            title="ลบงานที่ส่ง"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setStatusTaskModal(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Preview File Modal */}
+      {previewFileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-800 truncate">
+                ตัวอย่างไฟล์: {previewFileModal.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreviewFileModal(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
+              <FileText className="w-12 h-12 text-purple-600 mx-auto" />
+              <p className="text-xs font-semibold text-slate-700">{previewFileModal.name}</p>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadUrl(previewFileModal.url, previewFileModal.name)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ดาวน์โหลดไฟล์</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create (แบ่งหน้า งานใหม่ กับ ประกาศใหม่) */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                <h3 className="text-base font-bold text-slate-800">
+                  สร้างรายการใหม่
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Sub-tabs inside modal: งานใหม่ / ประกาศใหม่ */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setModalType('assignment');
+                  setIsCalendarPopupOpen(false);
+                }}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  modalType === 'assignment'
+                    ? 'bg-white text-purple-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                งานใหม่
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModalType('announcement');
+                  setIsCalendarPopupOpen(false);
+                }}
+                className={`py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  modalType === 'announcement'
+                    ? 'bg-white text-purple-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ประกาศใหม่
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateTask} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  หัวข้อ *
+                </label>
+                <input
+                  type="text"
+                  name="title"
+                  required
+                  value={formTitle}
+                  onChange={(e) => setFormTitle(e.target.value)}
+                  placeholder={modalType === 'assignment' ? 'เช่น ส่งแผนการสอน ภาคเรียนที่ 1' : 'เช่น ประกาศกำหนดการประชุมประจำเดือน'}
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500 font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  รายละเอียด (ไม่บังคับ)
+                </label>
+                <textarea
+                  name="description"
+                  rows={2}
+                  value={formDesc}
+                  onChange={(e) => setFormDesc(e.target.value)}
+                  placeholder="ระบุรายละเอียดข้อกำหนด หรือเนื้อหาประกาศ (เว้นว่างได้)"
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              {/* Conditional inputs based on modalType */}
+              {modalType === 'assignment' ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      กำหนดส่ง (Due Date) *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCalendarPopupOpen(true)}
+                      className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-between font-mono font-bold text-slate-800 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
+                        <span className="truncate">
+                          {formatThaiTaskDate(
+                            startDate && endDate && endDate !== startDate
+                              ? `${startDate} ถึง ${endDate}`
+                              : startDate
+                              ? startDate
+                              : todayStr
+                          )}
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-purple-700 font-sans font-semibold bg-purple-100 px-2 py-0.5 rounded-md shrink-0 ml-2">
+                        เลือกปฏิทิน
+                      </span>
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      ระดับความเร่งด่วน
+                    </label>
+                    <select
+                      name="priority"
+                      value={formPriority}
+                      onChange={(e) => setFormPriority(e.target.value as 'urgent' | 'high' | 'normal')}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold"
+                    >
+                      <option value="normal">ปกติ</option>
+                      <option value="high">ด่วน</option>
+                      <option value="urgent">ด่วนที่สุด</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      เลือกวัน / ช่วงเวลาประกาศ *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCalendarPopupOpen(true)}
+                      className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 flex items-center justify-between font-mono font-bold text-slate-800 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 truncate">
+                        <Calendar className="w-4 h-4 text-purple-600 shrink-0" />
+                        <span className="truncate">
+                          {formatThaiTaskDate(
+                            startDate && endDate && endDate !== startDate
+                              ? `${startDate} ถึง ${endDate}`
+                              : startDate
+                              ? startDate
+                              : todayStr
+                          )}
+                        </span>
+                      </span>
+                      <span className="text-[10px] text-purple-700 font-sans font-semibold bg-purple-100 px-2 py-0.5 rounded-md shrink-0 ml-2">
+                        เลือกปฏิทิน
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-xs cursor-pointer"
+                >
+                  บันทึก
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Centered Popup Calendar Modal */}
+      {isCalendarPopupOpen && renderPopupCalendar()}
+
+      {/* MODAL: Member Submit File Upload */}
+      {submittingTaskId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-slate-800">
+                ส่งงาน / อัปโหลดไฟล์แนบ
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setSubmittingTaskId(null);
+                  setSubmittedFile(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="border-2 border-dashed border-slate-300 hover:border-purple-400 rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer bg-slate-50 transition-colors">
+                <Upload className="w-8 h-8 text-purple-600 mb-2" />
+                <span className="text-xs font-bold text-slate-700">คลิกเพื่ออัปโหลดไฟล์งาน</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">รองรับทุกประเภทไฟล์ (PDF, Word, รูปภาพ ฯลฯ)</span>
+                <input
+                  type="file"
+                  onChange={handleFileSubmitUpload}
+                  className="hidden"
+                />
+              </label>
+
+              {submittedFile && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
+                  <div className="flex items-center gap-2 truncate">
+                    <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="font-semibold truncate">{submittedFile.name} ({submittedFile.size})</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSubmittedFile(null)}
+                    className="text-rose-600 hover:text-rose-800 font-bold text-xs p-1"
+                  >
+                    ลบ
+                  </button>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubmittingTaskId(null);
+                    setSubmittedFile(null);
+                  }}
+                  className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={!submittedFile}
+                  onClick={() => handleFinalSubmitTask(submittingTaskId)}
+                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>ยืนยันการส่งงาน</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up Modal: แสดงข้อมูลภาระงาน/ประกาศแบบเต็มๆ */}
+      {selectedTaskDetailModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden flex flex-col space-y-4 p-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center shrink-0">
+                  {selectedTaskDetailModal.type === 'announcement' ? (
+                    <Megaphone className="w-5 h-5 text-amber-600" />
+                  ) : (
+                    <FileCheck className="w-5 h-5 text-purple-600" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md font-mono ${
+                      selectedTaskDetailModal.priority === 'urgent' ? 'bg-rose-100 text-rose-700' :
+                      selectedTaskDetailModal.priority === 'high' ? 'bg-amber-100 text-amber-700' :
+                      'bg-purple-100 text-purple-800'
+                    }`}>
+                      {selectedTaskDetailModal.priority === 'urgent' ? 'ด่วนที่สุด' : selectedTaskDetailModal.priority === 'high' ? 'ด่วน' : 'ปกติ'}
+                    </span>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md font-mono">
+                      {selectedTaskDetailModal.type === 'announcement' ? 'ประกาศข่าวสาร' : 'งานมอบหมาย'}
+                    </span>
+                  </div>
+                  {selectedTaskDetailModal.dueDate && (
+                    <div className="text-xs text-slate-500 font-mono mt-1 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-purple-600" />
+                      <span>กำหนดส่ง: {formatThaiTaskDate(selectedTaskDetailModal.dueDate)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedTaskDetailModal(null)}
+                className="p-1.5 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition-colors cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Full Task Title Display */}
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                ชื่อเรื่องเต็ม
+              </label>
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-sm font-bold text-slate-800 break-words leading-relaxed max-h-48 overflow-y-auto">
+                {selectedTaskDetailModal.title}
+              </div>
+            </div>
+
+            {/* Full Description if available */}
+            {cleanDescription(selectedTaskDetailModal.description) && (
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  รายละเอียด
+                </label>
+                <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl text-xs text-slate-700 break-words leading-relaxed max-h-36 overflow-y-auto">
+                  {cleanDescription(selectedTaskDetailModal.description)}
+                </div>
+              </div>
+            )}
+
+            {/* Attachment download if available */}
+            {selectedTaskDetailModal.attachmentUrl && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadUrl(selectedTaskDetailModal.attachmentUrl!, 'task-attachment')}
+                  className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-indigo-600" />
+                  <span>ดาวน์โหลดไฟล์แนบ</span>
+                </button>
+              </div>
+            )}
+
+            {/* Action Buttons Footer */}
+            <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
+              {/* Member Action: Send Submission */}
+              {user.role === 'member' && selectedTaskDetailModal.type !== 'announcement' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubmittingTaskId(selectedTaskDetailModal.id);
+                    setSelectedTaskDetailModal(null);
+                  }}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-95"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>ส่งงานภาระงานนี้</span>
+                </button>
+              )}
+
+              {/* Admin Actions: Toggle Complete, Submission Status, Edit, Delete */}
+              {user.role === 'admin' && (
+                <div className="space-y-2">
+                  {/* Complete Checkmark Toggle */}
+                  {selectedTaskDetailModal.type !== 'announcement' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleToggleManualComplete(selectedTaskDetailModal);
+                        setSelectedTaskDetailModal(null);
+                      }}
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border transition-all ${
+                        selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                          ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                          : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>
+                        {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                          ? 'ยกเลิกเครื่องหมายส่งครบ' 
+                          : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* View Status */}
+                  {selectedTaskDetailModal.type !== 'announcement' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusTaskModal(selectedTaskDetailModal);
+                        setSelectedTaskDetailModal(null);
+                      }}
+                      className="w-full py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                    >
+                      <Users className="w-4 h-4 text-purple-600" />
+                      <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{members.length} คน)</span>
+                    </button>
+                  )}
+
+                  {/* Edit & Delete in 2 columns */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenModal(selectedTaskDetailModal);
+                        setSelectedTaskDetailModal(null);
+                      }}
+                      className="py-2.5 bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Edit className="w-4 h-4 text-purple-600" />
+                      <span>แก้ไข</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`ลบรายการ "${selectedTaskDetailModal.title}" หรือไม่?`)) {
+                          onDeleteTask(selectedTaskDetailModal.id);
+                          setSelectedTaskDetailModal(null);
+                          onShowToast('info', 'ลบรายการ', 'ลบรายการเรียบร้อยแล้ว');
+                        }
+                      }}
+                      className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>ลบรายการ</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSelectedTaskDetailModal(null)}
+                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer mt-1"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

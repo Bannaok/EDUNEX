@@ -1,0 +1,10 @@
+name = "academic-management-system"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+# Cloudflare D1 Database Binding
+# ให้แทนที่ database_id ด้วยค่าที่ได้จากคำสั่ง: wrangler d1 create school-academic-db
+[[d1_databases]]
+binding = "DB"
+database_name = "school-academic-db"
+database_id = "your-database-id-here"

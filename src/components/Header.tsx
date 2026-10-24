@@ -21,7 +21,6 @@ interface HeaderProps {
   studentsCount?: number;
   personnelCount?: number;
   attendanceRate?: number;
-  onOpenLoginModal: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
   onSyncAll: () => void;
@@ -37,7 +36,6 @@ export const Header: React.FC<HeaderProps> = ({
   studentsCount = 0,
   personnelCount = 0,
   attendanceRate = 100,
-  onOpenLoginModal,
   onOpenSettings,
   onLogout,
   onSyncAll,
@@ -115,17 +113,17 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Clean User Display Badge (read-only, not a switcher) */}
           <div 
-            onClick={onOpenLoginModal}
-            className="flex items-center gap-2.5 bg-white/10 hover:bg-white/15 border border-white/15 px-3 py-1.5 rounded-xl backdrop-blur-sm cursor-pointer transition-colors"
-            title="บัญชีผู้ใช้ปัจจุบัน (คลิกเพื่อเข้าสู่ระบบ)"
+            className="flex items-center gap-2.5 bg-white/10 border border-white/15 px-3 py-1.5 rounded-xl backdrop-blur-xs select-none"
+            title={`เข้าสู่ระบบในฐานะ: ${user.fullName}`}
           >
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
               user.role === 'developer'
-                ? 'bg-purple-600/90 text-white shadow-sm ring-1 ring-purple-400/50'
+                ? 'bg-purple-600/90 text-white shadow-xs ring-1 ring-purple-400/50'
                 : user.role === 'admin'
-                  ? 'bg-rose-500/80 text-white shadow-sm'
-                  : 'bg-emerald-500/80 text-white shadow-sm'
+                  ? 'bg-rose-500/80 text-white shadow-xs'
+                  : 'bg-emerald-500/80 text-white shadow-xs'
             }`}>
               {user.role === 'developer' ? (
                 <Terminal className="w-4 h-4" />
@@ -141,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="text-xs font-semibold text-white leading-none">
                   {user.fullName}
                 </span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase ${
                   user.role === 'developer'
                     ? 'bg-purple-500/30 text-purple-200 border border-purple-400/30'
                     : user.role === 'admin'
@@ -153,7 +151,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
               <p className="text-[11px] text-indigo-200/80 leading-none mt-1">
                 {user.role === 'developer' 
-                  ? 'Level 1: Airfan (สร้าง ID & ลบปีการศึกษา)'
+                  ? 'Level 1: Developer'
                   : (user.position || (user.role === 'admin' ? 'Level 2: ผู้ดูแลโรงเรียน' : 'ครูผู้สอน'))}
                 {user.assignedGrade && ` • ชั้น ${user.assignedGrade}`}
               </p>
@@ -164,20 +162,21 @@ export const Header: React.FC<HeaderProps> = ({
           {user.role !== 'developer' && (
             <button
               onClick={onOpenSettings}
-              className="p-2.5 bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 text-white rounded-xl transition-all shadow-xs shrink-0 flex items-center justify-center group"
+              className="p-2.5 bg-white/10 hover:bg-white/20 active:scale-95 border border-white/20 text-white rounded-xl transition-all shadow-xs shrink-0 flex items-center justify-center group cursor-pointer"
               title="ตั้งค่าระบบ"
             >
               <Settings className="w-4 h-4 text-indigo-100 group-hover:rotate-45 transition-transform" />
             </button>
           )}
 
-          {/* Logout button */}
+          {/* Dedicated Logout button for production */}
           <button
             onClick={onLogout}
-            className="p-2.5 bg-rose-500/20 hover:bg-rose-500/30 active:scale-95 border border-rose-400/30 text-rose-200 hover:text-white rounded-xl transition-all shadow-xs shrink-0 flex items-center justify-center"
+            className="px-3 py-2 bg-rose-500/20 hover:bg-rose-600 active:scale-95 border border-rose-400/30 text-rose-200 hover:text-white rounded-xl transition-all shadow-xs shrink-0 flex items-center gap-1.5 text-xs font-semibold cursor-pointer"
             title="ออกจากระบบ"
           >
             <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">ออกจากระบบ</span>
           </button>
         </div>
       </div>

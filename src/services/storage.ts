@@ -95,24 +95,36 @@ function setLocal<T>(key: string, value: T): void {
 
 export const StorageService = {
   // Session & Auth
-  getSession(): UserSession {
-    const defaultAdmin: UserSession = {
-      id: 'admin-01',
-      username: 'Admin',
-      fullName: 'ผู้ดูแลระบบโรงเรียน (Administrator)',
-      role: 'admin',
-      position: 'ผู้ดูแลระบบวิชาการ',
-      schoolId: 'admin-school-01',
-      schoolName: 'โรงเรียนอนุบาลเทศบาลดอนวิทยา'
-    };
-    return getLocal<UserSession>(KEYS.SESSION, defaultAdmin);
+  getSession(): UserSession | null {
+    try {
+      // Ensure any legacy localStorage session is cleared so users must explicitly log in
+      if (typeof window !== 'undefined' && localStorage.getItem(KEYS.SESSION)) {
+        localStorage.removeItem(KEYS.SESSION);
+      }
+      const val = sessionStorage.getItem(KEYS.SESSION);
+      if (!val) return null;
+      const parsed = JSON.parse(val) as UserSession;
+      if (parsed && parsed.username && parsed.isLoggedIn) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   },
 
   setSession(session: UserSession | null): void {
-    if (session) {
-      setLocal(KEYS.SESSION, session);
-    } else {
-      localStorage.removeItem(KEYS.SESSION);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem(KEYS.SESSION);
+      }
+      if (session) {
+        sessionStorage.setItem(KEYS.SESSION, JSON.stringify(session));
+      } else {
+        sessionStorage.removeItem(KEYS.SESSION);
+      }
+    } catch (err) {
+      console.error('Failed to update session:', err);
     }
   },
 
@@ -153,7 +165,8 @@ export const StorageService = {
         username: 'Airfan',
         fullName: 'Airfan (Developer)',
         role: 'developer',
-        position: 'ผู้พัฒนาระบบสูงสุด (System Developer)'
+        position: 'ผู้พัฒนาระบบสูงสุด (System Developer)',
+        isLoggedIn: true
       };
       this.setSession(devUser);
       return { 
@@ -180,7 +193,8 @@ export const StorageService = {
         role: 'admin',
         position: 'ผู้ดูแลระบบโรงเรียน',
         schoolId: foundAdmin.id,
-        schoolName: foundAdmin.schoolName
+        schoolName: foundAdmin.schoolName,
+        isLoggedIn: true
       };
       this.setSession(adminUser);
       return { 
@@ -199,7 +213,8 @@ export const StorageService = {
         role: 'admin',
         position: 'ผู้ดูแลระบบโรงเรียน',
         schoolId: 'admin-school-01',
-        schoolName: 'โรงเรียนอนุบาลเทศบาลดอนวิทยา'
+        schoolName: 'โรงเรียนอนุบาลเทศบาลดอนวิทยา',
+        isLoggedIn: true
       };
       this.setSession(adminUser);
       return { success: true, user: adminUser, message: 'เข้าสู่ระบบในฐานะผู้ดูแลระบบ (Admin) สำเร็จ' };
@@ -228,7 +243,8 @@ export const StorageService = {
         learningGroup: found.learningGroup,
         avatarUrl: found.avatarUrl,
         schoolId: found.schoolId,
-        schoolName: found.schoolName
+        schoolName: found.schoolName,
+        isLoggedIn: true
       };
       this.setSession(memberUser);
       return { 

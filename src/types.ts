@@ -14,6 +14,7 @@ export interface UserSession {
   avatarUrl?: string;
   schoolId?: string;
   schoolName?: string;
+  isLoggedIn?: boolean;
 }
 
 export interface SchoolAdminAccount {

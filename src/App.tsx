@@ -39,7 +39,7 @@ import { Module5Documents } from './components/Module5Documents';
 import { Module6Websites } from './components/Module6Websites';
 import { Module7Reports } from './components/Module7Reports';
 import { SettingsView } from './components/SettingsView';
-import { LoginModal } from './components/LoginModal';
+import { LoginPage } from './components/LoginPage';
 import { LightboxModal } from './components/LightboxModal';
 import { DeveloperConsole } from './components/DeveloperConsole';
 import { Toast } from './components/Toast';
@@ -48,7 +48,7 @@ export default function App() {
   // Global State
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [previousTab, setPreviousTab] = useState<NavTab>('dashboard');
-  const [user, setUser] = useState<UserSession>(() => StorageService.getSession());
+  const [user, setUser] = useState<UserSession | null>(() => StorageService.getSession());
   const [schoolInfo, setSchoolInfo] = useState<SchoolInfo>(() => StorageService.getSchoolInfo());
   const [admins, setAdmins] = useState<SchoolAdminAccount[]>(() => StorageService.getAdmins());
   const [academicYears, setAcademicYears] = useState<string[]>(() => StorageService.getAcademicYears());
@@ -71,7 +71,6 @@ export default function App() {
   // UI state
   const [isInspectingSchool, setIsInspectingSchool] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Lightbox state
@@ -127,30 +126,37 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    // If developer or admin, allow switching via modal
-    if (user.role === 'developer') {
-      setIsInspectingSchool(false);
-      setIsLoginModalOpen(true);
-      return;
-    }
-
-    const member = members[0];
-    if (user.role === 'admin' && member) {
-      const switched: UserSession = {
-        id: member.id,
-        username: member.username,
-        fullName: member.fullName,
-        role: 'member',
-        assignedGrade: member.gradeLevel,
-        position: member.position
-      };
-      StorageService.setSession(switched);
-      setUser(switched);
-      showToast('info', 'เข้าสู่ระบบ', `เปลี่ยนมาใช้งานในฐานะสมาชิก (${member.fullName})`);
-    } else {
-      setIsLoginModalOpen(true);
-    }
+    StorageService.setSession(null);
+    setUser(null);
+    setIsInspectingSchool(false);
+    showToast('info', 'ออกจากระบบแล้ว', 'ออกจากระบบสำเร็จ นำท่านสู่หน้าลงชื่อเข้าใช้งาน');
   };
+
+  // 15-Minute Inactivity Auto-Logout Security Watcher
+  useEffect(() => {
+    if (!user) return;
+
+    let timer: ReturnType<typeof setTimeout>;
+
+    const resetInactivityTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        StorageService.setSession(null);
+        setUser(null);
+        setIsInspectingSchool(false);
+        showToast('warning', 'เซสชันหมดอายุ', 'ระบบได้ออกจากระบบอัตโนมัติเนื่องจากไม่มีการใช้งานเกิน 15 นาที เพื่อความปลอดภัย');
+      }, 15 * 60 * 1000); // 15 minutes
+    };
+
+    const trackedEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    trackedEvents.forEach(evt => window.addEventListener(evt, resetInactivityTimer, { passive: true }));
+    resetInactivityTimer();
+
+    return () => {
+      clearTimeout(timer);
+      trackedEvents.forEach(evt => window.removeEventListener(evt, resetInactivityTimer));
+    };
+  }, [user]);
 
   // Sync with Google Sheets
   const handleSyncAll = async () => {
@@ -191,7 +197,7 @@ export default function App() {
 
   // Check Developer Read-Only Guard
   const verifyCanEdit = (): boolean => {
-    if (user.role === 'developer') {
+    if (user?.role === 'developer') {
       showToast('warning', 'ไม่มีสิทธิ์แก้ไข', 'ระดับผู้พัฒนา (Developer) ไม่สามารถแก้ไขหรือบันทึกข้อมูลโรงเรียนได้');
       return false;
     }
@@ -449,6 +455,18 @@ export default function App() {
 
   const effectiveTab = activeTab === 'settings' ? previousTab : activeTab;
 
+  // Production Login Screen (Strictly Pure White Background)
+  if (!user) {
+    return (
+      <>
+        <LoginPage
+          onLogin={handleLogin}
+        />
+        <Toast toasts={toasts} onDismiss={handleDismissToast} />
+      </>
+    );
+  }
+
   // Level 1: Developer Console View (when not inspecting school)
   if (user.role === 'developer' && !isInspectingSchool) {
     return (
@@ -475,15 +493,6 @@ export default function App() {
             setIsInspectingSchool(true);
             showToast('info', 'เข้าสู่โหมดตรวจสอบโรงเรียน', `กำลังตรวจสอบระบบของ ${admin.schoolName} ในโหมดอ่านอย่างเดียว`);
           }}
-        />
-
-        {/* User Login & Role Switcher Modal */}
-        <LoginModal
-          isOpen={isLoginModalOpen}
-          currentUser={user}
-          members={members}
-          onLogin={handleLogin}
-          onClose={() => setIsLoginModalOpen(false)}
         />
 
         {/* Floating Action Toasts */}
@@ -522,7 +531,6 @@ export default function App() {
         studentsCount={students.length}
         personnelCount={personnel.length}
         attendanceRate={attendanceRate}
-        onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onOpenSettings={() => handleSelectTab('settings')}
         onLogout={handleLogout}
         onSyncAll={handleSyncAll}
@@ -736,15 +744,6 @@ export default function App() {
         title={lightboxState.title}
         subtitle={lightboxState.subtitle}
         onClose={() => setLightboxState(prev => ({ ...prev, isOpen: false }))}
-      />
-
-      {/* User Login & Role Switcher Modal */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        currentUser={user}
-        members={members}
-        onLogin={handleLogin}
-        onClose={() => setIsLoginModalOpen(false)}
       />
 
       {/* Floating Action Toasts */}

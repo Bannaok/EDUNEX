@@ -595,6 +595,22 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     return Array.from(new Set(list)).sort((a, b) => b.localeCompare(a));
   });
 
+  // Real-time sync for configsByTerm and availableAcademicYears across all devices/browsers
+  useEffect(() => {
+    return StorageService.subscribe(() => {
+      const latestConfigs = StorageService.getAttendanceConfigsByTerm();
+      setConfigsByTerm(latestConfigs);
+      const latestTerm = localStorage.getItem('ams_latest_attendance_term');
+      if (latestTerm) {
+        setLatestAttendanceTermKey(latestTerm);
+      }
+      const list = StorageService.getAcademicYears();
+      if (!list.includes('2569')) list.push('2569');
+      if (!list.includes('2568')) list.push('2568');
+      setAvailableAcademicYears(Array.from(new Set(list)).sort((a, b) => b.localeCompare(a)));
+    });
+  }, []);
+
   // Modal to add new academic year
   const [isAddYearModalOpen, setIsAddYearModalOpen] = useState(false);
   const [newYearInput, setNewYearInput] = useState('');
@@ -613,13 +629,14 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     return base || defaultSchoolDays;
   });
 
-  // Sync defaultSchoolDays to configsByTerm['1_2569'] on initial setup only if not cleared
+  // Sync defaultSchoolDays to configsByTerm['1_2569'] on initial setup only if no terms exist yet
   useEffect(() => {
     const isCleared = localStorage.getItem('ams_cleared_1_2569');
     if (isCleared) return;
+    if (Object.keys(configsByTerm).length > 0) return;
     const isInitialized = localStorage.getItem('ams_attendance_initialized');
     const term1_2569 = configsByTerm['1_2569'];
-    if (!term1_2569 || (!isInitialized && (!term1_2569.schoolDays || term1_2569.schoolDays.length === 0))) {
+    if (!term1_2569 && !isInitialized) {
       const activeCount = defaultSchoolDays.filter(d => !d.isHoliday).length;
       const seeded: AttendanceDayConfig = {
         ...attendanceConfig,
@@ -630,11 +647,9 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
         targetDays: activeCount,
         schoolDays: defaultSchoolDays
       };
-      const all = StorageService.setAttendanceConfigForTerm(seeded);
-      localStorage.setItem('ams_attendance_initialized', 'true');
-      setConfigsByTerm(all);
+      setConfigsByTerm(prev => ({ ...prev, '1_2569': seeded }));
     }
-  }, [defaultSchoolDays]);
+  }, [defaultSchoolDays, configsByTerm]);
 
   // When selectedSemester or selectedAcademicYear changes, update schoolDaysList
   useEffect(() => {

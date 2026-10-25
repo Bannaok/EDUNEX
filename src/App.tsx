@@ -144,8 +144,14 @@ export default function App() {
   }, [user?.schoolId, user?.role]);
 
   // Auth Handlers
-  const handleLogin = (username: string, password: string) => {
-    const res = StorageService.authenticate(username, password);
+  const handleLogin = async (username: string, password: string) => {
+    let res = StorageService.authenticate(username, password);
+    if (!res.success) {
+      // On a brand-new browser/device/email, pull the latest cloud/server state first and retry
+      await StorageService.pullRemoteState(true);
+      reloadAllStates();
+      res = StorageService.authenticate(username, password);
+    }
     if (res.success && res.user) {
       setUser(res.user);
       setIsInspectingSchool(false);
@@ -531,11 +537,12 @@ export default function App() {
   }
 
   // Multi-Tenant Isolation: Filter members strictly belonging to the logged-in Admin/Member's school
-  const tenantMembers = user.schoolId
-    ? members.filter(m =>
-        m.schoolId === user.schoolId ||
-        (!m.schoolId && (user.schoolId === 'admin-school-01' || user.schoolId === 'admin-01'))
-      )
+  const currentUserSchoolId = StorageService.getNormalizedSchoolId(user.schoolId, user.schoolName);
+  const tenantMembers = currentUserSchoolId
+    ? members.filter(m => {
+        const memberSchoolId = StorageService.getNormalizedSchoolId(m.schoolId, m.schoolName);
+        return memberSchoolId === currentUserSchoolId;
+      })
     : members;
 
   return (

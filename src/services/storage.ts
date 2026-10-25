@@ -100,14 +100,65 @@ const TENANT_SCOPED_KEYS = new Set<string>([
   KEYS.DUTY_LOGS
 ]);
 
+const DEFAULT_GAS_WEBAPP_URL =
+  'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec';
+const MASTER_SPREADSHEET_ID = '1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM';
+const CLOUD_KV_SHEET = 'RealtimeCloudKV';
+const CLOUD_CHUNK_SIZE = 38000;
+const CLOUD_MAX_CHUNKS = 12;
+
+const INTERNAL_SKIP_KEYS = new Set<string>([
+  KEYS.SESSION,
+  'ams_attendance_reset_clean_v6',
+  'ams_savings_reset_clean_v7',
+  'ams_savings_cleared_v3',
+  'ams_attendance_initialized'
+]);
+
+function normalizeSchoolId(rawSchoolId?: string, rawSchoolName?: string, adminsList?: SchoolAdminAccount[]): string {
+  if (!rawSchoolId && !rawSchoolName) return 'admin-school-01';
+  if (rawSchoolId === 'admin-01' || rawSchoolId === 'admin-school-01') return 'admin-school-01';
+
+  let admins = adminsList;
+  if (!admins) {
+    try {
+      const cached = memoryCache.get(KEYS.ADMINS);
+      if (Array.isArray(cached)) {
+        admins = cached;
+      } else if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem(KEYS.ADMINS);
+        admins = raw ? JSON.parse(raw) : INITIAL_ADMINS;
+      }
+    } catch {
+      admins = INITIAL_ADMINS;
+    }
+  }
+
+  if (rawSchoolId && Array.isArray(admins)) {
+    const exact = admins.find(a => a.id === rawSchoolId);
+    if (exact) return exact.id;
+  }
+
+  if (rawSchoolName && Array.isArray(admins)) {
+    const cleanTarget = rawSchoolName.replace(/^โรงเรียน/, '').trim();
+    const byName = admins.find(a => {
+      const cleanAdmin = (a.schoolName || '').replace(/^โรงเรียน/, '').trim();
+      return a.schoolName === rawSchoolName || (cleanTarget && cleanAdmin === cleanTarget);
+    });
+    if (byName) return byName.id;
+  }
+
+  return rawSchoolId || 'admin-school-01';
+}
+
 function getActiveSchoolId(): string | null {
   try {
     if (typeof window === 'undefined') return null;
     const raw = sessionStorage.getItem(KEYS.SESSION);
     if (!raw) return null;
     const session = JSON.parse(raw) as UserSession;
-    if (session && session.role !== 'developer' && session.schoolId) {
-      return session.schoolId;
+    if (session && session.role !== 'developer') {
+      return normalizeSchoolId(session.schoolId, session.schoolName);
     }
     return null;
   } catch {
@@ -130,11 +181,22 @@ function resolveTenantKey(key: string): string {
 const CLIENT_ID = `client_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
 const memoryCache = new Map<string, any>();
 const keyTimestamps = new Map<string, number>();
+const locallyModifiedKeys = new Set<string>();
 const subscribers = new Set<(changedKeys: string[]) => void>();
 let lastKnownRev = 0;
 let realtimeInitialized = false;
 let broadcastChannel: BroadcastChannel | null = null;
 let sseConnection: EventSource | null = null;
+
+// Preserve native localStorage methods before hooking
+const nativeSetItem: ((key: string, value: string) => void) | null =
+  typeof window !== 'undefined' && window.localStorage
+    ? window.localStorage.setItem.bind(window.localStorage)
+    : null;
+const nativeGetItem: ((key: string) => string | null) | null =
+  typeof window !== 'undefined' && window.localStorage
+    ? window.localStorage.getItem.bind(window.localStorage)
+    : null;
 
 function notifySubscribers(changedKeys: string[]) {
   if (changedKeys.length === 0) return;
@@ -147,27 +209,98 @@ function notifySubscribers(changedKeys: string[]) {
   });
 }
 
-function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
+function buildCloudKvRowClient(key: string, value: any, updatedAt: number): Record<string, any> | null {
+  try {
+    const serialized = JSON.stringify(value);
+    if (!serialized || serialized.length > CLOUD_CHUNK_SIZE * CLOUD_MAX_CHUNKS) {
+      return null;
+    }
+    const firstSlice = serialized.slice(0, CLOUD_CHUNK_SIZE);
+    const row: Record<string, any> = {
+      id: key,
+      updatedAt,
+      valueJson: firstSlice ? `~${firstSlice}` : ''
+    };
+    for (let i = 1; i < CLOUD_MAX_CHUNKS; i++) {
+      const part = serialized.slice(i * CLOUD_CHUNK_SIZE, (i + 1) * CLOUD_CHUNK_SIZE);
+      row[`c${i}`] = part ? `~${part}` : '';
+    }
+    return row;
+  } catch {
+    return null;
+  }
+}
+
+function parseCloudKvRowClient(row: any): { key: string; value: any; updatedAt: number } | null {
+  if (!row || !row.id || row.id === '_sync_test') return null;
+  try {
+    const stripTilde = (s: any): string => {
+      if (s === undefined || s === null || s === '') return '';
+      const str = String(s);
+      return str.startsWith('~') ? str.slice(1) : str;
+    };
+    let fullJson = stripTilde(row.valueJson);
+    for (let i = 1; i < CLOUD_MAX_CHUNKS; i++) {
+      const part = stripTilde(row[`c${i}`]);
+      if (part) fullJson += part;
+    }
+    if (!fullJson) return null;
+    const value = JSON.parse(fullJson);
+    const updatedAt = Number(row.updatedAt) || 0;
+    return { key: String(row.id), value, updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+function pushToGoogleCloudKVDirect(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined') return;
+  const row = buildCloudKvRowClient(resolvedKey, value, timestamp);
+  if (!row) return;
+
+  fetch(DEFAULT_GAS_WEBAPP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({
+      action: 'batchSaveEntities',
+      spreadsheetId: MASTER_SPREADSHEET_ID,
+      sheetName: CLOUD_KV_SHEET,
+      keyField: 'id',
+      records: [row]
+    })
+  }).catch(() => {});
+}
+
+function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
+  if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
   const payload = {
     clientId: CLIENT_ID,
     updates: { [resolvedKey]: value },
     timestamps: { [resolvedKey]: timestamp }
   };
 
-  // 1. Primary Real-Time Server Mutation (triggers instant SSE broadcast to all devices/browsers)
+  // 1. Primary Real-Time Server Mutation (triggers instant SSE broadcast + server-side Cloud KV push)
   fetch('/api/realtime/mutate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   })
-    .then(r => (r.ok ? r.json() : null))
+    .then(r => {
+      if (!r.ok) {
+        // Fallback: if /api/realtime/mutate is not available (e.g. static Cloudflare Pages), push directly to Global Cloud KV
+        pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
+        return null;
+      }
+      return r.json();
+    })
     .then(data => {
       if (data && typeof data.rev === 'number' && data.rev > lastKnownRev) {
         lastKnownRev = data.rev;
       }
     })
-    .catch(() => {});
+    .catch(() => {
+      pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
+    });
 
   // 2. Cloudflare Pages D1 Real-Time State Mirror (when deployed on Cloudflare Pages)
   fetch('/api/d1?action=saveRealtimeState', {
@@ -191,25 +324,31 @@ function applyIncomingUpdates(
   const now = Date.now();
 
   for (const [resolvedKey, value] of Object.entries(updates)) {
-    if (resolvedKey === KEYS.SESSION) continue;
+    if (INTERNAL_SKIP_KEYS.has(resolvedKey)) continue;
     const incomingTs = Number(timestamps[resolvedKey]) || now;
     const localTs = keyTimestamps.get(resolvedKey) || 0;
 
-    // Skip if our local copy is strictly newer
-    if (localTs > incomingTs) continue;
+    // Only skip if this browser explicitly modified the key MORE recently than incomingTs
+    if (locallyModifiedKeys.has(resolvedKey) && localTs > incomingTs) {
+      continue;
+    }
 
     const currentCached = memoryCache.get(resolvedKey);
     const serializedIncoming = JSON.stringify(value);
     const serializedCurrent =
-      currentCached !== undefined ? JSON.stringify(currentCached) : localStorage.getItem(resolvedKey);
+      currentCached !== undefined
+        ? JSON.stringify(currentCached)
+        : nativeGetItem
+        ? nativeGetItem(resolvedKey)
+        : null;
 
     memoryCache.set(resolvedKey, value);
     keyTimestamps.set(resolvedKey, incomingTs);
 
     if (serializedIncoming !== serializedCurrent) {
-      if (!fromStorageEvent) {
+      if (!fromStorageEvent && nativeSetItem) {
         try {
-          localStorage.setItem(resolvedKey, serializedIncoming);
+          nativeSetItem(resolvedKey, serializedIncoming);
         } catch {
           // ignore quota error
         }
@@ -231,14 +370,14 @@ function getLocal<T>(key: string, fallback: T): T {
       return memoryCache.get(resolvedKey) as T;
     }
 
-    const val = localStorage.getItem(resolvedKey);
+    const val = nativeGetItem ? nativeGetItem(resolvedKey) : localStorage.getItem(resolvedKey);
     if (!val) {
       // If secondary tenant school has no initialized data yet, return clean isolated fallback
       if (resolvedKey !== key) {
         if (Array.isArray(fallback)) return [] as unknown as T;
         if (key === KEYS.SCHOOL_INFO) {
           const schoolId = getActiveSchoolId();
-          const adminsRaw = localStorage.getItem(KEYS.ADMINS);
+          const adminsRaw = nativeGetItem ? nativeGetItem(KEYS.ADMINS) : localStorage.getItem(KEYS.ADMINS);
           const admins: SchoolAdminAccount[] = adminsRaw ? JSON.parse(adminsRaw) : INITIAL_ADMINS;
           const match = admins.find(a => a.id === schoolId);
           return {
@@ -270,7 +409,14 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
     const now = Date.now();
     memoryCache.set(resolvedKey, value);
     keyTimestamps.set(resolvedKey, now);
-    localStorage.setItem(resolvedKey, JSON.stringify(value));
+    locallyModifiedKeys.add(resolvedKey);
+
+    const serialized = JSON.stringify(value);
+    if (nativeSetItem) {
+      nativeSetItem(resolvedKey, serialized);
+    } else {
+      localStorage.setItem(resolvedKey, serialized);
+    }
 
     // 1. Instant 0ms Cross-Tab Broadcast in same browser
     if (broadcastChannel) {
@@ -289,7 +435,7 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
     // 2. Notify local React subscribers immediately
     notifySubscribers([resolvedKey]);
 
-    // 3. Push to Real-Time Server & D1 so all devices, browsers, and emails sync immediately
+    // 3. Push to Real-Time Server, D1 & Global Cloud KV so all devices, browsers, and emails sync immediately
     if (!skipRemotePush) {
       pushToRemoteServer(resolvedKey, value, now);
     }
@@ -298,7 +444,56 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
   }
 }
 
+// Hook window.localStorage.setItem so sub-components writing directly to localStorage (e.g. PP6, Assessment3Booklets, WeightSessions) also sync across all devices/browsers
+function installLocalStorageSyncHook() {
+  if (typeof window === 'undefined' || !nativeSetItem) return;
+  try {
+    window.localStorage.setItem = function (key: string, value: string) {
+      nativeSetItem(key, value);
+      if (
+        !key ||
+        INTERNAL_SKIP_KEYS.has(key) ||
+        key.startsWith('ams_cleared_') ||
+        (!key.startsWith('ams_') && !key.startsWith('pp6_') && !key.startsWith('school_'))
+      ) {
+        return;
+      }
+      try {
+        let parsed: any = value;
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          parsed = value;
+        }
+        const now = Date.now();
+        memoryCache.set(key, parsed);
+        keyTimestamps.set(key, now);
+        locallyModifiedKeys.add(key);
+        if (broadcastChannel) {
+          broadcastChannel.postMessage({
+            type: 'delta',
+            clientId: CLIENT_ID,
+            updates: { [key]: parsed },
+            timestamps: { [key]: now }
+          });
+        }
+        notifySubscribers([key]);
+        pushToRemoteServer(key, parsed, now);
+      } catch {
+        // ignore
+      }
+    };
+  } catch {
+    // ignore if localStorage.setItem is non-writable in restricted webviews
+  }
+}
+
 export const StorageService = {
+  // Helper: Normalize School ID across Admin and Member accounts
+  getNormalizedSchoolId(rawSchoolId?: string, rawSchoolName?: string): string {
+    return normalizeSchoolId(rawSchoolId, rawSchoolName);
+  },
+
   // Subscribe to real-time updates (returns unsubscribe function)
   subscribe(listener: (changedKeys: string[]) => void): () => void {
     subscribers.add(listener);
@@ -307,19 +502,52 @@ export const StorageService = {
     };
   },
 
-  // Pull latest state from Real-Time Server & Cloudflare D1
+  // Pull directly from Global Cloud KV (Google Apps Script RealtimeCloudKV)
+  async pullFromGoogleCloudKV(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    try {
+      const url = `${DEFAULT_GAS_WEBAPP_URL}?action=getSheet&spreadsheetId=${MASTER_SPREADSHEET_ID}&sheet=${CLOUD_KV_SHEET}&_t=${Date.now()}`;
+      const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
+      if (!res.ok) return false;
+      const json: any = await res.json();
+      if (!json || json.status !== 'success' || !Array.isArray(json.data)) return false;
+
+      const incoming: Record<string, any> = {};
+      const incomingTs: Record<string, number> = {};
+
+      for (const rawRow of json.data) {
+        const parsed = parseCloudKvRowClient(rawRow);
+        if (!parsed) continue;
+        incoming[parsed.key] = parsed.value;
+        incomingTs[parsed.key] = parsed.updatedAt || Date.now();
+      }
+
+      if (Object.keys(incoming).length > 0) {
+        const changed = applyIncomingUpdates(incoming, incomingTs);
+        return changed.length > 0;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  },
+
+  // Pull latest state from Real-Time Server, Cloudflare D1, and Global Cloud KV
   async pullRemoteState(forceFull = false): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     let updatedAny = false;
+    let serverReached = false;
 
     try {
       const sinceParam = forceFull ? 0 : lastKnownRev;
-      const res = await fetch(`/api/realtime/state?sinceRev=${sinceParam}`, {
-        headers: { 'Accept': 'application/json' },
+      const forceCloudParam = forceFull ? '&forceCloud=1' : '';
+      const res = await fetch(`/api/realtime/state?sinceRev=${sinceParam}${forceCloudParam}`, {
+        headers: { Accept: 'application/json' },
         cache: 'no-store'
       });
 
       if (res.ok) {
+        serverReached = true;
         const data = await res.json();
         if (data.status === 'up_to_date') {
           return false;
@@ -333,56 +561,67 @@ export const StorageService = {
             const changed = applyIncomingUpdates(data.store, data.timestamps || {});
             if (changed.length > 0) updatedAny = true;
           } else {
-            // Server is empty on first boot -> seed server with current client data
+            // Server is empty -> try pulling from Global Cloud KV first before seeding
+            const pulledCloud = await this.pullFromGoogleCloudKV();
+            if (pulledCloud) {
+              updatedAny = true;
+            }
             this.seedServerWithLocalData();
           }
           return updatedAny;
         }
       }
     } catch {
-      // Fallback to Cloudflare Pages D1 endpoint if /api/realtime/state is not mounted
+      // Fallback to Cloudflare Pages D1 + Global Cloud KV if /api/realtime/state is not mounted
     }
 
-    try {
-      const [d1Master, d1Kv] = await Promise.all([
-        D1Service.fetchAll(),
-        fetch('/api/d1?action=getRealtimeState', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
-      ]);
+    if (!serverReached) {
+      try {
+        const [d1Master, d1Kv, cloudUpdated] = await Promise.all([
+          D1Service.fetchAll(),
+          fetch('/api/d1?action=getRealtimeState', { cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null),
+          this.pullFromGoogleCloudKV()
+        ]);
 
-      const incoming: Record<string, any> = {};
-      const incomingTs: Record<string, number> = {};
-      const now = Date.now();
+        if (cloudUpdated) updatedAny = true;
 
-      if (d1Master.success && d1Master.data) {
-        if (d1Master.data.developer) {
-          incoming[KEYS.DEVELOPER_ACCOUNT] = d1Master.data.developer;
-          incomingTs[KEYS.DEVELOPER_ACCOUNT] = now;
+        const incoming: Record<string, any> = {};
+        const incomingTs: Record<string, number> = {};
+        const now = Date.now();
+
+        if (d1Master.success && d1Master.data) {
+          if (d1Master.data.developer) {
+            incoming[KEYS.DEVELOPER_ACCOUNT] = d1Master.data.developer;
+            incomingTs[KEYS.DEVELOPER_ACCOUNT] = now;
+          }
+          if (Array.isArray(d1Master.data.admins) && d1Master.data.admins.length > 0) {
+            incoming[KEYS.ADMINS] = d1Master.data.admins;
+            incomingTs[KEYS.ADMINS] = now;
+          }
+          if (Array.isArray(d1Master.data.members) && d1Master.data.members.length > 0) {
+            incoming[KEYS.MEMBERS] = d1Master.data.members;
+            incomingTs[KEYS.MEMBERS] = now;
+          }
+          if (Array.isArray(d1Master.data.academicYears) && d1Master.data.academicYears.length > 0) {
+            incoming[KEYS.ACADEMIC_YEARS] = d1Master.data.academicYears;
+            incomingTs[KEYS.ACADEMIC_YEARS] = now;
+          }
         }
-        if (Array.isArray(d1Master.data.admins) && d1Master.data.admins.length > 0) {
-          incoming[KEYS.ADMINS] = d1Master.data.admins;
-          incomingTs[KEYS.ADMINS] = now;
+
+        if (d1Kv && d1Kv.status === 'success' && d1Kv.store) {
+          Object.assign(incoming, d1Kv.store);
+          Object.assign(incomingTs, d1Kv.timestamps || {});
         }
-        if (Array.isArray(d1Master.data.members) && d1Master.data.members.length > 0) {
-          incoming[KEYS.MEMBERS] = d1Master.data.members;
-          incomingTs[KEYS.MEMBERS] = now;
+
+        if (Object.keys(incoming).length > 0) {
+          const changed = applyIncomingUpdates(incoming, incomingTs);
+          if (changed.length > 0) updatedAny = true;
         }
-        if (Array.isArray(d1Master.data.academicYears) && d1Master.data.academicYears.length > 0) {
-          incoming[KEYS.ACADEMIC_YEARS] = d1Master.data.academicYears;
-          incomingTs[KEYS.ACADEMIC_YEARS] = now;
-        }
+      } catch {
+        // ignore
       }
-
-      if (d1Kv && d1Kv.status === 'success' && d1Kv.store) {
-        Object.assign(incoming, d1Kv.store);
-        Object.assign(incomingTs, d1Kv.timestamps || {});
-      }
-
-      if (Object.keys(incoming).length > 0) {
-        const changed = applyIncomingUpdates(incoming, incomingTs);
-        if (changed.length > 0) updatedAny = true;
-      }
-    } catch {
-      // ignore
     }
 
     return updatedAny;
@@ -394,40 +633,23 @@ export const StorageService = {
     const timestamps: Record<string, number> = {};
     const now = Date.now();
 
-    // Ensure baseline defaults are present in local storage before seeding
-    updates[KEYS.ADMINS] = this.getAdmins();
-    updates[KEYS.MEMBERS] = this.getMembers();
-    updates[KEYS.SCHOOL_INFO] = this.getSchoolInfo();
-    updates[KEYS.TASKS] = this.getTasks();
-    updates[KEYS.DOCUMENTS] = this.getDocuments();
-    updates[KEYS.CALENDAR] = this.getCalendarEvents();
-    updates[KEYS.STUDENTS] = this.getStudents();
-    updates[KEYS.PERSONNEL] = this.getPersonnel();
-    updates[KEYS.SUBJECTS] = this.getSubjects();
-    updates[KEYS.GRADES] = this.getGrades();
-    updates[KEYS.ATTENDANCE] = this.getAttendance();
-    updates[KEYS.SAVINGS] = this.getSavings();
-    updates[KEYS.WEBSITES] = this.getWebsites();
-    updates[KEYS.CUSTOM_BUTTONS] = this.getCustomButtons();
-    updates[KEYS.ACADEMIC_YEARS] = this.getAcademicYears();
-
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (!k || !k.startsWith('ams_') || k === KEYS.SESSION) continue;
+      if (!k || INTERNAL_SKIP_KEYS.has(k) || (!k.startsWith('ams_') && !k.startsWith('pp6_') && !k.startsWith('school_'))) {
+        continue;
+      }
       try {
-        const raw = localStorage.getItem(k);
+        const raw = nativeGetItem ? nativeGetItem(k) : localStorage.getItem(k);
         if (raw) {
           updates[k] = JSON.parse(raw);
-          timestamps[k] = keyTimestamps.get(k) || now;
+          timestamps[k] = keyTimestamps.get(k) || now - 30000;
         }
       } catch {
         // ignore
       }
     }
 
-    Object.keys(updates).forEach(k => {
-      if (!timestamps[k]) timestamps[k] = now;
-    });
+    if (Object.keys(updates).length === 0) return;
 
     fetch('/api/realtime/mutate', {
       method: 'POST',
@@ -441,12 +663,14 @@ export const StorageService = {
     }).catch(() => {});
   },
 
-  // Initialize Real-Time Synchronization (SSE + BroadcastChannel + Storage Event + Fast Poll)
+  // Initialize Real-Time Synchronization (SSE + BroadcastChannel + Storage Event + Fast Cloud Poll)
   initRealtimeSync(): void {
     if (typeof window === 'undefined' || realtimeInitialized) return;
     realtimeInitialized = true;
 
-    // 1. Immediate initial pull from server
+    installLocalStorageSyncHook();
+
+    // 1. Immediate initial pull from server & Global Cloud KV
     this.pullRemoteState(true);
 
     // 2. BroadcastChannel for 0ms cross-tab sync within same browser
@@ -466,7 +690,8 @@ export const StorageService = {
 
     // 3. Native window 'storage' event listener
     window.addEventListener('storage', (e) => {
-      if (!e.key || !e.key.startsWith('ams_') || e.key === KEYS.SESSION || !e.newValue) return;
+      if (!e.key || INTERNAL_SKIP_KEYS.has(e.key) || !e.newValue) return;
+      if (!e.key.startsWith('ams_') && !e.key.startsWith('pp6_') && !e.key.startsWith('school_')) return;
       try {
         const parsed = JSON.parse(e.newValue);
         applyIncomingUpdates({ [e.key]: parsed }, { [e.key]: Date.now() }, true);
@@ -494,7 +719,7 @@ export const StorageService = {
             const payload = JSON.parse(evt.data);
             if (payload.type === 'connected') {
               if (typeof payload.rev === 'number' && payload.rev > lastKnownRev) {
-                this.pullRemoteState(true);
+                this.pullRemoteState(false);
               }
             } else if (payload.type === 'delta') {
               if (typeof payload.rev === 'number' && payload.rev > lastKnownRev) {
@@ -568,7 +793,6 @@ export const StorageService = {
   // Session & Auth
   getSession(): UserSession | null {
     try {
-      // Ensure any legacy localStorage session is cleared so users must explicitly log in
       if (typeof window !== 'undefined' && localStorage.getItem(KEYS.SESSION)) {
         localStorage.removeItem(KEYS.SESSION);
       }
@@ -576,6 +800,9 @@ export const StorageService = {
       if (!val) return null;
       const parsed = JSON.parse(val) as UserSession;
       if (parsed && parsed.username && parsed.isLoggedIn) {
+        if (parsed.role !== 'developer') {
+          parsed.schoolId = normalizeSchoolId(parsed.schoolId, parsed.schoolName);
+        }
         return parsed;
       }
       return null;
@@ -644,45 +871,46 @@ export const StorageService = {
         isLoggedIn: true
       };
       this.setSession(devUser);
-      return { 
-        success: true, 
-        user: devUser, 
-        message: 'เข้าสู่ระบบในฐานะ Developer (airfan) ระดับที่ 1 สำเร็จ' 
+      return {
+        success: true,
+        user: devUser,
+        message: 'เข้าสู่ระบบในฐานะ Developer (airfan) ระดับที่ 1 สำเร็จ'
       };
     }
 
     // 2. Level 2: School Admins List
     const admins = this.getAdmins();
-    const foundAdmin = admins.find(a => 
-      a.username.toLowerCase() === trimmedUser.toLowerCase() && 
+    const foundAdmin = admins.find(a =>
+      a.username.toLowerCase() === trimmedUser.toLowerCase() &&
       (a.password === password || (!a.password && password === '123456'))
     );
     if (foundAdmin) {
       if (foundAdmin.isSuspended) {
         return { success: false, message: 'บัญชีผู้ดูแลโรงเรียนนี้ถูกระงับการใช้งาน กรุณาติดต่อ Developer' };
       }
+      const normAdminSchoolId = normalizeSchoolId(foundAdmin.id, foundAdmin.schoolName, admins);
       const adminUser: UserSession = {
         id: foundAdmin.id,
         username: foundAdmin.username,
         fullName: foundAdmin.fullName,
         role: 'admin',
         position: 'ผู้ดูแลระบบโรงเรียน',
-        schoolId: foundAdmin.id,
+        schoolId: normAdminSchoolId,
         schoolName: foundAdmin.schoolName,
         isLoggedIn: true
       };
       this.setSession(adminUser);
-      return { 
-        success: true, 
-        user: adminUser, 
-        message: `ยินดีต้อนรับผู้ดูแลระบบ ${foundAdmin.schoolName} (${foundAdmin.fullName})` 
+      return {
+        success: true,
+        user: adminUser,
+        message: `ยินดีต้อนรับผู้ดูแลระบบ ${foundAdmin.schoolName} (${foundAdmin.fullName})`
       };
     }
 
     // Default legacy Admin fallback
     if (trimmedUser.toLowerCase() === 'admin' && password === '123456') {
       const adminUser: UserSession = {
-        id: 'admin-01',
+        id: 'admin-school-01',
         username: 'Admin',
         fullName: 'ผู้ดูแลระบบโรงเรียน (Administrator)',
         role: 'admin',
@@ -697,15 +925,16 @@ export const StorageService = {
 
     // 3. Level 3: Members (Teachers / Staff)
     const members = this.getMembers();
-    const found = members.find(m => 
-      m.username.toLowerCase() === trimmedUser.toLowerCase() && 
+    const found = members.find(m =>
+      m.username.toLowerCase() === trimmedUser.toLowerCase() &&
       (m.password === password || !m.password)
     );
     if (found) {
       if (found.isSuspended) {
         return { success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ (Admin) หรือ Developer' };
       }
-      const memberSchoolId = found.schoolId || 'admin-school-01';
+      const memberSchoolId = normalizeSchoolId(found.schoolId, found.schoolName, admins);
+      const matchedAdmin = admins.find(a => a.id === memberSchoolId);
       const memberUser: UserSession = {
         id: found.id,
         username: found.username,
@@ -719,34 +948,33 @@ export const StorageService = {
         learningGroup: found.learningGroup,
         avatarUrl: found.avatarUrl,
         schoolId: memberSchoolId,
-        schoolName: found.schoolName,
+        schoolName: found.schoolName || matchedAdmin?.schoolName,
         isLoggedIn: true
       };
       this.setSession(memberUser);
-      return { 
-        success: true, 
-        user: memberUser, 
-        message: `ยินดีต้อนรับ ${found.fullName} (สมาชิกบุคลากร)` 
+      return {
+        success: true,
+        user: memberUser,
+        message: `ยินดีต้อนรับ ${found.fullName} (สมาชิกบุคลากร)`
       };
     }
 
-    return { 
-      success: false, 
-      message: 'ID หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง' 
+    return {
+      success: false,
+      message: 'ID หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง'
     };
   },
 
   // Google Config
   getGoogleConfig(): GoogleConfig {
     const config = getLocal<GoogleConfig>(KEYS.GOOGLE_CONFIG, {
-      webAppUrl: 'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec',
+      webAppUrl: DEFAULT_GAS_WEBAPP_URL,
       driveFolderId: '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
       isConnected: true,
       lastSynced: new Date().toISOString()
     });
-    // Ensure that if stored config is empty, fallback to the connected URL and Drive ID
     if (!config.webAppUrl) {
-      config.webAppUrl = 'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec';
+      config.webAppUrl = DEFAULT_GAS_WEBAPP_URL;
       config.driveFolderId = '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9';
       config.isConnected = true;
     }
@@ -764,12 +992,39 @@ export const StorageService = {
 
   setSchoolInfo(info: SchoolInfo): void {
     setLocal(KEYS.SCHOOL_INFO, info);
+    // Keep School Admin entry & Member schoolName synchronized with updated SchoolInfo
+    const activeSchoolId = getActiveSchoolId() || 'admin-school-01';
+    const admins = this.getAdmins();
+    const adminIdx = admins.findIndex(a => normalizeSchoolId(a.id, a.schoolName, admins) === activeSchoolId);
+    if (adminIdx >= 0 && info.schoolName) {
+      const updatedAdmin: SchoolAdminAccount = {
+        ...admins[adminIdx],
+        schoolName: info.schoolName,
+        schoolCode: info.schoolCode || admins[adminIdx].schoolCode,
+        affiliation: info.affiliation || admins[adminIdx].affiliation,
+        directorName: info.directorName || admins[adminIdx].directorName
+      };
+      const nextAdmins = [...admins];
+      nextAdmins[adminIdx] = updatedAdmin;
+      setLocal(KEYS.ADMINS, nextAdmins);
+      D1Service.saveAdmin(updatedAdmin).catch(() => {});
+    }
     this.syncPostToGoogle('saveSchoolInfo', { schoolInfo: info });
   },
 
   // Members
   getMembers(): MemberAccount[] {
-    return getLocal<MemberAccount[]>(KEYS.MEMBERS, INITIAL_MEMBERS);
+    const list = getLocal<MemberAccount[]>(KEYS.MEMBERS, INITIAL_MEMBERS);
+    const admins = this.getAdmins();
+    return list.map(m => {
+      const normId = normalizeSchoolId(m.schoolId, m.schoolName, admins);
+      const matchedAdmin = admins.find(a => a.id === normId);
+      return {
+        ...m,
+        schoolId: normId,
+        schoolName: m.schoolName || matchedAdmin?.schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา'
+      };
+    });
   },
 
   saveMember(member: MemberAccount): MemberAccount[] {
@@ -979,7 +1234,7 @@ export const StorageService = {
 
     if (changed || additions.length > 0) {
       const finalSubs = [...normalized, ...additions];
-      setLocal(KEYS.SUBJECTS, finalSubs);
+      memoryCache.set(resolveTenantKey(KEYS.SUBJECTS), finalSubs);
       return finalSubs;
     }
 
@@ -1086,7 +1341,7 @@ export const StorageService = {
         startDate: '2026-05-18',
         endDate: '2026-10-07'
       };
-      setLocal(KEYS.ATTENDANCE_CONFIG, updated);
+      memoryCache.set(resolveTenantKey(KEYS.ATTENDANCE_CONFIG), updated);
       return updated;
     }
     return cfg;
@@ -1097,20 +1352,18 @@ export const StorageService = {
   },
 
   getAttendanceConfigsByTerm(): Record<string, AttendanceDayConfig> {
-    const current = getLocal<Record<string, AttendanceDayConfig>>(KEYS.ATTENDANCE_CONFIGS_BY_TERM, {});
-    // Seed 1_2569 if not yet present and not explicitly cleared
+    const current = { ...getLocal<Record<string, AttendanceDayConfig>>(KEYS.ATTENDANCE_CONFIGS_BY_TERM, {}) };
     const isCleared = localStorage.getItem('ams_cleared_1_2569');
     if (!current['1_2569'] && !isCleared) {
       const base = this.getAttendanceConfig();
       current['1_2569'] = base;
-      setLocal(KEYS.ATTENDANCE_CONFIGS_BY_TERM, current);
     }
     return current;
   },
 
   setAttendanceConfigForTerm(config: AttendanceDayConfig): Record<string, AttendanceDayConfig> {
     const termKey = `${config.semester}_${config.academicYear}`;
-    const all = this.getAttendanceConfigsByTerm();
+    const all = { ...this.getAttendanceConfigsByTerm() };
     all[termKey] = config;
     localStorage.removeItem(`ams_cleared_${termKey}`);
     setLocal(KEYS.ATTENDANCE_CONFIGS_BY_TERM, all);
@@ -1119,7 +1372,7 @@ export const StorageService = {
   },
 
   deleteAttendanceConfigForTerm(termKey: string): Record<string, AttendanceDayConfig> {
-    const all = this.getAttendanceConfigsByTerm();
+    const all = { ...this.getAttendanceConfigsByTerm() };
     if (all[termKey]) {
       all[termKey] = {
         ...all[termKey],
@@ -1145,7 +1398,7 @@ export const StorageService = {
   },
 
   deleteAllAttendanceConfigs(): Record<string, AttendanceDayConfig> {
-    const all = this.getAttendanceConfigsByTerm();
+    const all = { ...this.getAttendanceConfigsByTerm() };
     Object.keys(all).forEach(k => {
       all[k] = {
         ...all[k],
@@ -1161,12 +1414,7 @@ export const StorageService = {
   },
 
   getAttendance(): AttendanceRecord[] {
-    if (!localStorage.getItem('ams_attendance_reset_clean_v6')) {
-      localStorage.setItem('ams_attendance_reset_clean_v6', 'true');
-      setLocal(KEYS.ATTENDANCE, []);
-      return [];
-    }
-    return getLocal<AttendanceRecord[]>(KEYS.ATTENDANCE, INITIAL_ATTENDANCE);
+    return getLocal<AttendanceRecord[]>(KEYS.ATTENDANCE, []);
   },
 
   saveBulkAttendance(records: AttendanceRecord[]): AttendanceRecord[] {
@@ -1182,12 +1430,7 @@ export const StorageService = {
 
   // Savings
   getSavings(): SavingsRecord[] {
-    if (!localStorage.getItem('ams_savings_reset_clean_v7')) {
-      localStorage.setItem('ams_savings_reset_clean_v7', 'true');
-      setLocal(KEYS.SAVINGS, []);
-      return [];
-    }
-    return getLocal<SavingsRecord[]>(KEYS.SAVINGS, INITIAL_SAVINGS);
+    return getLocal<SavingsRecord[]>(KEYS.SAVINGS, []);
   },
 
   calculateStudentBalance(studentId: string, semester?: '1' | '2', academicYear?: string): number {

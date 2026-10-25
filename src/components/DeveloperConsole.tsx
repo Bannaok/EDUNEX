@@ -433,7 +433,9 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   const filteredMembers = members.filter(m => {
     if (!selectedSchoolFilter) return true;
     const targetAdmin = admins.find(a => a.id === selectedSchoolFilter);
-    return m.schoolId === selectedSchoolFilter || 
+    const normalizedMemberSchoolId = StorageService.getNormalizedSchoolId(m.schoolId, m.schoolName);
+    return normalizedMemberSchoolId === selectedSchoolFilter || 
+           m.schoolId === selectedSchoolFilter || 
            m.schoolName === targetAdmin?.schoolName || 
            (!m.schoolId && !m.schoolName && targetAdmin === admins[0]);
   });
@@ -779,14 +781,17 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                   >
                     {admins.map(a => (
                       <option key={a.id} value={a.id}>
-                        {a.schoolName} ({members.filter(m => m.schoolId === a.id || m.schoolName === a.schoolName).length})
+                        {a.schoolName} ({members.filter(m => StorageService.getNormalizedSchoolId(m.schoolId, m.schoolName) === a.id || m.schoolId === a.id || m.schoolName === a.schoolName).length})
                       </option>
                     ))}
                   </select>
 
                   <button
                     type="button"
-                    onClick={() => setIsCreateMemberModalOpen(true)}
+                    onClick={() => {
+                      setMemberSchoolId(selectedSchoolFilter || admins[0]?.id || '');
+                      setIsCreateMemberModalOpen(true);
+                    }}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
                   >
                     <Plus className="w-4 h-4" />

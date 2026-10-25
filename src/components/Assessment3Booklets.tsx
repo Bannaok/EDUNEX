@@ -446,6 +446,36 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
     return DEFAULT_THRESHOLDS;
   });
 
+  useEffect(() => {
+    return StorageService.subscribe(() => {
+      try {
+        const savedRw = localStorage.getItem(RW_CONFIG_KEY);
+        if (savedRw) setRwConfig(JSON.parse(savedRw));
+      } catch {
+        // ignore
+      }
+      try {
+        const savedData = localStorage.getItem(ASSESSMENT_DATA_KEY);
+        if (savedData) setAssessmentData(JSON.parse(savedData));
+      } catch {
+        // ignore
+      }
+      try {
+        const savedTh = localStorage.getItem(THRESHOLDS_STORAGE_KEY);
+        if (savedTh) {
+          const parsed = JSON.parse(savedTh);
+          setThresholds({
+            reading: { ...DEFAULT_THRESHOLDS.reading, ...parsed.reading },
+            thinking: { ...DEFAULT_THRESHOLDS.thinking, ...parsed.thinking },
+            writing: { ...DEFAULT_THRESHOLDS.writing, ...parsed.writing }
+          });
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }, []);
+
   const getTableTargetMaxScore = (tbl: AssessmentTableConfig, th: AssessmentThresholds = thresholds): number => {
     const title = (tbl.title || '').toLowerCase();
     if (tbl.id.includes('reading') || title.includes('อ่าน')) {

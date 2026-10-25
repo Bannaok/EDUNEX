@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 interface LoginPageProps {
-  onLogin: (username: string, password: string) => { success: boolean; user?: UserSession; message: string };
+  onLogin: (username: string, password: string) => Promise<{ success: boolean; user?: UserSession; message: string }> | { success: boolean; user?: UserSession; message: string };
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
@@ -21,7 +21,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim()) {
       setErrorMessage('กรุณากรอก ID (ชื่อผู้ใช้งาน)');
@@ -35,13 +35,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     setIsLoading(true);
     setErrorMessage('');
 
-    setTimeout(() => {
-      const res = onLogin(username.trim(), password);
+    try {
+      const res = await Promise.resolve(onLogin(username.trim(), password));
       setIsLoading(false);
       if (!res.success) {
         setErrorMessage(res.message || 'ID หรือ Password ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
       }
-    }, 250);
+    } catch {
+      setIsLoading(false);
+      setErrorMessage('ID หรือ Password ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   return (

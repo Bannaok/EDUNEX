@@ -422,6 +422,22 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
     }
   };
 
+  useEffect(() => {
+    return StorageService.subscribe(() => {
+      try {
+        const saved = localStorage.getItem(SESSIONS_STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSessions(parsed);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    });
+  }, []);
+
   const [activeSessionMode, setActiveSessionMode] = useState<{ id: string; mode: 'edit' | 'view' } | null>(null);
 
   const [isAddSessionModalOpen, setIsAddSessionModalOpen] = useState(false);

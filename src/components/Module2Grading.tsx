@@ -111,6 +111,13 @@ export const Module2Grading: React.FC<Module2Props> = ({
     StorageService.getLockedSemesters()
   );
 
+  React.useEffect(() => {
+    return StorageService.subscribe(() => {
+      setAcademicYears(StorageService.getAcademicYears());
+      setLockedSemesters(StorageService.getLockedSemesters());
+    });
+  }, []);
+
   const isCurrentSemLocked = Boolean(lockedSemesters[`${currentAcademicYear}_${currentSemester}`]);
   const isSem1Locked = Boolean(lockedSemesters[`${currentAcademicYear}_1`]);
   const isSem2Locked = Boolean(lockedSemesters[`${currentAcademicYear}_2`]);

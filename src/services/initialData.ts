@@ -69,7 +69,7 @@ export const INITIAL_SCHOOL_INFO: SchoolInfo = {
   phone: "034-251234",
   email: "donwittaya.school@ac.th",
   directorName: "ดร.วิโรจน์ เจริญรัตนกุล",
-  logoUrl: "https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=150&auto=format&fit=crop&q=80",
+  logoUrl: "/nexus-logo.png",
   academicYear: "2569",
   semester: "1",
   customFields: [

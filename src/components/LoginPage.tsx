@@ -7,8 +7,10 @@ import {
   EyeOff, 
   LogIn, 
   AlertCircle,
-  ShieldCheck
+  ShieldCheck,
+  Smartphone
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface LoginPageProps {
   onLogin: (username: string, password: string) => { success: boolean; user?: UserSession; message: string };
@@ -48,15 +50,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     <div 
       className="min-h-screen w-full flex items-center justify-center p-4 font-sans select-none"
       style={{
-        background: 'radial-gradient(ellipse 95% 85% at 75% 45%, #655278 0%, #413253 38%, #261d33 78%, #191223 100%)'
+        background: 'radial-gradient(ellipse 95% 85% at 75% 45%, #173b75 0%, #0f244a 38%, #09152b 78%, #040913 100%)'
       }}
     >
       {/* Central Login Card */}
-      <div className="bg-white rounded-3xl shadow-2xl p-7 sm:p-9 max-w-[430px] w-full mx-auto animate-in fade-in zoom-in-95 duration-200">
-        {/* Top Text Header (No logo, No school name) */}
-        <div className="text-center mb-6">
-          <p className="text-xs sm:text-sm text-slate-500 font-medium">
-            กรุณากรอก ID และ Password เพื่อเข้าสู่ระบบ
+      <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-9 max-w-[430px] w-full mx-auto animate-in fade-in zoom-in-95 duration-200 border border-slate-100">
+        {/* Brand Header with NEXUS Logo */}
+        <div className="text-center mb-6 space-y-2">
+          <div className="w-20 h-20 mx-auto rounded-2xl bg-white border border-slate-200 p-2 shadow-sm flex items-center justify-center">
+            <img 
+              src="/nexus-logo.png" 
+              alt="NEXUS" 
+              className="w-full h-full object-contain"
+            />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">
+              NEXUS
+            </h2>
+            <p className="text-xs text-blue-700 font-bold">
+              ระบบบริหารจัดการงานวิชาการและธุรการ
+            </p>
+          </div>
+          <p className="text-[11px] text-slate-500 font-medium">
+            กรุณากรอก ID และ Password เพื่อเข้าใช้งานแอปพลิเคชัน
           </p>
         </div>
 
@@ -146,7 +163,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full mt-3 py-3 px-4 bg-[#8b15ff] hover:bg-[#7b0de6] active:scale-[0.99] text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            className="w-full mt-3 py-3 px-4 bg-[#173b75] hover:bg-[#11274d] active:scale-[0.99] text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <>
@@ -160,6 +177,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               </>
             )}
           </button>
+
+          {/* Quick Install Prompt on Mobile */}
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-center">
+            <PWAInstallButton variant="header" />
+          </div>
         </form>
       </div>
     </div>

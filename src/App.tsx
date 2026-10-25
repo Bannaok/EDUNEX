@@ -43,6 +43,8 @@ import { LoginPage } from './components/LoginPage';
 import { LightboxModal } from './components/LightboxModal';
 import { DeveloperConsole } from './components/DeveloperConsole';
 import { Toast } from './components/Toast';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { PWAInstallButton } from './components/PWAInstallButton';
 
 export default function App() {
   // Global State
@@ -737,6 +739,18 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Mobile Bottom Navigation Bar (md:hidden) */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={handleSelectTab}
+        pendingTasksCount={pendingTasksCount}
+        user={user}
+        onOpenSettings={() => handleSelectTab('settings')}
+      />
+
+      {/* PWA Mobile Floating Install Banner */}
+      <PWAInstallButton variant="banner" />
 
       {/* Lightbox Modal */}
       <LightboxModal

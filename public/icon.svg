@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#ffffff"/>
+  <!-- Mortarboard Diamond / Cap -->
+  <path d="M256 120 L420 185 L256 250 L92 185 Z" fill="#173b75"/>
+  <path d="M256 142 L392 195 L256 248 L120 195 Z" fill="#1d4ed8" opacity="0.3"/>
+  <polygon points="256,128 350,165 256,155" fill="#ffffff" opacity="0.4"/>
+  <!-- Cap Bottom / Skullcap -->
+  <path d="M165 220 L165 300 Q256 345 347 300 L347 220 L256 256 Z" fill="#173b75"/>
+  <!-- Highlight on skullcap -->
+  <path d="M315 250 L330 250 L330 292 L315 285 Z" fill="#ffffff" opacity="0.85"/>
+  <!-- Tassel / Cord -->
+  <path d="M380 200 L380 260" stroke="#173b75" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="380" cy="270" r="10" fill="#173b75"/>
+  <path d="M375 280 L365 330 L395 330 L385 280 Z" fill="#173b75"/>
+  <!-- NEXUS Text -->
+  <text x="256" y="420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="78" font-weight="900" fill="#173b75" text-anchor="middle" letter-spacing="4">NEXUS</text>
+</svg>

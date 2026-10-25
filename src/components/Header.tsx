@@ -13,6 +13,7 @@ import {
   Settings,
   Terminal
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   schoolInfo: SchoolInfo;
@@ -44,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   isInspectingSchool = false
 }) => {
   return (
-    <header className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white shadow-md border-b border-indigo-700/50">
+    <header className="bg-gradient-to-r from-[#11244e] via-[#173b75] to-[#1e293b] text-white shadow-md border-b border-blue-900/60">
       {/* Top micro bar: Google Sheets status if connected */}
       {googleConfig.isConnected && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-1.5 border-b border-white/10 flex flex-wrap items-center justify-end text-xs text-indigo-100/90 gap-2">
@@ -64,32 +65,29 @@ export const Header: React.FC<HeaderProps> = ({
       )}
 
       {/* Main Branding & User bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Brand identity */}
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/20 p-1 flex items-center justify-center shrink-0 shadow-inner overflow-hidden backdrop-blur-sm">
-            {schoolInfo.logoUrl ? (
-              <img
-                src={schoolInfo.logoUrl}
-                alt={schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
-                className="w-full h-full object-cover rounded-xl"
-                onError={(e) => {
-                  // Fallback to icon if logo fails to load
-                  (e.target as HTMLElement).style.display = 'none';
-                }}
-              />
-            ) : (
-              <GraduationCap className="w-7 h-7 text-amber-300" />
-            )}
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-white border border-white/30 p-1 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
+            <img
+              src="/nexus-logo.png"
+              alt="NEXUS"
+              className="w-full h-full object-contain"
+            />
           </div>
 
           <div>
-            <h1 className="text-lg md:text-xl font-bold tracking-tight text-white leading-tight">
-              {schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
-            </h1>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black tracking-wider text-amber-300 uppercase bg-white/15 px-2 py-0.5 rounded-md border border-white/20 shadow-2xs">
+                NEXUS
+              </span>
+              <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight text-white leading-tight">
+                {schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
+              </h1>
+            </div>
 
             {/* Small stats in blue header: Only นักเรียนทั้งหมด, ครูและบุคลากร, มาเรียนวันนี้ */}
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-indigo-200 mt-1 font-normal">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-indigo-200 mt-0.5 font-normal">
               <span>นักเรียนทั้งหมด <strong className="text-white font-bold tabular-nums">{studentsCount}</strong> คน</span>
               <span className="text-indigo-400/60" aria-hidden="true">·</span>
               <span>ครูและบุคลากร <strong className="text-white font-bold tabular-nums">{personnelCount}</strong> ท่าน</span>
@@ -157,6 +155,9 @@ export const Header: React.FC<HeaderProps> = ({
               </p>
             </div>
           </div>
+
+          {/* PWA Install Button in Header */}
+          <PWAInstallButton variant="header" />
 
           {/* Settings icon button located at top right near logout (only for Admin and Member) */}
           {user.role !== 'developer' && (

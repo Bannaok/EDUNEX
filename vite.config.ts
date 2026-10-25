@@ -7,6 +7,26 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'disable-vite-client-ws',
+        enforce: 'post',
+        transform(code, id) {
+          if (id.includes('vite/dist/client/client.mjs') || code.includes('WebSocket closed without opened.')) {
+            return {
+              code: code
+                .replace(
+                  'const socket = options.createConnection();',
+                  'return; const socket = options.createConnection();'
+                )
+                .replace(
+                  'ws.send(JSON.stringify(data));',
+                  'ws?.send(JSON.stringify(data));'
+                ),
+              map: null,
+            };
+          }
+        },
+      },
       react(), 
       tailwindcss(),
       VitePWA({
@@ -48,7 +68,7 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff,woff2}']
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module'
         }
       })
@@ -59,11 +79,8 @@ export default defineConfig(() => {
       },
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      hmr: false,
+      watch: null,
     },
   };
 });

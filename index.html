@@ -3,6 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <script>
+      (function () {
+        const isBenignViteWsError = function (msg) {
+          if (!msg) return false;
+          const str = String(msg);
+          return str.includes('WebSocket closed without opened') || str.includes('@vite/client');
+        };
+        window.addEventListener('error', function (e) {
+          if (isBenignViteWsError(e && (e.message || (e.error && e.error.message) || e.filename))) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function (e) {
+          const reason = e && e.reason;
+          const msg = reason && (reason.message || String(reason));
+          if (isBenignViteWsError(msg)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+        if ('serviceWorker' in navigator && location.hostname.endsWith('.run.app')) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            for (var i = 0; i < regs.length; i++) {
+              regs[i].unregister();
+            }
+          }).catch(function () {});
+        }
+      })();
+    </script>
     <title>NEXUS - ระบบบริหารจัดการงานวิชาการและธุรการโรงเรียน</title>
     <meta name="description" content="NEXUS ระบบบริหารจัดการงานวิชาการและธุรการโรงเรียน สำหรับมือถือและเว็บไซต์ ครอบคลุมงานวิชาการ เช็กชื่อ เงินฝาก ครูเวร และเอกสารครบวงจร" />
     <meta name="theme-color" content="#173b75" />

@@ -204,89 +204,107 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
   const [activeSubTab, setActiveSubTab] = useState<'students' | 'personnel' | 'school' | 'leave' | 'duty'>('students');
 
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => {
-    try {
-      const saved = localStorage.getItem('ams_leave_requests_v1');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return [
-      {
-        id: 'leave-1',
-        teacherName: 'นางสาวสมใจ รักเรียน',
-        leaveType: 'ลากิจ',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0],
-        reason: 'ไปติดต่อราชการด่วน',
-        status: 'อนุมัติ',
-        createdAt: new Date().toISOString()
-      }
-    ];
-  });
+  const defaultLeaveRequests: LeaveRequest[] = [
+    {
+      id: 'leave-1',
+      teacherName: 'นางสาวสมใจ รักเรียน',
+      leaveType: 'ลากิจ',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+      reason: 'ไปติดต่อราชการด่วน',
+      status: 'อนุมัติ',
+      createdAt: new Date().toISOString()
+    }
+  ];
 
-  const [dutyAssignments, setDutyAssignments] = useState<DutyAssignment[]>(() => {
-    try {
-      const saved = localStorage.getItem('ams_duty_assignments_v1');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return [
-      {
-        id: 'duty-1',
-        dayOfWeek: 'วันจันทร์',
-        teacherNames: 'นายวิชัย สุวรรณมาลา, นางสาวสมใจ รักเรียน',
-        dutyType: 'ครูเวรประจำวัน',
-        location: 'หน้าประตูโรงเรียน / อาคาร 1',
-        note: 'ดูแลการมาโรงเรียนและการเคารพธงชาติ'
-      },
-      {
-        id: 'duty-2',
-        dayOfWeek: 'วันอังคาร',
-        teacherNames: 'นายสมชาย ใจดี, นางอารี ศรีสุข',
-        dutyType: 'ครูเวรประจำวัน',
-        location: 'โรงอาหาร / สนามเด็กเล่น',
-        note: 'ดูแลความเรียบร้อยช่วงพักกลางวัน'
-      }
-    ];
-  });
+  const defaultDutyAssignments: DutyAssignment[] = [
+    {
+      id: 'duty-1',
+      dayOfWeek: 'วันจันทร์',
+      teacherNames: 'นายวิชัย สุวรรณมาลา, นางสาวสมใจ รักเรียน',
+      dutyType: 'ครูเวรประจำวัน',
+      location: 'หน้าประตูโรงเรียน / อาคาร 1',
+      note: 'ดูแลการมาโรงเรียนและการเคารพธงชาติ'
+    },
+    {
+      id: 'duty-2',
+      dayOfWeek: 'วันอังคาร',
+      teacherNames: 'นายสมชาย ใจดี, นางอารี ศรีสุข',
+      dutyType: 'ครูเวรประจำวัน',
+      location: 'โรงอาหาร / สนามเด็กเล่น',
+      note: 'ดูแลความเรียบร้อยช่วงพักกลางวัน'
+    }
+  ];
+
+  const defaultDutyLogs: DailyDutyLog[] = [
+    {
+      id: 'dlog-1',
+      date: new Date().toISOString().split('T')[0],
+      dutyTeacherName: user.fullName || 'นางสาวสมใจ รักเรียน',
+      dutyType: 'ครูเวรประจำวัน',
+      location: 'หน้าประตูโรงเรียน / อาคารเรียน 1',
+      weatherCondition: 'แจ่มใส เหตุการณ์ทั่วไปปกติ',
+      overallStatus: 'นักเรียนมาโรงเรียนตรงเวลา การเข้าแถวและกิจกรรมเลิกเรียนเรียบร้อยดี',
+      timeSlots: DEFAULT_DUTY_SLOTS,
+      incidentsNote: 'ไม่มีเหตุการณ์ผิดปกติ หรืออุบัติเหตุเกิดขึ้น',
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() =>
+    StorageService.getLeaveRequests(defaultLeaveRequests)
+  );
+
+  const [dutyAssignments, setDutyAssignments] = useState<DutyAssignment[]>(() =>
+    StorageService.getDutyAssignments(defaultDutyAssignments)
+  );
+
+  const [dutyLogs, setDutyLogs] = useState<DailyDutyLog[]>(() =>
+    StorageService.getDailyDutyLogs(defaultDutyLogs)
+  );
+
+  const isInternalSyncRef = useRef(false);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('ams_leave_requests_v1', JSON.stringify(leaveRequests));
-    } catch (e) {}
+    const unsubscribe = StorageService.subscribe((changedKeys) => {
+      if (changedKeys.some(k => k.startsWith('ams_leave_requests_v1'))) {
+        isInternalSyncRef.current = true;
+        setLeaveRequests(StorageService.getLeaveRequests(defaultLeaveRequests));
+      }
+      if (changedKeys.some(k => k.startsWith('ams_duty_assignments_v1'))) {
+        isInternalSyncRef.current = true;
+        setDutyAssignments(StorageService.getDutyAssignments(defaultDutyAssignments));
+      }
+      if (changedKeys.some(k => k.startsWith('ams_daily_duty_logs_v1'))) {
+        isInternalSyncRef.current = true;
+        setDutyLogs(StorageService.getDailyDutyLogs(defaultDutyLogs));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (isInternalSyncRef.current) {
+      isInternalSyncRef.current = false;
+      return;
+    }
+    StorageService.setLeaveRequests(leaveRequests);
   }, [leaveRequests]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem('ams_duty_assignments_v1', JSON.stringify(dutyAssignments));
-    } catch (e) {}
+    if (isInternalSyncRef.current) {
+      isInternalSyncRef.current = false;
+      return;
+    }
+    StorageService.setDutyAssignments(dutyAssignments);
   }, [dutyAssignments]);
 
-  // Daily Duty Logs State
-  const [dutyLogs, setDutyLogs] = useState<DailyDutyLog[]>(() => {
-    try {
-      const saved = localStorage.getItem('ams_daily_duty_logs_v1');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    const todayStr = new Date().toISOString().split('T')[0];
-    return [
-      {
-        id: 'dlog-1',
-        date: todayStr,
-        dutyTeacherName: user.fullName || 'นางสาวสมใจ รักเรียน',
-        dutyType: 'ครูเวรประจำวัน',
-        location: 'หน้าประตูโรงเรียน / อาคารเรียน 1',
-        weatherCondition: 'แจ่มใส เหตุการณ์ทั่วไปปกติ',
-        overallStatus: 'นักเรียนมาโรงเรียนตรงเวลา การเข้าแถวและกิจกรรมเลิกเรียนเรียบร้อยดี',
-        timeSlots: DEFAULT_DUTY_SLOTS,
-        incidentsNote: 'ไม่มีเหตุการณ์ผิดปกติ หรืออุบัติเหตุเกิดขึ้น',
-        createdAt: new Date().toISOString()
-      }
-    ];
-  });
-
   useEffect(() => {
-    try {
-      localStorage.setItem('ams_daily_duty_logs_v1', JSON.stringify(dutyLogs));
-    } catch (e) {}
+    if (isInternalSyncRef.current) {
+      isInternalSyncRef.current = false;
+      return;
+    }
+    StorageService.setDailyDutyLogs(dutyLogs);
   }, [dutyLogs]);
 
   const [dutyLogSubView, setDutyLogSubView] = useState<'fill' | 'history'>('fill');

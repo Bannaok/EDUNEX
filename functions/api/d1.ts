@@ -106,8 +106,81 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
       );
     }
 
+    if (action === 'getRealtimeState') {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS realtime_kv_store (
+          store_key TEXT PRIMARY KEY,
+          payload TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `).run();
+
+      const kvRes = await db.prepare('SELECT store_key, payload, updated_at FROM realtime_kv_store').all();
+      const store: Record<string, any> = {};
+      const timestamps: Record<string, number> = {};
+      let maxTs = 1;
+
+      for (const row of (kvRes.results || []) as any[]) {
+        try {
+          store[row.store_key] = JSON.parse(row.payload);
+          const ts = Number(row.updated_at) || Date.now();
+          timestamps[row.store_key] = ts;
+          if (ts > maxTs) maxTs = ts;
+        } catch {
+          // skip malformed
+        }
+      }
+
+      return new Response(
+        JSON.stringify({
+          status: 'success',
+          isD1Available: true,
+          rev: maxTs,
+          store,
+          timestamps
+        }),
+        { headers: corsHeaders }
+      );
+    }
+
     if (request.method === 'POST') {
       const body: any = await request.json();
+
+      if (action === 'saveRealtimeState') {
+        await db.prepare(`
+          CREATE TABLE IF NOT EXISTS realtime_kv_store (
+            store_key TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        `).run();
+
+        const now = Date.now();
+        if (body.updates && typeof body.updates === 'object') {
+          const timestamps = body.timestamps || {};
+          for (const [k, v] of Object.entries(body.updates)) {
+            const ts = Number(timestamps[k]) || now;
+            await db.prepare(`
+              INSERT INTO realtime_kv_store (store_key, payload, updated_at)
+              VALUES (?, ?, ?)
+              ON CONFLICT(store_key) DO UPDATE SET
+                payload = excluded.payload,
+                updated_at = excluded.updated_at
+            `).bind(k, JSON.stringify(v), ts).run();
+          }
+        } else if (body.key) {
+          const ts = Number(body.updatedAt) || now;
+          await db.prepare(`
+            INSERT INTO realtime_kv_store (store_key, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(store_key) DO UPDATE SET
+              payload = excluded.payload,
+              updated_at = excluded.updated_at
+          `).bind(body.key, JSON.stringify(body.value), ts).run();
+        }
+
+        return new Response(JSON.stringify({ status: 'success', rev: now }), { headers: corsHeaders });
+      }
 
       if (action === 'updateDevPassword') {
         const { password } = body;

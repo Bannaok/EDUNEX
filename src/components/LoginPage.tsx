@@ -104,7 +104,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                 }}
                 autoFocus
                 autoComplete="username"
-                placeholder="admin"
+                placeholder="กรอกชื่อผู้ใช้งาน"
                 className="w-full py-2.5 pr-4 text-sm bg-transparent text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />
             </div>

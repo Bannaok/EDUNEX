@@ -111,30 +111,48 @@ export default function App() {
     });
   };
 
+  const reloadAllStates = () => {
+    setAdmins(StorageService.getAdmins());
+    setMembers(StorageService.getMembers());
+    setAcademicYears(StorageService.getAcademicYears());
+    setSchoolInfo(StorageService.getSchoolInfo());
+    setStudents(StorageService.getStudents());
+    setPersonnel(StorageService.getPersonnel());
+    setDailyTracking(StorageService.getDailyTracking());
+    setSubjects(StorageService.getSubjects());
+    setGrades(StorageService.getGrades());
+    setAttendance(StorageService.getAttendance());
+    setAttendanceConfig(StorageService.getAttendanceConfig());
+    setSavings(StorageService.getSavings());
+    setTasks(StorageService.getTasks());
+    setDocuments(StorageService.getDocuments());
+    setWebsites(StorageService.getWebsites());
+    setCalendarEvents(StorageService.getCalendarEvents());
+    setCustomButtons(StorageService.getCustomButtons());
+    setGoogleConfig(StorageService.getGoogleConfig());
+  };
+
+  // Real-Time Cross-Device / Cross-Browser / Cross-Email Sync Engine
+  useEffect(() => {
+    StorageService.initRealtimeSync();
+    const unsubscribe = StorageService.subscribe(() => {
+      reloadAllStates();
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.schoolId, user?.role]);
+
   // Auth Handlers
   const handleLogin = (username: string, password: string) => {
     const res = StorageService.authenticate(username, password);
     if (res.success && res.user) {
       setUser(res.user);
       setIsInspectingSchool(false);
-      // Reload system & tenant-isolated school data for the authenticated schoolId
-      setAdmins(StorageService.getAdmins());
-      setMembers(StorageService.getMembers());
-      setAcademicYears(StorageService.getAcademicYears());
-      setSchoolInfo(StorageService.getSchoolInfo());
-      setStudents(StorageService.getStudents());
-      setPersonnel(StorageService.getPersonnel());
-      setDailyTracking(StorageService.getDailyTracking());
-      setSubjects(StorageService.getSubjects());
-      setGrades(StorageService.getGrades());
-      setAttendance(StorageService.getAttendance());
-      setAttendanceConfig(StorageService.getAttendanceConfig());
-      setSavings(StorageService.getSavings());
-      setTasks(StorageService.getTasks());
-      setDocuments(StorageService.getDocuments());
-      setWebsites(StorageService.getWebsites());
-      setCalendarEvents(StorageService.getCalendarEvents());
-      setCustomButtons(StorageService.getCustomButtons());
+      reloadAllStates();
+      StorageService.pullRemoteState(true).then(() => {
+        reloadAllStates();
+      });
       showToast('success', 'เข้าสู่ระบบสำเร็จ', res.message);
     }
     return res;

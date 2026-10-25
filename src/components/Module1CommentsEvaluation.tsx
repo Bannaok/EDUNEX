@@ -79,6 +79,15 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
     StorageService.getBehaviorEvaluations()
   );
 
+  useEffect(() => {
+    const unsubscribe = StorageService.subscribe((changedKeys) => {
+      if (changedKeys.some(k => k.startsWith('ams_behavior_evaluations'))) {
+        setEvaluations(StorageService.getBehaviorEvaluations());
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Grade filter & Search
   const [gradeFilter, setGradeFilter] = useState<string>(() => {
     if (user.role === 'member' && user.assignedGrade) {

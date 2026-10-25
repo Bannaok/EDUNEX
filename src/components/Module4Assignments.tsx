@@ -145,6 +145,9 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const schoolMembers = members.filter(m => m.role !== 'admin');
+  const totalSchoolMembers = schoolMembers.length || 1;
+
   const filteredTasks = tasks.filter(t => {
     const tType = t.type || 'assignment';
     return tType === activeSubTab;
@@ -152,8 +155,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
   // Sort tasks such that fully completed/submitted tasks move to the bottom
   const sortedTasks = [...filteredTasks].sort((a, b) => {
-    const aDone = (a.submissions || []).length >= members.length || a.isManualCompleted;
-    const bDone = (b.submissions || []).length >= members.length || b.isManualCompleted;
+    const aDone = (a.submissions || []).length >= totalSchoolMembers || a.isManualCompleted;
+    const bDone = (b.submissions || []).length >= totalSchoolMembers || b.isManualCompleted;
     if (aDone && !bDone) return 1;
     if (!aDone && bDone) return -1;
     return 0;
@@ -580,8 +583,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             ) : (
               [...tasks.filter(t => (t.type || 'assignment') === 'assignment')]
                 .sort((a, b) => {
-                  const aDone = (a.submissions || []).length >= members.length || a.isManualCompleted;
-                  const bDone = (b.submissions || []).length >= members.length || b.isManualCompleted;
+                  const aDone = (a.submissions || []).length >= totalSchoolMembers || a.isManualCompleted;
+                  const bDone = (b.submissions || []).length >= totalSchoolMembers || b.isManualCompleted;
                   if (aDone && !bDone) return 1;
                   if (!aDone && bDone) return -1;
                   return 0;
@@ -592,7 +595,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   const isDragging = draggedId === task.id;
                   const isDragOver = dragOverId === task.id;
                   const submittedCount = (task.submissions || []).length;
-                  const isFullySubmitted = submittedCount >= members.length || task.isManualCompleted;
+                  const isFullySubmitted = submittedCount >= totalSchoolMembers || task.isManualCompleted;
                   const displayDesc = cleanDescription(task.description);
 
                   return (
@@ -699,7 +702,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                               title="สถานะการส่งงาน"
                             >
                               <Users className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                              <span className="font-mono">({submittedCount}/{members.length})</span>
+                              <span className="font-mono">({submittedCount}/{schoolMembers.length})</span>
                             </button>
 
                             <button
@@ -875,16 +878,18 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       )}
 
       {/* MODAL: Admin Submission Status Modal */}
-      {statusTaskModal && (
+      {statusTaskModal && (() => {
+        const liveStatusTask = tasks.find(t => t.id === statusTaskModal.id) || statusTaskModal;
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
               <div>
                 <h3 className="text-base font-bold text-slate-800">
-                  สถานะการส่งงาน: {statusTaskModal.title}
+                  สถานะการส่งงาน: {liveStatusTask.title}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  กำหนดส่ง: {statusTaskModal.dueDate}
+                  กำหนดส่ง: {liveStatusTask.dueDate}
                 </p>
               </div>
               <button
@@ -897,13 +902,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             </div>
 
             <div className="overflow-y-auto space-y-2.5 flex-1 pr-1">
-              {members.length === 0 ? (
+              {schoolMembers.length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-400">ไม่มีสมาชิกในระบบ</div>
               ) : (
-                members.map((mem, idx) => {
-                  const submission = (statusTaskModal.submissions || []).find(s => s.memberId === mem.id);
+                schoolMembers.map((mem, idx) => {
+                  const submission = (liveStatusTask.submissions || []).find(s => s.memberId === mem.id);
                   const hasSubmitted = !!submission;
-                  const overdue = isOverdue(statusTaskModal.dueDate);
+                  const overdue = isOverdue(liveStatusTask.dueDate);
 
                   return (
                     <div 
@@ -995,7 +1000,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: Preview File Modal */}
       {previewFileModal && (

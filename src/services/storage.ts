@@ -124,9 +124,113 @@ function resolveTenantKey(key: string): string {
   return key;
 }
 
+// ============================================================================
+// HIGH-SPEED IN-MEMORY CACHE & REAL-TIME MULTI-DEVICE / MULTI-BROWSER ENGINE
+// ============================================================================
+const CLIENT_ID = `client_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
+const memoryCache = new Map<string, any>();
+const keyTimestamps = new Map<string, number>();
+const subscribers = new Set<(changedKeys: string[]) => void>();
+let lastKnownRev = 0;
+let realtimeInitialized = false;
+let broadcastChannel: BroadcastChannel | null = null;
+let sseConnection: EventSource | null = null;
+
+function notifySubscribers(changedKeys: string[]) {
+  if (changedKeys.length === 0) return;
+  subscribers.forEach(listener => {
+    try {
+      listener(changedKeys);
+    } catch (err) {
+      console.error('Subscriber error:', err);
+    }
+  });
+}
+
+function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
+  if (typeof window === 'undefined') return;
+  const payload = {
+    clientId: CLIENT_ID,
+    updates: { [resolvedKey]: value },
+    timestamps: { [resolvedKey]: timestamp }
+  };
+
+  // 1. Primary Real-Time Server Mutation (triggers instant SSE broadcast to all devices/browsers)
+  fetch('/api/realtime/mutate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(r => (r.ok ? r.json() : null))
+    .then(data => {
+      if (data && typeof data.rev === 'number' && data.rev > lastKnownRev) {
+        lastKnownRev = data.rev;
+      }
+    })
+    .catch(() => {});
+
+  // 2. Cloudflare Pages D1 Real-Time State Mirror (when deployed on Cloudflare Pages)
+  fetch('/api/d1?action=saveRealtimeState', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientId: CLIENT_ID,
+      key: resolvedKey,
+      value,
+      updatedAt: timestamp
+    })
+  }).catch(() => {});
+}
+
+function applyIncomingUpdates(
+  updates: Record<string, any>,
+  timestamps: Record<string, number> = {},
+  fromStorageEvent = false
+): string[] {
+  const changedKeys: string[] = [];
+  const now = Date.now();
+
+  for (const [resolvedKey, value] of Object.entries(updates)) {
+    if (resolvedKey === KEYS.SESSION) continue;
+    const incomingTs = Number(timestamps[resolvedKey]) || now;
+    const localTs = keyTimestamps.get(resolvedKey) || 0;
+
+    // Skip if our local copy is strictly newer
+    if (localTs > incomingTs) continue;
+
+    const currentCached = memoryCache.get(resolvedKey);
+    const serializedIncoming = JSON.stringify(value);
+    const serializedCurrent =
+      currentCached !== undefined ? JSON.stringify(currentCached) : localStorage.getItem(resolvedKey);
+
+    memoryCache.set(resolvedKey, value);
+    keyTimestamps.set(resolvedKey, incomingTs);
+
+    if (serializedIncoming !== serializedCurrent) {
+      if (!fromStorageEvent) {
+        try {
+          localStorage.setItem(resolvedKey, serializedIncoming);
+        } catch {
+          // ignore quota error
+        }
+      }
+      changedKeys.push(resolvedKey);
+    }
+  }
+
+  if (changedKeys.length > 0) {
+    notifySubscribers(changedKeys);
+  }
+  return changedKeys;
+}
+
 function getLocal<T>(key: string, fallback: T): T {
   try {
     const resolvedKey = resolveTenantKey(key);
+    if (memoryCache.has(resolvedKey)) {
+      return memoryCache.get(resolvedKey) as T;
+    }
+
     const val = localStorage.getItem(resolvedKey);
     if (!val) {
       // If secondary tenant school has no initialized data yet, return clean isolated fallback
@@ -150,23 +254,299 @@ function getLocal<T>(key: string, fallback: T): T {
       }
       return fallback;
     }
-    return JSON.parse(val) as T;
+
+    const parsed = JSON.parse(val) as T;
+    memoryCache.set(resolvedKey, parsed);
+    return parsed;
   } catch (err) {
     console.error('Failed to parse from localStorage key:', key, err);
     return fallback;
   }
 }
 
-function setLocal<T>(key: string, value: T): void {
+function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
   try {
     const resolvedKey = resolveTenantKey(key);
+    const now = Date.now();
+    memoryCache.set(resolvedKey, value);
+    keyTimestamps.set(resolvedKey, now);
     localStorage.setItem(resolvedKey, JSON.stringify(value));
+
+    // 1. Instant 0ms Cross-Tab Broadcast in same browser
+    if (broadcastChannel) {
+      try {
+        broadcastChannel.postMessage({
+          type: 'delta',
+          clientId: CLIENT_ID,
+          updates: { [resolvedKey]: value },
+          timestamps: { [resolvedKey]: now }
+        });
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. Notify local React subscribers immediately
+    notifySubscribers([resolvedKey]);
+
+    // 3. Push to Real-Time Server & D1 so all devices, browsers, and emails sync immediately
+    if (!skipRemotePush) {
+      pushToRemoteServer(resolvedKey, value, now);
+    }
   } catch (err) {
     console.error('Failed to save to localStorage key:', key, err);
   }
 }
 
 export const StorageService = {
+  // Subscribe to real-time updates (returns unsubscribe function)
+  subscribe(listener: (changedKeys: string[]) => void): () => void {
+    subscribers.add(listener);
+    return () => {
+      subscribers.delete(listener);
+    };
+  },
+
+  // Pull latest state from Real-Time Server & Cloudflare D1
+  async pullRemoteState(forceFull = false): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    let updatedAny = false;
+
+    try {
+      const sinceParam = forceFull ? 0 : lastKnownRev;
+      const res = await fetch(`/api/realtime/state?sinceRev=${sinceParam}`, {
+        headers: { 'Accept': 'application/json' },
+        cache: 'no-store'
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'up_to_date') {
+          return false;
+        }
+        if (data.status === 'success' && data.store && typeof data.store === 'object') {
+          if (typeof data.rev === 'number') {
+            lastKnownRev = data.rev;
+          }
+          const remoteKeys = Object.keys(data.store);
+          if (remoteKeys.length > 0) {
+            const changed = applyIncomingUpdates(data.store, data.timestamps || {});
+            if (changed.length > 0) updatedAny = true;
+          } else {
+            // Server is empty on first boot -> seed server with current client data
+            this.seedServerWithLocalData();
+          }
+          return updatedAny;
+        }
+      }
+    } catch {
+      // Fallback to Cloudflare Pages D1 endpoint if /api/realtime/state is not mounted
+    }
+
+    try {
+      const [d1Master, d1Kv] = await Promise.all([
+        D1Service.fetchAll(),
+        fetch('/api/d1?action=getRealtimeState', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
+      ]);
+
+      const incoming: Record<string, any> = {};
+      const incomingTs: Record<string, number> = {};
+      const now = Date.now();
+
+      if (d1Master.success && d1Master.data) {
+        if (d1Master.data.developer) {
+          incoming[KEYS.DEVELOPER_ACCOUNT] = d1Master.data.developer;
+          incomingTs[KEYS.DEVELOPER_ACCOUNT] = now;
+        }
+        if (Array.isArray(d1Master.data.admins) && d1Master.data.admins.length > 0) {
+          incoming[KEYS.ADMINS] = d1Master.data.admins;
+          incomingTs[KEYS.ADMINS] = now;
+        }
+        if (Array.isArray(d1Master.data.members) && d1Master.data.members.length > 0) {
+          incoming[KEYS.MEMBERS] = d1Master.data.members;
+          incomingTs[KEYS.MEMBERS] = now;
+        }
+        if (Array.isArray(d1Master.data.academicYears) && d1Master.data.academicYears.length > 0) {
+          incoming[KEYS.ACADEMIC_YEARS] = d1Master.data.academicYears;
+          incomingTs[KEYS.ACADEMIC_YEARS] = now;
+        }
+      }
+
+      if (d1Kv && d1Kv.status === 'success' && d1Kv.store) {
+        Object.assign(incoming, d1Kv.store);
+        Object.assign(incomingTs, d1Kv.timestamps || {});
+      }
+
+      if (Object.keys(incoming).length > 0) {
+        const changed = applyIncomingUpdates(incoming, incomingTs);
+        if (changed.length > 0) updatedAny = true;
+      }
+    } catch {
+      // ignore
+    }
+
+    return updatedAny;
+  },
+
+  seedServerWithLocalData(): void {
+    if (typeof window === 'undefined') return;
+    const updates: Record<string, any> = {};
+    const timestamps: Record<string, number> = {};
+    const now = Date.now();
+
+    // Ensure baseline defaults are present in local storage before seeding
+    updates[KEYS.ADMINS] = this.getAdmins();
+    updates[KEYS.MEMBERS] = this.getMembers();
+    updates[KEYS.SCHOOL_INFO] = this.getSchoolInfo();
+    updates[KEYS.TASKS] = this.getTasks();
+    updates[KEYS.DOCUMENTS] = this.getDocuments();
+    updates[KEYS.CALENDAR] = this.getCalendarEvents();
+    updates[KEYS.STUDENTS] = this.getStudents();
+    updates[KEYS.PERSONNEL] = this.getPersonnel();
+    updates[KEYS.SUBJECTS] = this.getSubjects();
+    updates[KEYS.GRADES] = this.getGrades();
+    updates[KEYS.ATTENDANCE] = this.getAttendance();
+    updates[KEYS.SAVINGS] = this.getSavings();
+    updates[KEYS.WEBSITES] = this.getWebsites();
+    updates[KEYS.CUSTOM_BUTTONS] = this.getCustomButtons();
+    updates[KEYS.ACADEMIC_YEARS] = this.getAcademicYears();
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('ams_') || k === KEYS.SESSION) continue;
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          updates[k] = JSON.parse(raw);
+          timestamps[k] = keyTimestamps.get(k) || now;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    Object.keys(updates).forEach(k => {
+      if (!timestamps[k]) timestamps[k] = now;
+    });
+
+    fetch('/api/realtime/mutate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: CLIENT_ID,
+        updates,
+        timestamps,
+        isInitialSeed: true
+      })
+    }).catch(() => {});
+  },
+
+  // Initialize Real-Time Synchronization (SSE + BroadcastChannel + Storage Event + Fast Poll)
+  initRealtimeSync(): void {
+    if (typeof window === 'undefined' || realtimeInitialized) return;
+    realtimeInitialized = true;
+
+    // 1. Immediate initial pull from server
+    this.pullRemoteState(true);
+
+    // 2. BroadcastChannel for 0ms cross-tab sync within same browser
+    if ('BroadcastChannel' in window) {
+      try {
+        broadcastChannel = new BroadcastChannel('nexus_realtime_channel');
+        broadcastChannel.onmessage = (event) => {
+          const msg = event.data;
+          if (msg && msg.type === 'delta' && msg.clientId !== CLIENT_ID && msg.updates) {
+            applyIncomingUpdates(msg.updates, msg.timestamps || {});
+          }
+        };
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Native window 'storage' event listener
+    window.addEventListener('storage', (e) => {
+      if (!e.key || !e.key.startsWith('ams_') || e.key === KEYS.SESSION || !e.newValue) return;
+      try {
+        const parsed = JSON.parse(e.newValue);
+        applyIncomingUpdates({ [e.key]: parsed }, { [e.key]: Date.now() }, true);
+      } catch {
+        // ignore
+      }
+    });
+
+    // 4. Persistent Server-Sent Events (SSE) stream for < 30ms cross-device / cross-browser push
+    const connectSSE = () => {
+      if (sseConnection) {
+        try {
+          sseConnection.close();
+        } catch {
+          // ignore
+        }
+      }
+
+      try {
+        const es = new EventSource('/api/realtime/stream');
+        sseConnection = es;
+
+        es.onmessage = (evt) => {
+          try {
+            const payload = JSON.parse(evt.data);
+            if (payload.type === 'connected') {
+              if (typeof payload.rev === 'number' && payload.rev > lastKnownRev) {
+                this.pullRemoteState(true);
+              }
+            } else if (payload.type === 'delta') {
+              if (typeof payload.rev === 'number' && payload.rev > lastKnownRev) {
+                lastKnownRev = payload.rev;
+              }
+              if (payload.clientId !== CLIENT_ID && payload.updates) {
+                applyIncomingUpdates(payload.updates, payload.timestamps || {});
+              }
+            }
+          } catch {
+            // ignore
+          }
+        };
+
+        es.onerror = () => {
+          try {
+            es.close();
+          } catch {
+            // ignore
+          }
+          setTimeout(connectSSE, 3000);
+        };
+      } catch {
+        // EventSource not supported or offline
+      }
+    };
+
+    connectSSE();
+
+    // 5. Fast lightweight delta check every 2 seconds & on focus/visibility/online
+    setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        this.pullRemoteState(false);
+      }
+    }, 2000);
+
+    window.addEventListener('focus', () => {
+      this.pullRemoteState(false);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        this.pullRemoteState(false);
+      }
+    });
+
+    window.addEventListener('online', () => {
+      this.pullRemoteState(true);
+      connectSSE();
+    });
+  },
+
   // Developer Account Credentials (Default: airfan / 456789, changeable by Developer)
   getDeveloperCredentials(): { username: string; password: string } {
     return getLocal<{ username: string; password: string }>(KEYS.DEVELOPER_ACCOUNT, {
@@ -325,6 +705,7 @@ export const StorageService = {
       if (found.isSuspended) {
         return { success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ (Admin) หรือ Developer' };
       }
+      const memberSchoolId = found.schoolId || 'admin-school-01';
       const memberUser: UserSession = {
         id: found.id,
         username: found.username,
@@ -337,7 +718,7 @@ export const StorageService = {
         position: found.position,
         learningGroup: found.learningGroup,
         avatarUrl: found.avatarUrl,
-        schoolId: found.schoolId,
+        schoolId: memberSchoolId,
         schoolName: found.schoolName,
         isLoggedIn: true
       };
@@ -351,7 +732,7 @@ export const StorageService = {
 
     return { 
       success: false, 
-      message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (Developer: Airfan / 456789 | Admin: Admin / 123456)' 
+      message: 'ID หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบและลองใหม่อีกครั้ง' 
     };
   },
 
@@ -1117,8 +1498,9 @@ export const StorageService = {
     const deletedDocuments = docs.length - remainingDocs.length;
     setLocal(KEYS.DOCUMENTS, remainingDocs);
 
-    // 9. Cascade delete across all Multi-Tenant school keys in localStorage
+    // 9. Cascade delete across all Multi-Tenant school keys in localStorage & real-time server
     if (typeof window !== 'undefined') {
+      const now = Date.now();
       for (let i = 0; i < localStorage.length; i++) {
         const storageKey = localStorage.key(i);
         if (!storageKey || !storageKey.includes('__')) continue;
@@ -1131,7 +1513,10 @@ export const StorageService = {
               if (item?.dueDate && isDateInYear(item.dueDate)) return false;
               return true;
             });
+            memoryCache.set(storageKey, filtered);
+            keyTimestamps.set(storageKey, now);
             localStorage.setItem(storageKey, JSON.stringify(filtered));
+            pushToRemoteServer(storageKey, filtered, now);
           }
         } catch {
           // ignore
@@ -1238,6 +1623,8 @@ export const StorageService = {
   // Reset to initial demo data
   resetAllData(): void {
     localStorage.clear();
+    memoryCache.clear();
+    keyTimestamps.clear();
     setLocal(KEYS.ADMINS, INITIAL_ADMINS);
     setLocal(KEYS.SCHOOL_INFO, INITIAL_SCHOOL_INFO);
     setLocal(KEYS.MEMBERS, INITIAL_MEMBERS);
@@ -1454,8 +1841,13 @@ export const StorageService = {
   },
 
   // Administrative Leave & Duty Sync Handlers
-  getLeaveRequests(): any[] {
-    return getLocal<any[]>(KEYS.LEAVE_REQUESTS, []);
+  getLeaveRequests(fallback: any[] = []): any[] {
+    return getLocal<any[]>(KEYS.LEAVE_REQUESTS, fallback);
+  },
+
+  setLeaveRequests(records: any[]): any[] {
+    setLocal(KEYS.LEAVE_REQUESTS, records);
+    return records;
   },
 
   saveLeaveRequest(record: any): any[] {
@@ -1474,8 +1866,13 @@ export const StorageService = {
     return updated;
   },
 
-  getDutyAssignments(): any[] {
-    return getLocal<any[]>(KEYS.DUTY_ASSIGNMENTS, []);
+  getDutyAssignments(fallback: any[] = []): any[] {
+    return getLocal<any[]>(KEYS.DUTY_ASSIGNMENTS, fallback);
+  },
+
+  setDutyAssignments(records: any[]): any[] {
+    setLocal(KEYS.DUTY_ASSIGNMENTS, records);
+    return records;
   },
 
   saveDutyAssignment(record: any): any[] {
@@ -1494,8 +1891,13 @@ export const StorageService = {
     return updated;
   },
 
-  getDailyDutyLogs(): any[] {
-    return getLocal<any[]>(KEYS.DUTY_LOGS, []);
+  getDailyDutyLogs(fallback: any[] = []): any[] {
+    return getLocal<any[]>(KEYS.DUTY_LOGS, fallback);
+  },
+
+  setDailyDutyLogs(records: any[]): any[] {
+    setLocal(KEYS.DUTY_LOGS, records);
+    return records;
   },
 
   saveDailyDutyLog(record: any): any[] {

@@ -1540,11 +1540,14 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     <span className="text-xs sm:text-sm font-bold text-slate-800">
                       บันทึกดื่มนมและแปรงฟัน (ชั้น {milkTeethGradeFilter === 'ALL' ? 'ทุกระดับชั้น' : milkTeethGradeFilter})
                     </span>
+                    <span className="text-xs text-slate-500 ml-2 font-medium">
+                      (ปีการศึกษา {selectedAcademicYear} ภาคเรียนที่ {selectedSemester})
+                    </span>
                   </div>
                 </div>
 
                 <div className="text-xs font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
-                  วันที่เลือก: {formatThaiDate(milkTeethDate)}
+                  วันที่เลือก: {formatThaiDate(milkTeethDate)} | ปีการศึกษา {selectedAcademicYear} ภาคเรียนที่ {selectedSemester}
                 </div>
               </div>
 

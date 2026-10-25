@@ -40,7 +40,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
   onShowToast,
   onSaveUserSession
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'school'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'school'>(user.role === 'admin' ? 'school' : 'profile');
 
   // Profile Form States (Requirement 10.2)
   const [userPrefix, setUserPrefix] = useState<string>(user.prefix || 'ครู');
@@ -248,18 +248,20 @@ export const SettingsView: React.FC<SettingsProps> = ({
 
         {/* Sub Tabs Bar */}
         <div className="bg-slate-100/80 px-6 py-2 border-b border-slate-200/80 flex items-center gap-1.5 overflow-x-auto shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveTab('profile')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-              activeTab === 'profile'
-                ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90'
-                : 'text-slate-600 hover:bg-white/60'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-            <span>โปรไฟล์ & ข้อมูลส่วนตัว</span>
-          </button>
+          {user.role !== 'admin' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('profile')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                activeTab === 'profile'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/90'
+                  : 'text-slate-600 hover:bg-white/60'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <span>โปรไฟล์ & ข้อมูลส่วนตัว</span>
+            </button>
+          )}
 
           {/* Member management removed from Admin settings (Developer only) */}
 
@@ -284,7 +286,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
         {/* Modal Body Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
           {/* TAB 0: PERSONAL PROFILE SETTINGS (Requirement 10.2) */}
-          {activeTab === 'profile' && (
+          {user.role !== 'admin' && activeTab === 'profile' && (
             <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200/90 shadow-2xs max-w-2xl mx-auto space-y-5">
               <div className="pb-3 border-b border-slate-100 flex items-center justify-between">
                 <div>
@@ -297,11 +299,11 @@ export const SettingsView: React.FC<SettingsProps> = ({
                   </p>
                 </div>
                 <span className={`text-[11px] font-bold px-2.5 py-1 rounded-xl border ${
-                  user.role === 'admin'
-                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                  user.role === 'developer'
+                    ? 'bg-purple-50 text-purple-700 border-purple-200'
                     : 'bg-blue-50 text-blue-700 border-blue-200'
                 }`}>
-                  {user.role === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'ครูผู้สอน / สมาชิก'}
+                  {user.role === 'developer' ? 'ผู้พัฒนาระบบ (Developer)' : 'ครูผู้สอน / สมาชิก'}
                 </span>
               </div>
 
@@ -596,8 +598,12 @@ export const SettingsView: React.FC<SettingsProps> = ({
                     name="schoolName"
                     required
                     defaultValue={schoolInfo.schoolName}
+                    placeholder="เช่น บ้านนาออก"
                     className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold"
                   />
+                  <p className="text-[11px] text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 rounded-xl px-3 py-2 mt-1.5 leading-normal">
+                    💡 <strong>คำแนะนำ:</strong> ให้ใส่เฉพาะชื่อโรงเรียน ไม่ต้องใส่คำว่า "โรงเรียน" (เช่น ใส่คำว่า <strong>บ้านนาออก</strong> ระบบจะแสดงผลข้างบนและในรายงานเป็น <strong>โรงเรียนบ้านนาออก</strong> โดยอัตโนมัติ)
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

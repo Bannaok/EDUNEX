@@ -56,6 +56,8 @@ export interface Student {
   id: string;
   rollNumber?: number; // เลขที่
   studentCode?: string; // รหัสนักเรียน (ไม่บังคับ)
+  idCard?: string;
+  citizenId?: string;
   prefix: string; // คำนำหน้า (บังคับ)
   firstName: string; // ชื่อจริง (บังคับ)
   lastName: string; // นามสกุล (บังคับ)

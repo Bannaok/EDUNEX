@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
             {schoolInfo.logoUrl ? (
               <img
                 src={schoolInfo.logoUrl}
-                alt={schoolInfo.schoolName}
+                alt={schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
                 className="w-full h-full object-cover rounded-xl"
                 onError={(e) => {
                   // Fallback to icon if logo fails to load
@@ -85,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div>
             <h1 className="text-lg md:text-xl font-bold tracking-tight text-white leading-tight">
-              {schoolInfo.schoolName}
+              {schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
             </h1>
 
             {/* Small stats in blue header: Only นักเรียนทั้งหมด, ครูและบุคลากร, มาเรียนวันนี้ */}

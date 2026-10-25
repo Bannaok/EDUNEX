@@ -588,6 +588,7 @@ export default function App() {
           <ModuleDataOthers
             user={user}
             students={students}
+            attendance={attendance}
             personnel={personnel}
             schoolInfo={schoolInfo}
             onSaveStudent={handleSaveStudent}

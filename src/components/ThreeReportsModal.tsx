@@ -42,6 +42,7 @@ interface ThreeReportsModalProps {
   selectedAcademicHeadId: string;
   setSelectedAcademicHeadId: (id: string) => void;
   directorDisplayName: string;
+  directorPosition?: string;
   onShowToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
 }
 
@@ -124,12 +125,16 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   selectedAcademicHeadId,
   setSelectedAcademicHeadId,
   directorDisplayName,
+  directorPosition,
   onShowToast
 }) => {
   if (!isOpen) return null;
 
   // 3 Primary Tabs
   const [activeTab, setActiveTab] = useState<'readingWriting' | 'characteristics' | 'competencies'>('readingWriting');
+
+  // Report Orientation ('portrait' = default, 'landscape')
+  const [reportOrientation, setReportOrientation] = useState<'portrait' | 'landscape'>('portrait');
 
   // Sub-navigation for Tab 1: Reading & Writing
   // 'all' = render all 4 A4 pages continuously; or specific single page
@@ -138,7 +143,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Sub-navigation for Tab 2: Characteristics
   // 'overview' = 8 core items summary for all students; 'individual' = 8 items with all sub-indicators for a selected student
   const [charSubView, setCharSubView] = useState<'overview' | 'individual'>('overview');
-  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('all');
 
   // Filter students for this grade
   const classStudents = useMemo(() => {
@@ -150,10 +155,10 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     });
   }, [students, grade]);
 
-  // Set default student if individual view selected
+  // Set default student selection to 'all' if not set
   React.useEffect(() => {
     if (classStudents.length > 0 && !selectedStudentId) {
-      setSelectedStudentId(classStudents[0].id);
+      setSelectedStudentId('all');
     }
   }, [classStudents, selectedStudentId]);
 
@@ -166,7 +171,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       console.error(e);
     }
     return DEFAULT_RW_CONFIG;
-  }, []);
+  }, [isOpen]);
 
   // Load Assessment 3 Booklets data from storage
   const assessmentData = useMemo<Record<string, StudentAssessmentRecord>>(() => {
@@ -177,7 +182,19 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       console.error(e);
     }
     return {};
-  }, []);
+  }, [isOpen, grade, selectedYear, selectedSemester]);
+
+  // Homeroom advisors for the selected grade
+  const currentGradeAdvisors = useMemo(() => {
+    const list = personnel.filter(p => p.advisorGrade === grade || p.position?.includes(grade));
+    return list.length > 0 ? list : personnel;
+  }, [personnel, grade]);
+
+  // Personnel in Academic Department
+  const academicPersonnelList = useMemo(() => {
+    const list = personnel.filter(p => p.department === 'ฝ่ายวิชาการ' || p.position?.includes('วิชาการ'));
+    return list.length > 0 ? list : personnel;
+  }, [personnel]);
 
   // Thresholds for Reading/Writing scoring
   const thresholds = useMemo(() => {
@@ -194,7 +211,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       thinking: { excellent: 24, good: 21, passing: 18, maxScore: 40 },
       writing: { excellent: 32, good: 28, passing: 24, maxScore: 40 }
     };
-  }, []);
+  }, [isOpen]);
 
   // Helper calculating level for reading/thinking/writing
   const getTableScoreLevel = (score: number, type: 'reading' | 'thinking' | 'writing'): number => {
@@ -207,20 +224,38 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
   // Helper getting student assessment record
   const getStudentAssessment = (student: Student): StudentAssessmentRecord => {
+    // 1. Try exact key: studentId_grade_semester_academicYear
     const key = `${student.id}_${grade}_${selectedSemester}_${selectedYear}`;
-    const existing = assessmentData[key];
+    let existing = assessmentData[key];
+
+    // 2. Fallback: match by studentId and grade in assessmentData
+    if (!existing) {
+      const foundEntry = Object.entries(assessmentData).find(([k, v]) => 
+        (k.startsWith(`${student.id}_${grade}_`) || (v.studentId === student.id && v.gradeLevel === grade)) &&
+        (v.semester === selectedSemester || !v.semester) &&
+        (v.academicYear === selectedYear || !v.academicYear)
+      );
+      if (foundEntry) existing = foundEntry[1];
+    }
+    if (!existing) {
+      const foundEntry = Object.entries(assessmentData).find(([k, v]) => 
+        k.startsWith(`${student.id}_${grade}`) || (v.studentId === student.id && v.gradeLevel === grade)
+      );
+      if (foundEntry) existing = foundEntry[1];
+    }
+
     if (existing) return existing;
 
-    // Fallback: Check if score exists in grades
+    // Fallback: Check if score exists in grades recorded by member
     const gRec = grades.find(g => 
       g.studentId === student.id && 
       (g.semester === selectedSemester || !g.semester) &&
       (g.academicYear === selectedYear || !g.academicYear)
     );
 
-    const defaultLevel = gRec?.readingWritingScore !== undefined ? gRec.readingWritingScore : 3;
-    const charLevel = gRec?.desiredCharacteristicsScore !== undefined ? gRec.desiredCharacteristicsScore : 3;
-    const compLevel = gRec?.competencyScore !== undefined ? gRec.competencyScore : 3;
+    const rwScore = gRec?.readingWritingScore;
+    const charLevel = gRec?.desiredCharacteristicsScore !== undefined ? gRec.desiredCharacteristicsScore : 0;
+    const compLevel = gRec?.competencyScore !== undefined ? gRec.competencyScore : 0;
 
     return {
       studentId: student.id,
@@ -229,17 +264,17 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       gradeLevel: grade,
       semester: selectedSemester as '1' | '2',
       academicYear: selectedYear,
-      indicatorScores: {
-        r1: defaultLevel >= 3 ? 9 : (defaultLevel === 2 ? 8 : 6),
-        r2: defaultLevel >= 3 ? 9 : (defaultLevel === 2 ? 7 : 6),
-        r3: defaultLevel >= 3 ? 9 : (defaultLevel === 2 ? 7 : 6),
-        t1: defaultLevel >= 3 ? 9 : (defaultLevel === 2 ? 8 : 6),
-        t2: defaultLevel >= 3 ? 14 : (defaultLevel === 2 ? 11 : 9),
-        t3: defaultLevel >= 3 ? 14 : (defaultLevel === 2 ? 11 : 9),
-        w1: defaultLevel >= 3 ? 14 : (defaultLevel === 2 ? 11 : 9),
-        w2: defaultLevel >= 3 ? 14 : (defaultLevel === 2 ? 11 : 9),
-        w3: defaultLevel >= 3 ? 9 : (defaultLevel === 2 ? 8 : 6),
-      },
+      indicatorScores: rwScore !== undefined ? {
+        r1: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
+        r2: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
+        r3: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
+        t1: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
+        t2: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
+        t3: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
+        w1: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
+        w2: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
+        w3: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
+      } : {},
       characteristics: {
         item1: charLevel,
         item2: charLevel,
@@ -288,10 +323,11 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Selected personnel details
   const selectedAdvisor = useMemo(() => {
     if (selectedAdvisorId) {
-      return personnel.find(p => p.id === selectedAdvisorId) || null;
+      const found = personnel.find(p => p.id === selectedAdvisorId);
+      if (found) return found;
     }
-    return personnel.find(p => p.advisorGrade === grade) || null;
-  }, [personnel, selectedAdvisorId, grade]);
+    return currentGradeAdvisors[0] || personnel.find(p => p.advisorGrade === grade) || null;
+  }, [personnel, selectedAdvisorId, currentGradeAdvisors, grade]);
 
   const selectedAcademicHead = useMemo(() => {
     if (selectedAcademicHeadId) {
@@ -326,7 +362,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         <p className="font-bold text-slate-800">
           ({selectedAdvisor ? `${selectedAdvisor.prefix || ''}${selectedAdvisor.firstName || ''} ${selectedAdvisor.lastName || ''}`.trim() : '................................................'})
         </p>
-        <p className="text-slate-500 text-[9px]">ครูประจำชั้น / ผู้ประเมิน</p>
+        <p className="text-slate-500 text-[9px]">ครูประจำชั้น</p>
       </div>
 
       <div className="space-y-0.5">
@@ -334,7 +370,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         <p className="font-bold text-slate-800">
           ({selectedAcademicHead ? `${selectedAcademicHead.prefix || ''}${selectedAcademicHead.firstName || ''} ${selectedAcademicHead.lastName || ''}`.trim() : '................................................'})
         </p>
-        <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ / ผู้ตรวจ</p>
+        <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ</p>
       </div>
 
       <div className="space-y-0.5">
@@ -342,7 +378,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         <p className="font-bold text-slate-800">
           ({directorDisplayName})
         </p>
-        <p className="text-slate-500 text-[9px]">ผู้อำนวยการโรงเรียน</p>
+        <p className="text-slate-500 text-[9px]">{directorPosition || 'ผู้อำนวยการโรงเรียนบ้านนาออก'}</p>
       </div>
     </div>
   );
@@ -350,14 +386,27 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // 3-Line Header Component for A4 Pages
   const renderA4Header = (title: string, subDetail?: string) => (
     <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
+      <div className="flex justify-center mb-2">
+        {schoolInfo.logoUrl ? (
+          <img 
+            src={schoolInfo.logoUrl} 
+            alt="School Logo" 
+            className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto" 
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-2xl mx-auto">
+            🏫
+          </div>
+        )}
+      </div>
       <h1 className="text-sm font-bold text-slate-900 tracking-tight">
         {title}
       </h1>
       <div className="text-[11px] font-semibold text-slate-800 mt-0.5">
-        โรงเรียน{schoolInfo.schoolName || '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
+        โรงเรียน{schoolInfo.schoolName ? schoolInfo.schoolName.replace(/^โรงเรียน\s*/, '') : '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
       </div>
       <div className="text-[11px] font-bold text-slate-800 mt-0.5">
-        ปีการศึกษา {selectedYear} | ภาคเรียนที่ {selectedSemester} | {getGradeCleanName(grade)} {subDetail ? `| ${subDetail}` : ''}
+        ปีการศึกษา {selectedYear}&nbsp;&nbsp;&nbsp;&nbsp;ภาคเรียนที่ {selectedSemester}&nbsp;&nbsp;&nbsp;&nbsp;{getGradeCleanName(grade)}{subDetail ? `\u00A0\u00A0\u00A0\u00A0${subDetail}` : ''}
       </div>
     </div>
   );
@@ -370,10 +419,10 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     return (
       <div 
         key={table.id}
-        className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-        style={{ width: '210mm' }}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
       >
-        {renderA4Header(`แบบประเมินการอ่าน คิดวิเคราะห์ และเขียน (ตารางที่ ${tableIndex}: ${table.title})`, `คะแนนเต็ม ${maxScore} คะแนน`)}
+        {renderA4Header(`แบบประเมินการอ่าน คิดวิเคราะห์ และเขียน (ตารางที่ ${tableIndex}: ${table.title})`)}
 
         <div className="overflow-x-auto border border-slate-300 rounded-sm">
           <table className="w-full text-left text-[10px] border-collapse min-w-[650px]">
@@ -510,8 +559,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
     return (
       <div 
-        className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-        style={{ width: '210mm' }}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
       >
         {renderA4Header('แบบสรุปผลการประเมินการอ่าน คิดวิเคราะห์ และเขียน', 'สรุปผลเชิงปริมาณและคุณภาพ')}
 
@@ -641,8 +690,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 2: Characteristics Overview Sheet (สรุปข้อหลักทั้ง 8 ข้อ)
   const renderCharacteristicsOverviewSheet = () => (
     <div 
-      className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-      style={{ width: '210mm' }}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
     >
       {renderA4Header('แบบสรุปผลการประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
@@ -737,9 +786,13 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     </div>
   );
 
-  // Render Tab 2: Characteristics Individual Student Detailed Sheet (8 ข้อและข้อย่อยทั้งหมด)
+  // Render Tab 2: Characteristics Individual Student Detailed Sheet (แบ่ง 2 หน้า หน้าละ 4 ข้อใหญ่)
   const renderCharacteristicsIndividualSheet = () => {
-    if (!targetIndividualStudent) {
+    const studentsToRender = selectedStudentId === 'all'
+      ? classStudents
+      : classStudents.filter(s => s.id === selectedStudentId);
+
+    if (studentsToRender.length === 0) {
       return (
         <div className="p-12 text-center text-slate-400 bg-white rounded-xl">
           ไม่พบข้อมูลนักเรียน
@@ -747,100 +800,222 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       );
     }
 
-    const rec = getStudentAssessment(targetIndividualStudent);
-    const subScores = rec.characteristics?.subScores || {};
+    const group1_4 = CHARACTERISTICS_GROUPS.slice(0, 4);
+    const group5_8 = CHARACTERISTICS_GROUPS.slice(4, 8);
 
     return (
-      <div 
-        className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-        style={{ width: '210mm' }}
-      >
-        {renderA4Header('แบบประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ (รายบุคคล)')}
+      <div className="space-y-8">
+        {studentsToRender.map((st) => {
+          const rec = getStudentAssessment(st);
+          const subScores = rec.characteristics?.subScores || {};
 
-        {/* Student Info Bar: Strictly Single Line, No wrapping, No Grade Level, No Roll/Code */}
-        <div className="mb-2.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-[11px] flex items-center justify-between gap-2 overflow-hidden">
-          <div className="font-bold text-slate-900 whitespace-nowrap overflow-hidden text-ellipsis flex items-center gap-1.5">
-            <span className="text-slate-600 font-semibold">ชื่อ - นามสกุล:</span>
-            <span className="text-slate-900 font-bold text-xs">{targetIndividualStudent.prefix}{targetIndividualStudent.firstName} {targetIndividualStudent.lastName}</span>
-          </div>
-        </div>
+          // Calculate overall level for this student
+          const char = rec.characteristics || ({} as any);
+          const itemScores = [
+            char.item1 || 0, char.item2 || 0, char.item3 || 0, char.item4 || 0,
+            char.item5 || 0, char.item6 || 0, char.item7 || 0, char.item8 || 0
+          ];
+          const avgChar = Math.round(itemScores.reduce((a, b) => a + b, 0) / 8);
+          const overallLevel = char.overallLevel !== undefined ? char.overallLevel : avgChar;
 
-        {/* 8 Characteristics & All Sub-indicators Table */}
-        <div className="overflow-x-auto border border-slate-300 rounded-sm">
-          <table className="w-full text-left text-[9.5px] border-collapse min-w-[650px]">
-            <thead>
-              <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                <th className="py-1 px-2 border-r border-slate-300 text-left">
-                  คุณลักษณะและตัวชี้วัด (8 คุณลักษณะอันพึงประสงค์)
-                </th>
-                <th className="py-1 px-1 border-r border-slate-300 text-center w-12">ดีเยี่ยม (3)</th>
-                <th className="py-1 px-1 border-r border-slate-300 text-center w-12">ดี (2)</th>
-                <th className="py-1 px-1 border-r border-slate-300 text-center w-12">ผ่าน (1)</th>
-                <th className="py-1 px-1 text-center w-12">ไม่ผ่าน (0)</th>
-              </tr>
-            </thead>
+          return (
+            <div key={st.id} className="space-y-8 print:space-y-0">
+              {/* PAGE 1: Items 1 - 4 */}
+              <div 
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-5 sm:p-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
+                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', pageBreakAfter: 'always', breakAfter: 'page' }}
+              >
+                {renderA4Header('แบบประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ (รายบุคคล)', 'หน้า 1/2 (ข้อ 1 - 4)')}
 
-            <tbody className="divide-y divide-slate-200 text-slate-800">
-              {CHARACTERISTICS_GROUPS.map((grp) => {
-                const itemScore = (rec.characteristics as any)?.[grp.itemKey] !== undefined ? (rec.characteristics as any)?.[grp.itemKey] : 3;
+                {/* Student Info Bar */}
+                <div className="mb-3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded text-xs flex items-center justify-between gap-2">
+                  <span className="shrink-0">
+                    <span className="text-slate-600 font-medium">รหัสประจำตัว: </span>
+                    <strong className="text-slate-900 font-mono font-bold">{st.studentCode || '-'}</strong>
+                  </span>
+                  <span className="truncate px-2">
+                    <span className="text-slate-600 font-medium">ชื่อ-นามสกุล: </span>
+                    <strong className="text-slate-900 font-bold text-sm">{st.prefix}{st.firstName} {st.lastName}</strong>
+                  </span>
+                  <span className="shrink-0">
+                    <span className="text-slate-600 font-medium">เลขที่: </span>
+                    <strong className="text-slate-900 font-mono font-bold">{st.rollNumber || '-'}</strong>
+                  </span>
+                </div>
 
-                return (
-                  <React.Fragment key={grp.id}>
-                    {/* Header Row for each Main Item */}
-                    <tr className="bg-amber-50/70 font-bold text-amber-950">
-                      <td className="py-0.5 px-2 border-r border-slate-200 text-[9.5px]">
-                        {grp.title}
-                      </td>
-                      <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono">
-                        {itemScore === 3 ? '✓' : ''}
-                      </td>
-                      <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono">
-                        {itemScore === 2 ? '✓' : ''}
-                      </td>
-                      <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono">
-                        {itemScore === 1 ? '✓' : ''}
-                      </td>
-                      <td className="py-0.5 px-1 text-center font-mono">
-                        {itemScore === 0 ? '✓' : ''}
-                      </td>
-                    </tr>
+                {/* Groups 1 to 4 Table */}
+                <div className="overflow-x-auto border border-slate-300 rounded-sm mb-4">
+                  <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+                    <thead>
+                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs">
+                        <th className="py-2.5 px-3 border-r border-slate-300 text-left">
+                          คุณลักษณะและตัวชี้วัด (ข้อ 1 - 4)
+                        </th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 text-center w-16">ไม่ผ่าน (0)</th>
+                      </tr>
+                    </thead>
 
-                    {/* Sub-indicators for this item */}
-                    {grp.indicators.map((ind) => {
-                      const subSc = subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore;
-                      return (
-                        <tr key={ind.id} className="hover:bg-slate-50 text-[8.5px] text-slate-700">
-                          <td className="py-0.5 px-3 border-r border-slate-200 pl-6">
-                            {ind.text}
-                          </td>
-                          <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono text-emerald-700 font-bold">
-                            {subSc === 3 ? '✓' : ''}
-                          </td>
-                          <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono text-sky-700 font-bold">
-                            {subSc === 2 ? '✓' : ''}
-                          </td>
-                          <td className="py-0.5 px-1 border-r border-slate-200 text-center font-mono text-amber-700 font-bold">
-                            {subSc === 1 ? '✓' : ''}
-                          </td>
-                          <td className="py-0.5 px-1 text-center font-mono text-rose-700 font-bold">
-                            {subSc === 0 ? '✓' : ''}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    <tbody className="divide-y divide-slate-200 text-slate-800">
+                      {group1_4.map((grp) => {
+                        const itemScore = (rec.characteristics as any)?.[grp.itemKey] !== undefined ? (rec.characteristics as any)?.[grp.itemKey] : 3;
 
-        {renderSignatures()}
+                        return (
+                          <React.Fragment key={grp.id}>
+                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs">
+                              <td className="py-1.5 px-3 border-r border-slate-200">
+                                {grp.title}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 3 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 2 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 1 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 text-center font-bold text-amber-900">
+                                {itemScore === 0 ? '✓' : ''}
+                              </td>
+                            </tr>
 
-        <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-[10px] font-bold text-amber-700 no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1 rounded">
-          <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
-          <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 1 (297 mm) ---</span>
-        </div>
+                            {grp.indicators.map((ind) => {
+                              const subSc = subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore;
+                              return (
+                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-snug">
+                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7">
+                                    {ind.text}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700">
+                                    {subSc === 3 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700">
+                                    {subSc === 2 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700">
+                                    {subSc === 1 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700">
+                                    {subSc === 0 ? '✓' : ''}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-xs font-bold text-amber-700 no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1.5 rounded">
+                  <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                  <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 1 (297 mm) - {st.prefix}{st.firstName} {st.lastName} ---</span>
+                </div>
+              </div>
+
+              {/* PAGE 2: Items 5 - 8 + Signatures */}
+              <div 
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-5 sm:p-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
+                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', pageBreakAfter: 'always', breakAfter: 'page' }}
+              >
+                {/* Student Info Bar */}
+                <div className="mb-3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded text-xs flex items-center justify-between gap-2">
+                  <span className="shrink-0">
+                    <span className="text-slate-600 font-medium">รหัสประจำตัว: </span>
+                    <strong className="text-slate-900 font-mono font-bold">{st.studentCode || '-'}</strong>
+                  </span>
+                  <span className="truncate px-2">
+                    <span className="text-slate-600 font-medium">ชื่อ-นามสกุล: </span>
+                    <strong className="text-slate-900 font-bold text-sm">{st.prefix}{st.firstName} {st.lastName}</strong>
+                  </span>
+                  <span className="shrink-0">
+                    <span className="text-slate-600 font-medium">เลขที่: </span>
+                    <strong className="text-slate-900 font-mono font-bold">{st.rollNumber || '-'}</strong>
+                  </span>
+                </div>
+
+                {/* Groups 5 to 8 Table */}
+                <div className="overflow-x-auto border border-slate-300 rounded-sm mb-6">
+                  <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+                    <thead>
+                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs">
+                        <th className="py-2.5 px-3 border-r border-slate-300 text-left">
+                          คุณลักษณะและตัวชี้วัด (ข้อ 5 - 8)
+                        </th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 text-center w-16">ไม่ผ่าน (0)</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-200 text-slate-800">
+                      {group5_8.map((grp) => {
+                        const itemScore = (rec.characteristics as any)?.[grp.itemKey] !== undefined ? (rec.characteristics as any)?.[grp.itemKey] : 3;
+
+                        return (
+                          <React.Fragment key={grp.id}>
+                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs">
+                              <td className="py-1.5 px-3 border-r border-slate-200">
+                                {grp.title}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 3 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 2 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                                {itemScore === 1 ? '✓' : ''}
+                              </td>
+                              <td className="py-1.5 px-1 text-center font-bold text-amber-900">
+                                {itemScore === 0 ? '✓' : ''}
+                              </td>
+                            </tr>
+
+                            {grp.indicators.map((ind) => {
+                              const subSc = subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore;
+                              return (
+                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-snug">
+                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7">
+                                    {ind.text}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700">
+                                    {subSc === 3 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700">
+                                    {subSc === 2 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700">
+                                    {subSc === 1 ? '✓' : ''}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700">
+                                    {subSc === 0 ? '✓' : ''}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {renderSignatures()}
+
+                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-xs font-bold text-amber-700 no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1.5 rounded">
+                  <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                  <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 2 (297 mm) - {st.prefix}{st.firstName} {st.lastName} ---</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -848,8 +1023,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 3: Competencies Sheet (สมรรถนะสำคัญ 5 ด้าน ตามตารางปกติ)
   const renderCompetenciesSheet = () => (
     <div 
-      className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-      style={{ width: '210mm' }}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
     >
       {renderA4Header('แบบรายงานการประเมินสมรรถนะสำคัญของผู้เรียน 5 ด้าน', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
@@ -949,62 +1124,133 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto a4-modal-overlay">
-      <div className="bg-slate-100 rounded-2xl w-full max-w-[980px] max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content">
+      {/* Dynamic Print CSS for Portrait / Landscape */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: A4 ${reportOrientation} !important;
+            margin: 5mm !important;
+          }
+          body {
+            background: white !important;
+            color: black !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .a4-portrait-paper, .a4-landscape-paper {
+            page-break-after: always !important;
+            break-after: page !important;
+            box-shadow: none !important;
+            border: 1px solid #94a3b8 !important;
+            border-radius: 0 !important;
+            padding: 5mm !important;
+            margin: 0 auto !important;
+            width: 100% !important;
+            max-width: ${reportOrientation === 'landscape' ? '297mm' : '210mm'} !important;
+          }
+          .a4-page-limit-line {
+            display: none !important;
+          }
+        }
+      ` }} />
+
+      <div className={`bg-slate-100 rounded-2xl w-full ${reportOrientation === 'landscape' ? 'max-w-[1240px]' : 'max-w-[980px]'} max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content`}>
         
         {/* Top Header Bar (No-Print) */}
         <div className="px-4 py-3 bg-white border-b border-slate-200 rounded-t-2xl flex flex-wrap items-center justify-between gap-3 shrink-0 no-print">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold text-xs shrink-0">
-              <FileText className="w-5 h-5 text-teal-700" />
+          
+          {/* LEFT SIDE: 3 Main Tab Buttons aligned to far left edge */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveTab('readingWriting')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'readingWriting'
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                การอ่านคิดวิเคราะห์เขียน
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('characteristics')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'characteristics'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                คุณลักษณะอันพึงประสงค์
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('competencies')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'competencies'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                สมรรถนะสำคัญ
+              </button>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <span>(3) รายงานผลการประเมิน {getGradeCleanName(grade)}</span>
-                <span className="text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-semibold border border-teal-200">
-                  พรีวิว A4 แนวตั้ง
-                </span>
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                ปีการศึกษา {selectedYear} | ภาคเรียนที่ {selectedSemester} | นักเรียน {classStudents.length} คน
-              </p>
-            </div>
+
+
           </div>
 
-          {/* 3 Main Tabs Selection */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
-            <button
-              type="button"
-              onClick={() => setActiveTab('readingWriting')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'readingWriting'
-                  ? 'bg-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              การอ่านคิดวิเคราะห์เขียน
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('characteristics')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'characteristics'
-                  ? 'bg-amber-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              คุณลักษณะอันพึงประสงค์
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('competencies')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'competencies'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              สมรรถนะสำคัญ
-            </button>
+          {/* RIGHT SIDE: Sub-page selector, Orientation Toggle, Close button */}
+          <div className="flex items-center gap-2 flex-wrap shrink-0 ml-auto">
+            {/* Document Sub-page Selector for Reading/Writing Tab */}
+            {activeTab === 'readingWriting' && (
+              <div className="flex items-center gap-1">
+                <select
+                  value={rwSubPage}
+                  onChange={(e) => setRwSubPage(e.target.value as any)}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-emerald-300 font-bold bg-emerald-50 text-emerald-900 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 shadow-2xs"
+                >
+                  <option value="all">แสดงทั้งหมด (4 หน้า A4)</option>
+                  <option value="reading">1) การอ่าน</option>
+                  <option value="thinking">2) คิดวิเคราะห์</option>
+                  <option value="writing">3) การเขียน</option>
+                  <option value="summary">4) สรุปปริมาณกับคุณภาพ</option>
+                </select>
+              </div>
+            )}
+
+            {/* Orientation Toggle: แนวตั้ง vs แนวนอน at top right corner */}
+            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
+              <button
+                type="button"
+                onClick={() => setReportOrientation('portrait')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  reportOrientation === 'portrait'
+                    ? 'bg-white text-teal-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ขนาดกระดาษ A4 แนวตั้ง (210 × 297 มม.)"
+              >
+                <FileText className="w-3 h-3" />
+                <span>แนวตั้ง</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportOrientation('landscape')}
+                className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  reportOrientation === 'landscape'
+                    ? 'bg-white text-teal-800 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="ขนาดกระดาษ A4 แนวนอน (297 × 210 มม.)"
+              >
+                <FileText className="w-3 h-3 rotate-90" />
+                <span>แนวนอน</span>
+              </button>
+            </div>
 
             {/* Close Button */}
             <button
@@ -1016,32 +1262,46 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
               <X className="w-4 h-4" />
             </button>
           </div>
+
         </div>
 
         {/* Sub-bar Controls (No-Print) */}
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
+          {/* LEFT SIDE: Homeroom Teacher & Academic Head + Tab 2 Options */}
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Tab 1: Reading/Writing Sub-page selector */}
-            {activeTab === 'readingWriting' && (
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-slate-700">หน้าเอกสาร:</span>
-                <select
-                  value={rwSubPage}
-                  onChange={(e) => setRwSubPage(e.target.value as any)}
-                  className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                >
-                  <option value="all">แสดงทั้งหมด 4 หน้า A4 (ต่อเนื่อง)</option>
-                  <option value="reading">1) การอ่าน (ตารางที่ 1)</option>
-                  <option value="thinking">2) คิดวิเคราะห์ (ตารางที่ 2)</option>
-                  <option value="writing">3) การเขียน (ตารางที่ 3)</option>
-                  <option value="summary">4) สรุปปริมาณกับคุณภาพ</option>
-                </select>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-slate-700">ครูผู้ประจำชั้น:</span>
+              <select
+                value={selectedAdvisorId}
+                onChange={(e) => setSelectedAdvisorId(e.target.value)}
+                className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 max-w-[180px] truncate"
+              >
+                {currentGradeAdvisors.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(ประจำชั้น ${p.advisorGrade})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 pr-3">
+              <span className="font-bold text-slate-700">ฝ่ายวิชาการ:</span>
+              <select
+                value={selectedAcademicHeadId}
+                onChange={(e) => setSelectedAcademicHeadId(e.target.value)}
+                className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-teal-500/20 max-w-[180px] truncate"
+              >
+                {academicPersonnelList.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.prefix}{p.firstName} {p.lastName} {p.position ? `(${p.position})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Tab 2: Characteristics Mode & Student selector */}
             {activeTab === 'characteristics' && (
-              <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-3 flex-wrap border-l border-slate-200 pl-3">
                 <div className="flex items-center gap-1.5">
                   <span className="font-semibold text-slate-700">รูปแบบรายงาน:</span>
                   <select
@@ -1060,8 +1320,9 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     <select
                       value={selectedStudentId}
                       onChange={(e) => setSelectedStudentId(e.target.value)}
-                      className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/20 max-w-[200px] truncate"
+                      className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/20 max-w-[220px] truncate"
                     >
+                      <option value="all">นักเรียนทั้งหมด ({classStudents.length} คน เรียงตามเลขที่)</option>
                       {classStudents.map(s => (
                         <option key={s.id} value={s.id}>
                           เลขที่ {s.rollNumber || '-'} {s.prefix}{s.firstName} {s.lastName}
@@ -1072,46 +1333,6 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 )}
               </div>
             )}
-
-            {/* Teacher and Academic Head Selectors */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500">ครูประจำชั้น:</span>
-                <select
-                  value={selectedAdvisorId}
-                  onChange={(e) => setSelectedAdvisorId(e.target.value)}
-                  className="text-xs px-2 py-0.5 rounded-lg border border-slate-200 bg-white font-medium max-w-[150px] truncate"
-                >
-                  <option value="">-- อัตโนมัติ --</option>
-                  {personnel.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.prefix}{p.firstName} {p.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <span className="text-slate-500">ฝ่ายวิชาการ:</span>
-                <select
-                  value={selectedAcademicHeadId}
-                  onChange={(e) => setSelectedAcademicHeadId(e.target.value)}
-                  className="text-xs px-2 py-0.5 rounded-lg border border-slate-200 bg-white font-medium max-w-[150px] truncate"
-                >
-                  <option value="">-- อัตโนมัติ --</option>
-                  {personnel.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.prefix}{p.firstName} {p.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-slate-500 font-medium">
-            <span>ผอ.: </span>
-            <strong className="text-slate-800 font-bold">{directorDisplayName}</strong>
           </div>
         </div>
 

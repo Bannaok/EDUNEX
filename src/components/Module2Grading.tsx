@@ -101,27 +101,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
     }
   }, [user.role, activeTab]);
 
-  // จัดการปีการศึกษา (Academic Years)
-  const [currentAcademicYear, setCurrentAcademicYear] = useState<string>(academicYear || '2568');
+  // ปีการศึกษาและภาคเรียน (ล็อกตามค่าที่ Admin กำหนดจากตั้งค่าโรงเรียน)
+  const currentAcademicYear = academicYear || '2568';
+  const currentSemester = (semester === '2' ? '2' : '1');
   const [academicYears, setAcademicYears] = useState<string[]>(() => StorageService.getAcademicYears());
-
-  React.useEffect(() => {
-    if (academicYear) {
-      setCurrentAcademicYear(academicYear);
-    }
-  }, [academicYear]);
-
-  // Semester selector state (ภาคเรียนที่ 1 หรือ 2)
-  const [currentSemester, setCurrentSemester] = useState<'1' | '2'>(
-    (semester === '2' ? '2' : '1')
-  );
-
-  // Sync if prop semester changes
-  React.useEffect(() => {
-    if (semester === '1' || semester === '2') {
-      setCurrentSemester(semester);
-    }
-  }, [semester]);
 
   // Locked semesters map (Admin can lock semester to prevent members from entering scores in wrong semester)
   const [lockedSemesters, setLockedSemesters] = useState<Record<string, boolean>>(() => 
@@ -260,43 +243,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(() => findDefaultSubjectId());
   
-  // Handle Semester Switch
-  const handleSemesterChange = (newSem: '1' | '2') => {
-    setCurrentSemester(newSem);
-    if (onSemesterChange) {
-      onSemesterChange(newSem);
-    }
-    const inSemRegistered = sortSubjectsByGrade(subjects.filter(s => 
-      isSubjectInYear(s, currentAcademicYear) &&
-      (!s.semester || s.semester === newSem) &&
-      Boolean(s.teacherId || s.teacherName)
-    ));
-    if (user.role === 'member') {
-      const mySub = inSemRegistered.find(s => s.teacherId === user.id || s.teacherName === user.fullName);
-      setSelectedSubjectId(mySub?.id || '');
-    } else {
-      setSelectedSubjectId(inSemRegistered[0]?.id || '');
-    }
-  };
 
-  // Handle Academic Year Switch
-  const handleAcademicYearChange = (newYear: string) => {
-    setCurrentAcademicYear(newYear);
-    if (onAcademicYearChange) {
-      onAcademicYearChange(newYear);
-    }
-    const inSemRegistered = sortSubjectsByGrade(subjects.filter(s => 
-      isSubjectInYear(s, newYear) &&
-      (!s.semester || s.semester === currentSemester) &&
-      Boolean(s.teacherId || s.teacherName)
-    ));
-    if (user.role === 'member') {
-      const mySub = inSemRegistered.find(s => s.teacherId === user.id || s.teacherName === user.fullName);
-      setSelectedSubjectId(mySub?.id || '');
-    } else {
-      setSelectedSubjectId(inSemRegistered[0]?.id || '');
-    }
-  };
 
   // Active popover score picker state: { studentId, assignmentId }
   const [activeScorePicker, setActiveScorePicker] = useState<{
@@ -2288,7 +2235,9 @@ export const Module2Grading: React.FC<Module2Props> = ({
       onShowToast('success', `เพิ่มปีการศึกษา ${trimmed} สำเร็จ`, `สร้างปีการศึกษา ${trimmed} เรียบร้อยแล้ว`);
     }
 
-    handleAcademicYearChange(trimmed);
+    if (onAcademicYearChange) {
+      onAcademicYearChange(trimmed);
+    }
     setIsAddYearModalOpen(false);
     setNewYearInput('');
   };
@@ -2321,7 +2270,9 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
     const nextActiveYear = res.years[res.years.length - 1] || '2568';
     if (currentAcademicYear === deletingYear) {
-      handleAcademicYearChange(nextActiveYear);
+      if (onAcademicYearChange) {
+        onAcademicYearChange(nextActiveYear);
+      }
     }
 
     onShowToast('success', 'ลบปีการศึกษาสำเร็จ', `ลบปีการศึกษา ${deletingYear} และรายวิชาที่เกี่ยวข้องเรียบร้อยแล้ว`);
@@ -2544,8 +2495,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
     onSaveSubject(newSub);
     setSelectedSubjectId(newSub.id);
     if (sem !== currentSemester) {
-      setCurrentSemester(sem);
-      if (onSemesterChange) onSemesterChange(sem);
+      if (onSemesterChange) onSemesterChange(sem as '1' | '2');
     }
     setIsSubjectModalOpen(false);
     setEditingSubject(null);
@@ -2591,51 +2541,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
             <span className="truncate">ประเมิน 3 เล่ม</span>
           </button>
 
-          {/* 3. ปีการศึกษา */}
-          <div className="w-full h-10 bg-white px-2 rounded-xl border border-amber-200/90 shadow-xs flex items-center justify-center gap-1">
+          {/* ปีการศึกษา & ภาคเรียน (แสดงผลตาม Admin กำหนด ไม่มีปุ่มเลือก) */}
+          <div className="col-span-2 h-10 bg-white px-3 rounded-xl border border-amber-200/90 shadow-xs flex items-center justify-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span className="text-[11px] font-bold text-slate-600 shrink-0">ปี:</span>
-            <select
-              value={currentAcademicYear}
-              disabled={user.role !== 'admin'}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'add_new') {
-                  if (user.role === 'admin') {
-                    const nextYr = String(Math.max(...academicYears.map(Number), 2568) + 1);
-                    setNewYearInput(nextYr);
-                    setSourceYearToCopy(currentAcademicYear);
-                    setCopyPreviousSubjects(true);
-                    setIsAddYearModalOpen(true);
-                  }
-                } else {
-                  handleAcademicYearChange(val);
-                }
-              }}
-              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer truncate"
-            >
-              {academicYears.map(yr => (
-                <option key={yr} value={yr}>{yr}</option>
-              ))}
-              {user.role === 'admin' && (
-                <option value="add_new" className="text-amber-600 font-bold">+ ปีการศึกษา</option>
-              )}
-            </select>
-          </div>
-
-          {/* 4. ภาคเรียน */}
-          <div className="w-full h-10 bg-white px-2 rounded-xl border border-amber-200/90 shadow-xs flex items-center justify-center gap-1">
-            <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span className="text-[11px] font-bold text-slate-600 shrink-0">ภาค:</span>
-            <select
-              value={currentSemester}
-              disabled={user.role !== 'admin'}
-              onChange={(e) => handleSemesterChange(e.target.value as '1' | '2')}
-              className="text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
-            >
-              <option value="1">ภาค 1 {isSem1Locked ? '🔒' : ''}</option>
-              <option value="2">ภาค 2 {isSem2Locked ? '🔒' : ''}</option>
-            </select>
+            <span className="text-xs font-bold text-slate-800">ปีการศึกษา {currentAcademicYear} ภาค {currentSemester}</span>
           </div>
         </div>
 
@@ -2750,67 +2659,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
           {/* Right side controls: ปีการศึกษา & ภาค อยู่ติดกัน -> ลบAll -> ล็อก */}
           <div className="flex items-center justify-end gap-2 shrink-0">
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* ปีการศึกษา */}
-              <div className="flex items-center bg-white p-0.5 rounded-xl border border-amber-200/90 shadow-2xs shrink-0">
-                <span className="text-[11px] font-bold text-slate-600 px-1 flex items-center">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                </span>
-                <select
-                  value={currentAcademicYear}
-                  disabled={user.role !== 'admin'}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'add_new') {
-                      if (user.role === 'admin') {
-                        const nextYr = String(Math.max(...academicYears.map(Number), 2568) + 1);
-                        setNewYearInput(nextYr);
-                        setSourceYearToCopy(currentAcademicYear);
-                        setCopyPreviousSubjects(true);
-                        setIsAddYearModalOpen(true);
-                      }
-                    } else {
-                      handleAcademicYearChange(val);
-                    }
-                  }}
-                  className={`text-xs font-bold px-1.5 py-1 rounded-lg ${
-                    user.role !== 'admin'
-                      ? 'bg-slate-100 text-slate-600 cursor-not-allowed'
-                      : 'bg-transparent text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer'
-                  }`}
-                  title={user.role !== 'admin' ? 'กำหนดโดย Admin (ผู้ดูแลระบบ)' : 'เลือกปีการศึกษา'}
-                >
-                  {academicYears.map(yr => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                  {user.role === 'admin' && (
-                    <option value="add_new" className="text-amber-600 font-bold">+ ปีการศึกษา</option>
-                  )}
-                </select>
-                {user.role !== 'admin' && <Lock className="w-3 h-3 text-slate-400 mr-1" />}
-              </div>
-
-              {/* ภาคเรียน (อยู่ติดกับปีการศึกษาพอดี) */}
-              <div className="flex items-center bg-white p-0.5 rounded-xl border border-amber-200/90 shadow-2xs shrink-0">
-                <span className="text-[11px] font-bold text-slate-600 px-1 flex items-center">
-                  <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                </span>
-                <select
-                  value={currentSemester}
-                  disabled={user.role !== 'admin'}
-                  onChange={(e) => handleSemesterChange(e.target.value as '1' | '2')}
-                  className={`text-xs font-bold px-1.5 py-1 rounded-lg ${
-                    user.role !== 'admin'
-                      ? 'bg-slate-100 text-slate-600 cursor-not-allowed'
-                      : 'bg-transparent text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer'
-                  }`}
-                  title={user.role !== 'admin' ? 'กำหนดโดย Admin (ผู้ดูแลระบบ)' : 'เลือกภาคเรียน'}
-                >
-                  <option value="1">1 {isSem1Locked ? '🔒' : ''}</option>
-                  <option value="2">2 {isSem2Locked ? '🔒' : ''}</option>
-                </select>
-                {user.role !== 'admin' && <Lock className="w-3 h-3 text-slate-400 mr-1" />}
-              </div>
+            {/* ปีการศึกษา & ภาคเรียน (แสดงผลตาม Admin กำหนด ไม่มีปุ่มเลือก) */}
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-amber-200/90 shadow-2xs shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="text-xs font-bold text-slate-800">ปีการศึกษา {currentAcademicYear} ภาค {currentSemester}</span>
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
@@ -3367,7 +3219,16 @@ export const Module2Grading: React.FC<Module2Props> = ({
                               {student.studentCode || '-'}
                             </td>
                             <td className="py-2 px-4 font-semibold text-slate-900 border-r border-slate-100">
-                              {student.prefix}{student.firstName} {student.lastName}
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                  {student.photoUrl ? (
+                                    <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                                <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                              </div>
                             </td>
                             {semSubs.map(subj => {
                               const gRec = grades.find(g => g.studentId === student.id && g.subjectId === subj.id && g.semester === currentSemester);
@@ -3552,7 +3413,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
                               {/* Column 2: ชื่อ - นามสกุล */}
                               <td className="py-1 px-1.5 font-semibold text-slate-800 border-r border-slate-200 text-[11px] whitespace-nowrap">
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                    {st.photoUrl ? (
+                                      <img src={st.photoUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User className="w-3 h-3 text-slate-400" />
+                                    )}
+                                  </div>
                                   <span>{st.prefix}{st.firstName} {st.lastName}</span>
                                   {st.nickname && (
                                     <span className="text-[9px] text-slate-400 font-normal">({st.nickname})</span>
@@ -3765,6 +3633,13 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                   <span className="w-5 h-5 rounded-md bg-slate-100 group-hover:bg-amber-100 text-slate-600 group-hover:text-amber-900 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0">
                                     {student.rollNumber ?? (idx + 1)}
                                   </span>
+                                  <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                    {student.photoUrl ? (
+                                      <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
+                                  </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="font-semibold text-slate-800 text-xs truncate leading-tight flex items-center gap-1">
                                       <span className="truncate">{student.prefix}{student.firstName} {student.lastName}</span>
@@ -3867,6 +3742,13 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                   <span className="w-5 h-5 rounded-md bg-slate-100 group-hover:bg-amber-100 text-slate-600 group-hover:text-amber-900 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0">
                                     {student.rollNumber ?? (idx + 1)}
                                   </span>
+                                  <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                    {student.photoUrl ? (
+                                      <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
+                                  </div>
                                   <div className="min-w-0 flex-1">
                                     <div className="font-semibold text-slate-800 text-xs truncate leading-tight flex items-center gap-1">
                                       <span className="truncate">{student.prefix}{student.firstName} {student.lastName}</span>
@@ -4025,16 +3907,25 @@ export const Module2Grading: React.FC<Module2Props> = ({
                               {student.studentCode || '-'}
                             </td>
                             <td className="py-2.5 px-3 font-medium text-slate-800">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setMobileGradingStudentId(student.id);
-                                }}
-                                className="text-left font-medium text-slate-800 hover:text-amber-700 hover:underline flex items-center gap-1 group cursor-pointer"
-                              >
-                                <span>{student.prefix}{student.firstName} {student.lastName}</span>
-                                <span className="opacity-0 group-hover:opacity-100 text-[10px] text-amber-600 transition-opacity">✏️</span>
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                  {student.photoUrl ? (
+                                    <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMobileGradingStudentId(student.id);
+                                  }}
+                                  className="text-left font-medium text-slate-800 hover:text-amber-700 hover:underline flex items-center gap-1 group cursor-pointer"
+                                >
+                                  <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                                  <span className="opacity-0 group-hover:opacity-100 text-[10px] text-amber-600 transition-opacity">✏️</span>
+                                </button>
+                              </div>
                             </td>
 
                             {/* Subtopic score cell: compact appropriate size, click opens popover with 1, 2, 3 */}
@@ -4348,15 +4239,24 @@ export const Module2Grading: React.FC<Module2Props> = ({
                             {student.studentCode || '-'}
                           </td>
                           <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => setMobileGradingStudentId(student.id)}
-                              className="text-left hover:text-amber-700 hover:underline flex items-center gap-1.5 cursor-pointer font-semibold group/stname"
-                              title="คลิกที่ชื่อเพื่อเปิดหน้าต่างลงคะแนนรายบุคคล"
-                            >
-                              <span>{student.prefix}{student.firstName} {student.lastName}</span>
-                              <ChevronRight className="w-3 h-3 text-slate-300 group-hover/stname:text-amber-600 opacity-60 group-hover/stname:opacity-100 transition-all group-hover/stname:translate-x-0.5" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                {student.photoUrl ? (
+                                  <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <User className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setMobileGradingStudentId(student.id)}
+                                className="text-left hover:text-amber-700 hover:underline flex items-center gap-1.5 cursor-pointer font-semibold group/stname"
+                                title="คลิกที่ชื่อเพื่อเปิดหน้าต่างลงคะแนนรายบุคคล"
+                              >
+                                <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                                <ChevronRight className="w-3 h-3 text-slate-300 group-hover/stname:text-amber-600 opacity-60 group-hover/stname:opacity-100 transition-all group-hover/stname:translate-x-0.5" />
+                              </button>
+                            </div>
                           </td>
 
                           {/* Dynamic Assignment Columns: Click to open score picker (0, 1, 2, 3, 4, 5) */}

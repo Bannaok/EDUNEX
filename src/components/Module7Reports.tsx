@@ -189,22 +189,6 @@ export const Module7Reports: React.FC<Module7Props> = ({
   const [selectedPhorPhor6Student, setSelectedPhorPhor6Student] = useState<Student | null>(null);
   const [assessmentViewMode, setAssessmentViewMode] = useState<'score' | 'grade'>('score');
 
-  // Synchronize live grades & subjects & dailyTracking from storage or props
-  const effectiveGrades = useMemo(() => {
-    const localGrades = StorageService.getGrades();
-    return (localGrades && localGrades.length > 0) ? localGrades : grades;
-  }, [grades]);
-
-  const effectiveSubjects = useMemo(() => {
-    const localSubjects = StorageService.getSubjects();
-    return (localSubjects && localSubjects.length > 0) ? localSubjects : subjects;
-  }, [subjects]);
-
-  const effectiveDailyTracking = useMemo(() => {
-    if (propsDailyTracking && propsDailyTracking.length > 0) return propsDailyTracking;
-    return StorageService.getDailyTracking();
-  }, [propsDailyTracking]);
-
   // Attendance Pop-up Modal state
   const [attendancePopupGrade, setAttendancePopupGrade] = useState<GradeLevel | null>(null);
   const [popupSelectedMonthKey, setPopupSelectedMonthKey] = useState<string | 'all'>('all');
@@ -220,27 +204,105 @@ export const Module7Reports: React.FC<Module7Props> = ({
   const [milkTeethModal, setMilkTeethModal] = useState<{ grade: GradeLevel; type: 'milk' | 'teeth' } | null>(null);
   const [milkTeethSelectedMonthIdx, setMilkTeethSelectedMonthIdx] = useState<number>(0);
 
+  // Synchronize live grades, subjects, dailyTracking, attendance, students, and personnel from storage or props
+  const effectiveStudents = useMemo(() => {
+    const localStudents = StorageService.getStudents();
+    return (localStudents && localStudents.length > 0) ? localStudents : students;
+  }, [students, selectedPhorPhor6Student]);
+
+  const effectivePersonnel = useMemo(() => {
+    const localPersonnel = StorageService.getPersonnel();
+    return (localPersonnel && localPersonnel.length > 0) ? localPersonnel : personnel;
+  }, [personnel]);
+
+  const effectiveGrades = useMemo(() => {
+    const localGrades = StorageService.getGrades();
+    return (localGrades && localGrades.length > 0) ? localGrades : grades;
+  }, [grades, assessmentPopupGrade, threeReportsPopupGrade]);
+
+  const effectiveSubjects = useMemo(() => {
+    const localSubjects = StorageService.getSubjects();
+    return (localSubjects && localSubjects.length > 0) ? localSubjects : subjects;
+  }, [subjects, assessmentPopupGrade, threeReportsPopupGrade]);
+
+  const effectiveDailyTracking = useMemo(() => {
+    const local = StorageService.getDailyTracking();
+    if (local && local.length > 0) return local;
+    return propsDailyTracking || [];
+  }, [propsDailyTracking, milkTeethModal]);
+
+  const effectiveAttendance = useMemo(() => {
+    const local = StorageService.getAttendance();
+    return (local && local.length > 0) ? local : attendance;
+  }, [attendance, attendancePopupGrade]);
+
+  // Orientation state for แปรงฟัน, ดื่มนม, เช็กชื่อ (Default is always 'portrait' แนวตั้ง)
+  const [reportOrientation, setReportOrientation] = useState<'portrait' | 'landscape'>('portrait');
+
   // Selected personnel for popup signatures (shared across attendance, assessment, 3-reports, and milk/teeth modals)
   const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>('');
-  const [selectedAcademicHeadId, setSelectedAcademicHeadId] = useState<string>('');
+  const [selectedAcademicHeadId, setSelectedAcademicHeadId] = useState<string>(() => {
+    return localStorage.getItem('school_selected_academic_head_id') || '';
+  });
 
-  // Auto-detect personnel when popup grade changes
+  // Sync selectedAcademicHeadId with localStorage
+  React.useEffect(() => {
+    if (selectedAcademicHeadId) {
+      localStorage.setItem('school_selected_academic_head_id', selectedAcademicHeadId);
+    } else {
+      localStorage.removeItem('school_selected_academic_head_id');
+    }
+  }, [selectedAcademicHeadId]);
+
+  // Strict Academic Personnel List (ฝ่ายวิชาการ only)
+  const academicPersonnelList = useMemo(() => {
+    const list = personnel.filter(p => {
+      const dept = (p.department || '').toLowerCase();
+      const pos = (p.position || '').toLowerCase();
+      const type = (p.personnelType || '').toLowerCase();
+      return (
+        dept.includes('วิชาการ') ||
+        pos.includes('วิชาการ') ||
+        type.includes('วิชาการ') ||
+        pos.includes('รองผู้อำนวยการฝ่ายวิชาการ') ||
+        pos.includes('หัวหน้าฝ่ายวิชาการ')
+      );
+    });
+    return list.length > 0 ? list : personnel;
+  }, [personnel]);
+
+  // Signature Personnel Resolution
+  const activePopupGrade = attendancePopupGrade || assessmentPopupGrade || threeReportsPopupGrade || milkTeethModal?.grade || null;
+
+  const currentGradeAdvisors = useMemo(() => {
+    if (!activePopupGrade) return [];
+    const list = personnel.filter(p => 
+      p.advisorGrade === activePopupGrade || 
+      (p.position && (p.position.includes(`ประจำชั้น ${activePopupGrade}`) || p.position.includes(`(${activePopupGrade})`)))
+    );
+    return list.length > 0 ? list : personnel;
+  }, [personnel, activePopupGrade]);
+
+  // Auto-detect homeroom teacher when popup grade changes
   React.useEffect(() => {
     const targetGrade = attendancePopupGrade || assessmentPopupGrade || threeReportsPopupGrade || milkTeethModal?.grade;
     if (targetGrade) {
-      // 1. Homeroom Teacher
-      const advisor = personnel.find(p => p.advisorGrade === targetGrade);
-      setSelectedAdvisorId(advisor ? advisor.id : '');
+      // 1. Homeroom Teacher: Match advisorGrade, position, or current grade list
+      const advisor = personnel.find(p => 
+        p.advisorGrade === targetGrade || 
+        (p.position && (p.position.includes(`ประจำชั้น ${targetGrade}`) || p.position.includes(`(${targetGrade})`)))
+      ) || currentGradeAdvisors[0] || personnel[0];
+      
+      if (advisor) {
+        setSelectedAdvisorId(advisor.id);
+      }
 
-      // 2. Academic Head
-      const academic = personnel.find(p => 
-        p.department === 'วิชาการ' || 
-        (p.position && p.position.includes('วิชาการ')) ||
-        (p.personnelType && p.personnelType.includes('วิชาการ'))
-      );
-      setSelectedAcademicHeadId(academic ? academic.id : '');
+      // 2. Academic Head -> Default to first academic person if not set
+      if (!selectedAcademicHeadId && academicPersonnelList.length > 0) {
+        setSelectedAcademicHeadId(academicPersonnelList[0].id);
+      }
     }
-  }, [attendancePopupGrade, assessmentPopupGrade, threeReportsPopupGrade, milkTeethModal, personnel]);
+  }, [attendancePopupGrade, assessmentPopupGrade, threeReportsPopupGrade, milkTeethModal, personnel, academicPersonnelList, selectedAcademicHeadId, currentGradeAdvisors]);
 
   // 100 School Days for Milk & Teeth (matching Module 1)
   const milkTeethSchoolDaysList = useMemo(() => {
@@ -274,30 +336,35 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return Object.values(groups);
   }, [milkTeethSchoolDaysList]);
 
-  // Signature Personnel Resolution
   const selectedAdvisor = useMemo(() => {
     if (selectedAdvisorId) {
-      return personnel.find(p => p.id === selectedAdvisorId) || null;
+      const found = personnel.find(p => p.id === selectedAdvisorId);
+      if (found) return found;
     }
-    return attendancePopupGrade ? personnel.find(p => p.advisorGrade === attendancePopupGrade) || null : null;
-  }, [personnel, selectedAdvisorId, attendancePopupGrade]);
+    return currentGradeAdvisors[0] || null;
+  }, [personnel, selectedAdvisorId, currentGradeAdvisors]);
 
   const selectedAcademicHead = useMemo(() => {
     if (selectedAcademicHeadId) {
       return personnel.find(p => p.id === selectedAcademicHeadId) || null;
     }
-    return personnel.find(p => 
-      p.department === 'วิชาการ' || 
-      (p.position && p.position.includes('วิชาการ')) ||
-      (p.personnelType && p.personnelType.includes('วิชาการ'))
-    ) || null;
-  }, [personnel, selectedAcademicHeadId]);
+    return academicPersonnelList[0] || null;
+  }, [personnel, selectedAcademicHeadId, academicPersonnelList]);
 
   const directorPersonnel = useMemo(() => {
-    return personnel.find(p => 
-      (p.position && (p.position.includes('ผู้อำนวยการ') || p.position.includes('ผอ.'))) ||
-      (p.personnelType && p.personnelType.includes('ผู้อำนวยการ'))
-    ) || null;
+    return (
+      personnel.find(p => p.personnelType === 'ผู้อำนวยการ') ||
+      personnel.find(p => 
+        p.position && 
+        (p.position.includes('ผู้อำนวยการ') || p.position.includes('ผอ.')) && 
+        !p.position.includes('รอง')
+      ) ||
+      personnel.find(p => 
+        (p.position && (p.position.includes('ผู้อำนวยการ') || p.position.includes('ผอ.'))) ||
+        (p.personnelType && p.personnelType.includes('ผู้อำนวยการ'))
+      ) ||
+      null
+    );
   }, [personnel]);
 
   const directorDisplayName = useMemo(() => {
@@ -306,6 +373,13 @@ export const Module7Reports: React.FC<Module7Props> = ({
     }
     return schoolInfo.directorName || '................................................';
   }, [directorPersonnel, schoolInfo.directorName]);
+
+  const directorPosition = useMemo(() => {
+    if (directorPersonnel && directorPersonnel.position && directorPersonnel.position.trim()) {
+      return directorPersonnel.position.trim();
+    }
+    return 'ผู้อำนวยการโรงเรียนบ้านนาออก';
+  }, [directorPersonnel]);
 
   // Helper to extract unique subject teacher names for a 5-subject chunk
   const getSubjectTeacherName = (chunk: Subject[], personnelList: Personnel[], defaultAdvisor: Personnel | null): string => {
@@ -343,42 +417,53 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
   const currentGradeList = activeLevel === 'primary' ? PRIMARY_GRADES : SECONDARY_GRADES;
 
+  // Count of students per grade level from "ข้อมูล/อื่นๆ" -> "ข้อมูลนักเรียน"
+  const studentCountByGrade = useMemo(() => {
+    const counts: Record<string, number> = {};
+    (effectiveStudents || []).forEach(s => {
+      if (s.gradeLevel) {
+        counts[s.gradeLevel] = (counts[s.gradeLevel] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [effectiveStudents]);
+
   // Filter students for selected grade in main roster view
   const gradeStudents = useMemo(() => {
     return selectedGrade 
-      ? students.filter(s => s.gradeLevel === selectedGrade)
+      ? effectiveStudents.filter(s => s.gradeLevel === selectedGrade)
       : [];
-  }, [students, selectedGrade]);
+  }, [effectiveStudents, selectedGrade]);
 
   // Advisor teacher assigned to selected grade
   const classAdvisor = useMemo(() => {
     if (!selectedGrade) return null;
-    return personnel.find(p => p.advisorGrade === selectedGrade) || null;
-  }, [personnel, selectedGrade]);
+    return effectivePersonnel.find(p => p.advisorGrade === selectedGrade) || null;
+  }, [effectivePersonnel, selectedGrade]);
 
   // Filter students for popup grade
   const popupGradeStudents = useMemo(() => {
     return attendancePopupGrade
-      ? students.filter(s => s.gradeLevel === attendancePopupGrade)
+      ? effectiveStudents.filter(s => s.gradeLevel === attendancePopupGrade)
       : [];
-  }, [students, attendancePopupGrade]);
+  }, [effectiveStudents, attendancePopupGrade]);
 
   // Advisor teacher for popup grade
   const popupClassAdvisor = useMemo(() => {
     if (!attendancePopupGrade) return null;
-    return personnel.find(p => p.advisorGrade === attendancePopupGrade) || null;
-  }, [personnel, attendancePopupGrade]);
+    return effectivePersonnel.find(p => p.advisorGrade === attendancePopupGrade) || null;
+  }, [effectivePersonnel, attendancePopupGrade]);
 
   // Filter students for assessment popup grade (sorted by rollNumber)
   const assessmentGradeStudents = useMemo(() => {
     return assessmentPopupGrade
-      ? students
+      ? effectiveStudents
           .filter(s => s.gradeLevel === assessmentPopupGrade)
           .sort((a, b) => (a.rollNumber || 999) - (b.rollNumber || 999))
       : [];
-  }, [students, assessmentPopupGrade]);
+  }, [effectiveStudents, assessmentPopupGrade]);
 
-  // Filter subjects for assessment popup grade
+  // Filter subjects for assessment popup grade: Pull subjects registered by teaching members of that grade
   const assessmentGradeSubjects = useMemo(() => {
     if (!assessmentPopupGrade) return [];
     // 1. Try matching grade, semester, and academic year
@@ -398,7 +483,21 @@ export const Module7Reports: React.FC<Module7Props> = ({
     if (list.length === 0) {
       list = effectiveSubjects.filter(s => s.gradeLevel === assessmentPopupGrade);
     }
-    return list;
+
+    // Filter subjects where member registered to teach
+    const registered = list.filter(s => 
+      Boolean(s.teacherId && s.teacherId.trim() !== '') || 
+      Boolean(s.teacherName && s.teacherName.trim() !== '')
+    );
+    const resultList = registered.length > 0 ? registered : list;
+
+    return [...resultList].sort((a, b) => {
+      const codeA = a.code || '';
+      const codeB = b.code || '';
+      const cmp = codeA.localeCompare(codeB, 'th');
+      if (cmp !== 0) return cmp;
+      return (a.name || '').localeCompare(b.name || '', 'th');
+    });
   }, [effectiveSubjects, assessmentPopupGrade, selectedSemester, selectedYear]);
 
   // Chunk subjects into sets of 5 (5 วิชา ต่อ 1 แผ่น A4 แนวตั้ง)
@@ -423,14 +522,27 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return assessmentSubjectChunks;
   }, [assessmentSubjectChunks, assessmentSelectedChunkIndex]);
 
-  // Helper to get scores for student & subject
+  // Helper to get scores for student & subject (from recorded grades by member)
   const getStudentScores = (studentId: string, subject: Subject) => {
-    const rec = effectiveGrades.find(g => 
+    let rec = effectiveGrades.find(g => 
       g.studentId === studentId && 
       (g.subjectId === subject.id || (subject.code && g.subjectCode === subject.code)) &&
       (g.semester === selectedSemester || !g.semester) &&
       (g.academicYear === selectedYear || !g.academicYear)
     );
+    if (!rec) {
+      rec = effectiveGrades.find(g => 
+        g.studentId === studentId && 
+        (g.subjectId === subject.id || (subject.code && g.subjectCode === subject.code)) &&
+        (g.semester === selectedSemester || !g.semester)
+      );
+    }
+    if (!rec) {
+      rec = effectiveGrades.find(g => 
+        g.studentId === studentId && 
+        (g.subjectId === subject.id || (subject.code && g.subjectCode === subject.code))
+      );
+    }
     return {
       coursework: rec?.courseworkScore !== undefined && rec.courseworkScore !== null ? rec.courseworkScore : '-',
       exam: rec?.examScore !== undefined && rec.examScore !== null ? rec.examScore : '-',
@@ -603,10 +715,10 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return monthGroups.reduce((acc, g) => acc + g.schoolDaysCount, 0);
   }, [monthGroups]);
 
-  // Map attendance by studentId and date string
+  // Map attendance by studentId and date string (from Module 3 recorded attendance by homeroom teacher)
   const attendanceMap = useMemo(() => {
     const map = new Map<string, 'present' | 'absent' | 'leave' | 'sick'>();
-    attendance.forEach(rec => {
+    effectiveAttendance.forEach(rec => {
       if (rec.studentId && rec.date) {
         if (rec.academicYear && rec.academicYear !== selectedYear) return;
         if (rec.semester && rec.semester !== selectedSemester) return;
@@ -614,7 +726,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
       }
     });
     return map;
-  }, [attendance, selectedYear, selectedSemester]);
+  }, [effectiveAttendance, selectedYear, selectedSemester]);
 
   // Print function (A4 Portrait print)
   const handlePrintPDF = () => {
@@ -876,11 +988,58 @@ export const Module7Reports: React.FC<Module7Props> = ({
       */}
       {!selectedGrade ? (
         <div className="space-y-2">
+          {/* Orientation Selector Toolbar for แปรงฟัน, ดื่มนม, เช็กชื่อ */}
+          <div className="bg-white px-3.5 py-2 rounded-xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-2 text-slate-700 font-semibold">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span>รูปแบบเอกสารรายงาน (แปรงฟัน / ดื่มนม / เช็กชื่อ):</span>
+              <span className="text-[11px] text-slate-400 font-normal hidden sm:inline">
+                (ค่าเริ่มต้นเป็นแนวตั้งเสมอ สามารถเลือกเป็นแนวนอนได้)
+              </span>
+            </div>
+
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setReportOrientation('portrait')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  reportOrientation === 'portrait'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="ค่าเริ่มต้น: กระดาษ A4 แนวตั้ง (210 × 297 มม.)"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>แนวตั้ง (เริ่มต้น)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportOrientation('landscape')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                  reportOrientation === 'landscape'
+                    ? 'bg-white text-emerald-800 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+                title="เลือกพิมพ์/ดูแบบกระดาษ A4 แนวนอน (297 × 210 มม.)"
+              >
+                <FileText className="w-3.5 h-3.5 rotate-90" />
+                <span>แนวนอน</span>
+              </button>
+            </div>
+          </div>
+
           {currentGradeList.map((g) => {
+            const studentCount = studentCountByGrade[g] || 0;
+            const hasStudents = studentCount > 0;
+
             return (
               <div
                 key={g}
-                className="w-full bg-white hover:bg-purple-50/40 p-3 sm:p-3.5 rounded-xl border border-slate-200 hover:border-purple-300 transition-all shadow-xs flex items-center justify-between gap-3 group"
+                className={`w-full p-3 sm:p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 group ${
+                  hasStudents
+                    ? 'bg-white hover:bg-purple-50/40 border-slate-200 hover:border-purple-300 shadow-xs'
+                    : 'bg-slate-100/60 border-slate-200/70 opacity-55 hover:opacity-85 transition-opacity'
+                }`}
               >
                 {/* Clickable Grade Item to go directly to student roster */}
                 <button
@@ -891,21 +1050,40 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   }}
                   className="flex items-center gap-3.5 cursor-pointer flex-1 text-left"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-sm group-hover:bg-purple-600 group-hover:text-white transition-colors shrink-0">
+                  <div className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center text-sm transition-colors shrink-0 ${
+                    hasStudents
+                      ? 'bg-purple-100 text-purple-700 group-hover:bg-purple-600 group-hover:text-white'
+                      : 'bg-slate-200 text-slate-400'
+                  }`}>
                     {g}
                   </div>
                   <div>
-                    <div className="text-sm font-bold text-slate-800 group-hover:text-purple-700 transition-colors">
-                      {getGradeFullName(g)}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-sm font-bold transition-colors ${
+                        hasStudents
+                          ? 'text-slate-800 group-hover:text-purple-700'
+                          : 'text-slate-500 font-semibold'
+                      }`}>
+                        {getGradeFullName(g)}
+                      </span>
+                      {hasStudents ? (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-200">
+                          {studentCount} คน
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-500 text-[10px] font-medium border border-slate-300/60">
+                          ไม่มีนักเรียน
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[11px] text-slate-400">
-                      คลิกเพื่อดูตารางรายชื่อนักเรียน
+                    <div className={`text-[11px] ${hasStudents ? 'text-slate-400' : 'text-slate-400'}`}>
+                      {hasStudents ? 'คลิกเพื่อดูตารางรายชื่อนักเรียน' : 'ไม่มีข้อมูลนักเรียนในชั้นนี้ (จากหน้าข้อมูล/อื่นๆ)'}
                     </div>
                   </div>
                 </button>
 
                 {/* Right Action: Dedicated "(3)รายงาน", "วัดผล", "เช็กชื่อ", "ดื่มนม", and "แปรงฟัน" Buttons -> Opens Pop-up Modals */}
-                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                <div className={`flex items-center gap-2 shrink-0 flex-wrap ${!hasStudents ? 'opacity-75' : ''}`}>
                   {/* Dedicated "(3)รายงาน" Button */}
                   <button
                     type="button"
@@ -913,7 +1091,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       e.stopPropagation();
                       setThreeReportsPopupGrade(g);
                     }}
-                    className="px-3 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    className={`px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ${
+                      hasStudents ? 'bg-teal-600 hover:bg-teal-700' : 'bg-slate-400 hover:bg-teal-600'
+                    }`}
                     title="เปิด Pop-up รายงานประเมิน 3 เล่ม (การอ่านคิดวิเคราะห์เขียน, คุณลักษณะอันพึงประสงค์, สมรรถนะสำคัญ)"
                   >
                     <BookOpen className="w-4 h-4" />
@@ -928,7 +1108,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       setAssessmentPopupGrade(g);
                       setAssessmentSelectedChunkIndex(0);
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    className={`px-3.5 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ${
+                      hasStudents ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-slate-400 hover:bg-indigo-600'
+                    }`}
                     title="เปิด Pop-up ตารางคะแนนวัดผลกระดาษ A4 แนวตั้ง (5 วิชาต่อแผ่น)"
                   >
                     <Award className="w-4 h-4" />
@@ -943,7 +1125,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       setAttendancePopupGrade(g);
                       setPopupSelectedMonthKey('all');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    className={`px-3.5 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ${
+                      hasStudents ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-400 hover:bg-emerald-600'
+                    }`}
                     title="เปิด Pop-up ตารางเช็กชื่อกระดาษ A4 แนวตั้ง (แสดงครบทุกวันรวมเสาร์-อาทิตย์สีแดง)"
                   >
                     <ClipboardCheck className="w-4 h-4" />
@@ -958,7 +1142,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       setMilkTeethModal({ grade: g, type: 'milk' });
                       setMilkTeethSelectedMonthIdx(0);
                     }}
-                    className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    className={`px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ${
+                      hasStudents ? 'bg-amber-600 hover:bg-amber-700' : 'bg-slate-400 hover:bg-amber-600'
+                    }`}
                     title="เปิด Pop-up รายงานสรุปการดื่มนมโรงเรียน ขนาด A4 แนวตั้ง (ดึงจากหน้าธุรการ)"
                   >
                     <span>🥛</span>
@@ -973,7 +1159,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       setMilkTeethModal({ grade: g, type: 'teeth' });
                       setMilkTeethSelectedMonthIdx(0);
                     }}
-                    className="px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer"
+                    className={`px-3 py-2 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all active:scale-95 cursor-pointer ${
+                      hasStudents ? 'bg-sky-600 hover:bg-sky-700' : 'bg-slate-400 hover:bg-sky-600'
+                    }`}
                     title="เปิด Pop-up รายงานสรุปการแปรงฟันหลังอาหาร ขนาด A4 แนวตั้ง (ดึงจากหน้าธุรการ)"
                   >
                     <span>🪥</span>
@@ -1204,7 +1392,21 @@ export const Module7Reports: React.FC<Module7Props> = ({
       */}
       {attendancePopupGrade && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto a4-modal-overlay">
-          <div className="bg-slate-100 rounded-2xl w-full max-w-[980px] max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content">
+          {/* Dynamic Print CSS for Portrait / Landscape */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: A4 ${reportOrientation} !important;
+                margin: 4mm 5mm !important;
+              }
+              body {
+                background: white !important;
+                color: black !important;
+              }
+            }
+          ` }} />
+
+          <div className={`bg-slate-100 rounded-2xl w-full ${reportOrientation === 'landscape' ? 'max-w-[1240px]' : 'max-w-[980px]'} max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content`}>
             
             {/* Modal Header Controls (No-Print) */}
             <div className="px-4 py-3 bg-white border-b border-slate-200 rounded-t-2xl flex flex-wrap items-center justify-between gap-3 shrink-0 no-print">
@@ -1216,7 +1418,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <span>ตารางเช็กเวลาเรียน {getGradeCleanName(attendancePopupGrade)}</span>
                     <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-semibold border border-emerald-200">
-                      พรีวิว A4 แนวตั้ง
+                      พรีวิว A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'}
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500">
@@ -1225,8 +1427,38 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 </div>
               </div>
 
-              {/* Action Buttons & Month Selector */}
+              {/* Action Buttons, Orientation & Month Selector */}
               <div className="flex items-center gap-2 flex-wrap">
+                {/* Orientation Selector: แนวตั้ง (Default) vs แนวนอน */}
+                <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setReportOrientation('portrait')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      reportOrientation === 'portrait'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="ขนาดกระดาษ A4 แนวตั้ง (210 × 297 มม.)"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>แนวตั้ง</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportOrientation('landscape')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      reportOrientation === 'landscape'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="ขนาดกระดาษ A4 แนวนอน (297 × 210 มม.)"
+                  >
+                    <FileText className="w-3.5 h-3.5 rotate-90" />
+                    <span>แนวนอน</span>
+                  </button>
+                </div>
+
                 {/* Select Month */}
                 <select
                   value={popupSelectedMonthKey}
@@ -1253,36 +1485,32 @@ export const Module7Reports: React.FC<Module7Props> = ({
               </div>
             </div>
 
-            {/* Personnel Signature Selectors Bar (No-Print) */}
+            {/* Dedicated Personnel Selectors Bar (No-Print) */}
             <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Select Homeroom Teacher */}
+              <div className="flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-slate-700 whitespace-nowrap">ครูประจำชั้น:</span>
+                  <span className="font-bold text-slate-700 whitespace-nowrap">ครูผู้ประจำชั้น:</span>
                   <select
                     value={selectedAdvisorId}
                     onChange={(e) => setSelectedAdvisorId(e.target.value)}
                     className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 max-w-[210px] truncate"
                   >
-                    <option value="">-- ให้ระบุเองในกระดาษ --</option>
-                    {personnel.map(p => (
+                    {currentGradeAdvisors.map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(${p.advisorGrade})` : ''}
+                        {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(ประจำชั้น ${p.advisorGrade})` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Select Academic Head */}
                 <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-slate-700 whitespace-nowrap">ฝ่ายวิชาการ:</span>
+                  <span className="font-bold text-slate-700 whitespace-nowrap">ฝ่ายวิชาการ:</span>
                   <select
                     value={selectedAcademicHeadId}
                     onChange={(e) => setSelectedAcademicHeadId(e.target.value)}
                     className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 max-w-[210px] truncate"
                   >
-                    <option value="">-- ให้ระบุเองในกระดาษ --</option>
-                    {personnel.map(p => (
+                    {academicPersonnelList.map(p => (
                       <option key={p.id} value={p.id}>
                         {p.prefix}{p.firstName} {p.lastName} {p.position ? `(${p.position})` : ''}
                       </option>
@@ -1290,34 +1518,20 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </select>
                 </div>
               </div>
-
-              <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                <span>ผู้อำนวยการ:</span>
-                <strong className="text-slate-800 font-bold">{directorDisplayName}</strong>
-              </div>
             </div>
 
-            {/* Modal Body: Interactive A4 Portrait Paper Preview Scroll Container */}
+
+
+            {/* Modal Body: Interactive A4 Paper Preview Scroll Container */}
             <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
               
-              {/* Informational Banner (Screen only) */}
-              <div className="max-w-[210mm] mx-auto bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs text-amber-800 flex flex-wrap items-center justify-between gap-2 no-print shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>
-                    <strong>พรีวิวขนาด A4 แนวตั้งจริง (210mm × 297mm):</strong> วันเสาร์ อาทิตย์ และวันหยุด แสดงข้อความกลางคอลัมน์เพียง 1 คำ (ไม่ซ้ำทุกแถว)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold shrink-0 flex-wrap">
-                  <span className="text-emerald-700">✓ = มา</span>
-                  <span className="text-rose-700">ข = ขาด</span>
-                  <span className="text-amber-700">ล = ลากิจ</span>
-                  <span className="text-blue-700">ป = ป่วย</span>
-                </div>
-              </div>
+
 
               {popupGradeStudents.length === 0 ? (
-                <div className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 max-w-[210mm] mx-auto">
+                <div 
+                  className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 mx-auto"
+                  style={{ maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+                >
                   <Users className="w-12 h-12 mx-auto text-slate-300" />
                   <p className="text-sm font-semibold text-slate-700">
                     ยังไม่มีข้อมูลนักเรียนในชั้น {attendancePopupGrade}
@@ -1327,7 +1541,10 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </p>
                 </div>
               ) : popupActiveMonthGroups.length === 0 ? (
-                <div className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 max-w-[210mm] mx-auto">
+                <div 
+                  className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 mx-auto"
+                  style={{ maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+                >
                   <CalendarCheck className="w-12 h-12 mx-auto text-slate-300" />
                   <p className="text-sm font-semibold text-slate-700">
                     ไม่พบข้อมูลเดือนในภาคเรียนนี้
@@ -1341,24 +1558,44 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   return (
                     <div 
                       key={group.monthKey}
-                      className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-                      style={{ width: '210mm' }}
+                      className={`bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all ${
+                        reportOrientation === 'landscape' 
+                          ? 'a4-landscape-paper min-h-[210mm]' 
+                          : 'a4-portrait-paper min-h-[297mm]'
+                      }`}
+                      style={{ 
+                        width: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm'
+                      }}
                     >
-                      {/* A4 Sheet Header - Exactly 3 Lines */}
+                      {/* A4 Sheet Header */}
                       <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
+                        <div className="flex justify-center mb-2">
+                          {schoolInfo.logoUrl ? (
+                            <img 
+                              src={schoolInfo.logoUrl} 
+                              alt="School Logo" 
+                              className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto" 
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-2xl mx-auto">
+                              🏫
+                            </div>
+                          )}
+                        </div>
                         {/* Line 1: สถิติการมาเรียน */}
                         <h1 className="text-sm font-bold text-slate-900 tracking-tight">
                           สถิติการมาเรียน
                         </h1>
 
-                        {/* Line 2: ชื่อโรงเรียน และสังกัดสำนักงาน (ฟอนต์เล็ก ห้ามเกินไปบรรทัดที่ 3) */}
+                        {/* Line 2: ชื่อโรงเรียน และสังกัดสำนักงาน */}
                         <div className="text-[11px] font-semibold text-slate-800 mt-0.5">
-                          โรงเรียน{schoolInfo.schoolName || '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
+                          โรงเรียน{schoolInfo.schoolName ? schoolInfo.schoolName.replace(/^โรงเรียน\s*/, '') : '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
                         </div>
 
-                        {/* Line 3: เดือน, ปีการศึกษา, ภาคเรียน, ชั้น (เอาออกคำในวงเล็บ เช่น (ป.1)) */}
+                        {/* Line 3: เดือน, ปีการศึกษา, ภาคเรียน, ชั้น */}
                         <div className="text-[11px] font-bold text-slate-800 mt-0.5">
-                          เดือน {group.monthName} {group.yearBE} | ปีการศึกษา {selectedYear} | ภาคเรียนที่ {selectedSemester} | {getGradeCleanName(attendancePopupGrade)}
+                          เดือน{group.monthName}&nbsp;&nbsp;&nbsp;&nbsp;ปีการศึกษา {selectedYear}&nbsp;&nbsp;&nbsp;&nbsp;ภาคเรียนที่ {selectedSemester}&nbsp;&nbsp;&nbsp;&nbsp;{getGradeCleanName(attendancePopupGrade)}
                         </div>
                       </div>
 
@@ -1550,9 +1787,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                         <div className="space-y-0.5">
                           <p className="text-slate-600">ลงชื่อ ..................................................</p>
                           <p className="font-bold text-slate-800">
-                            ({selectedAdvisor ? `${selectedAdvisor.prefix}${selectedAdvisor.firstName} ${selectedAdvisor.lastName}` : '................................................'})
+                            ({selectedAdvisor ? `${selectedAdvisor.prefix || ''}${selectedAdvisor.firstName || ''} ${selectedAdvisor.lastName || ''}`.trim() : '................................................'})
                           </p>
-                          <p className="text-slate-500 text-[9px]">ครูประจำชั้น / ผู้บันทึก</p>
+                          <p className="text-slate-500 text-[9px]">ครูประจำชั้น</p>
                         </div>
 
                         <div className="space-y-0.5">
@@ -1560,7 +1797,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           <p className="font-bold text-slate-800">
                             ({selectedAcademicHead ? `${selectedAcademicHead.prefix}${selectedAcademicHead.firstName} ${selectedAcademicHead.lastName}` : '................................................'})
                           </p>
-                          <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ / ผู้ตรวจ</p>
+                          <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ</p>
                         </div>
 
                         <div className="space-y-0.5">
@@ -1568,7 +1805,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           <p className="font-bold text-slate-800">
                             ({directorDisplayName})
                           </p>
-                          <p className="text-slate-500 text-[9px]">ผู้อำนวยการโรงเรียน</p>
+                          <p className="text-slate-500 text-[9px]">{directorPosition}</p>
                         </div>
                       </div>
 
@@ -1627,7 +1864,21 @@ export const Module7Reports: React.FC<Module7Props> = ({
       */}
       {assessmentPopupGrade && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto a4-modal-overlay">
-          <div className="bg-slate-100 rounded-2xl w-full max-w-[980px] max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content">
+          {/* Dynamic Print CSS for Portrait / Landscape */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @media print {
+              @page {
+                size: A4 ${reportOrientation} !important;
+                margin: 4mm 5mm !important;
+              }
+              body {
+                background: white !important;
+                color: black !important;
+              }
+            }
+          ` }} />
+
+          <div className={`bg-slate-100 rounded-2xl w-full ${reportOrientation === 'landscape' ? 'max-w-[1240px]' : 'max-w-[980px]'} max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content`}>
             
             {/* Modal Header Controls (No-Print) */}
             <div className="px-4 py-3 bg-white border-b border-slate-200 rounded-t-2xl flex flex-wrap items-center justify-between gap-3 shrink-0 no-print">
@@ -1641,7 +1892,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full font-semibold border border-indigo-200">
                       {assessmentViewMode === 'grade' && canShowGradeButton 
                         ? 'พรีวิวระดับผลการเรียน (เกรดทุกรายวิชา)' 
-                        : 'พรีวิว A4 แนวตั้ง (5 วิชา/แผ่น)'}
+                        : `พรีวิว A4 ${reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'} (5 วิชา/แผ่น)`}
                     </span>
                   </h3>
                   <p className="text-[11px] text-slate-500">
@@ -1650,14 +1901,58 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 </div>
               </div>
 
-              {/* Action Buttons: 2 Buttons (คะแนน และ เกรด) + Close */}
+              {/* Top Right Header Controls: Orientation Selector + Close Button */}
               <div className="flex items-center gap-2 flex-wrap">
-                {/* 2 Buttons: คะแนน vs เกรด */}
+                {/* Orientation Selector: แนวตั้ง (Default) vs แนวนอน */}
                 <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
                   <button
                     type="button"
+                    onClick={() => setReportOrientation('portrait')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      reportOrientation === 'portrait'
+                        ? 'bg-white text-indigo-900 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="ขนาดกระดาษ A4 แนวตั้ง (210 × 297 มม.)"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>แนวตั้ง</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReportOrientation('landscape')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      reportOrientation === 'landscape'
+                        ? 'bg-white text-indigo-900 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="ขนาดกระดาษ A4 แนวนอน (297 × 210 มม.)"
+                  >
+                    <FileText className="w-3.5 h-3.5 rotate-90" />
+                    <span>แนวนอน</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setAssessmentPopupGrade(null)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer ml-1"
+                  title="ปิด"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Dedicated Personnel Selectors & View Mode Bar (No-Print) */}
+            <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* 2 Buttons: คะแนน vs เกรด */}
+                <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl border border-slate-300">
+                  <button
+                    type="button"
                     onClick={() => setAssessmentViewMode('score')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                       assessmentViewMode === 'score'
                         ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-700 hover:text-slate-900'
@@ -1671,7 +1966,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     <button
                       type="button"
                       onClick={() => setAssessmentViewMode('grade')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                         assessmentViewMode === 'grade'
                           ? 'bg-indigo-600 text-white shadow-xs'
                           : 'text-slate-700 hover:text-slate-900'
@@ -1683,31 +1978,29 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   )}
                 </div>
 
-                {/* Close Button */}
-                <button
-                  type="button"
-                  onClick={() => setAssessmentPopupGrade(null)}
-                  className="w-8 h-8 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors cursor-pointer ml-1"
-                  title="ปิด"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Personnel Signature Selectors Bar (No-Print) */}
-            <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
-              <div className="flex items-center gap-3 flex-wrap">
-                {/* Select Academic Head */}
                 <div className="flex items-center gap-1.5">
-                  <span className="font-semibold text-slate-700 whitespace-nowrap">ฝ่ายวิชาการ:</span>
+                  <span className="font-bold text-slate-700 whitespace-nowrap">ครูผู้ประจำชั้น:</span>
+                  <select
+                    value={selectedAdvisorId}
+                    onChange={(e) => setSelectedAdvisorId(e.target.value)}
+                    className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 max-w-[210px] truncate"
+                  >
+                    {currentGradeAdvisors.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(ประจำชั้น ${p.advisorGrade})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-slate-700 whitespace-nowrap">ฝ่ายวิชาการ:</span>
                   <select
                     value={selectedAcademicHeadId}
                     onChange={(e) => setSelectedAcademicHeadId(e.target.value)}
                     className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 max-w-[210px] truncate"
                   >
-                    <option value="">-- ให้ระบุเองในกระดาษ --</option>
-                    {personnel.map(p => (
+                    {academicPersonnelList.map(p => (
                       <option key={p.id} value={p.id}>
                         {p.prefix}{p.firstName} {p.lastName} {p.position ? `(${p.position})` : ''}
                       </option>
@@ -1715,32 +2008,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </select>
                 </div>
               </div>
-
-              <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                <span>ผู้อำนวยการ:</span>
-                <strong className="text-slate-800 font-bold">{directorDisplayName}</strong>
-              </div>
             </div>
+
+
 
             {/* Modal Body: Interactive A4 Portrait Paper Preview Scroll Container */}
             <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
               
-              {/* Informational Banner (Screen only) */}
-              <div className="max-w-[210mm] mx-auto bg-indigo-50 border border-indigo-200 p-3 rounded-xl text-xs text-indigo-900 flex flex-wrap items-center justify-between gap-2 no-print shadow-2xs">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>
-                    {assessmentViewMode === 'grade' && canShowGradeButton ? (
-                      <span><strong>พรีวิวระดับผลการเรียน (เกรด):</strong> แสดงเกรด (1, 1.5, 2, 2.5, 3, 3.5, 4) ครบทุกรายวิชาในตารางเดียว {isAssessmentPrimary ? '(สรุปผลรวมภาคเรียนที่ 1 และ 2 สำหรับระดับประถม)' : ''}</span>
-                    ) : (
-                      <span><strong>พรีวิวขนาด A4 แนวตั้งจริง (210mm × 297mm):</strong> แสดงต่อเนื่องทุกแผ่น (5 วิชา ต่อ 1 แผ่น) พร้อมคะแนนระหว่างภาค, คะแนนสอบ, และคะแนนรวม</span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-indigo-700 shrink-0">
-                  <span>{assessmentViewMode === 'grade' && canShowGradeButton ? 'คิดเกรดอัตโนมัติจากหน้าคะแนน' : 'เชื่อมโยงข้อมูลจากงานวัดผล'}</span>
-                </div>
-              </div>
+
 
               {assessmentGradeStudents.length === 0 ? (
                 <div className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 max-w-[210mm] mx-auto">
@@ -1770,14 +2045,27 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 >
                   {/* A4 Sheet Header */}
                   <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
+                    <div className="flex justify-center mb-2">
+                      {schoolInfo.logoUrl ? (
+                        <img 
+                          src={schoolInfo.logoUrl} 
+                          alt="School Logo" 
+                          className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto" 
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-2xl mx-auto">
+                          🏫
+                        </div>
+                      )}
+                    </div>
                     <h1 className="text-sm font-bold text-slate-900 tracking-tight">
                       แบบรายงานระดับผลการเรียน (เกรด)
                     </h1>
                     <div className="text-[11px] font-semibold text-slate-800 mt-0.5">
-                      โรงเรียน{schoolInfo.schoolName || '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
+                      โรงเรียน{schoolInfo.schoolName ? schoolInfo.schoolName.replace(/^โรงเรียน\s*/, '') : '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
                     </div>
                     <div className="text-[11px] font-bold text-slate-800 mt-0.5">
-                      ปีการศึกษา {selectedYear} | ภาคเรียนที่ {selectedSemester} | {getGradeCleanName(assessmentPopupGrade)} {isAssessmentPrimary ? '(สรุปผลรวมตลอดปีการศึกษา)' : ''}
+                      ปีการศึกษา {selectedYear}&nbsp;&nbsp;&nbsp;&nbsp;ภาคเรียนที่ {selectedSemester}&nbsp;&nbsp;&nbsp;&nbsp;{getGradeCleanName(assessmentPopupGrade)} {isAssessmentPrimary ? '(สรุปผลรวมตลอดปีการศึกษา)' : ''}
                     </div>
                   </div>
 
@@ -1808,9 +2096,6 @@ export const Module7Reports: React.FC<Module7Props> = ({
                               </div>
                             </th>
                           ))}
-                          <th className="py-2 px-1.5 border-slate-300 text-center w-14 bg-purple-100 text-purple-950 font-black text-[9.5px]">
-                            GPA
-                          </th>
                         </tr>
                       </thead>
 
@@ -1872,9 +2157,6 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                 {s.prefix}{s.firstName} {s.lastName}
                               </td>
                               {subjGradeCols}
-                              <td className="py-1 px-1 text-center font-mono font-black text-purple-950 bg-purple-50/70 text-[10px]">
-                                {gpa}
-                              </td>
                             </tr>
                           );
                         })}
@@ -1910,9 +2192,6 @@ export const Module7Reports: React.FC<Module7Props> = ({
                               </td>
                             );
                           })}
-                          <td className="py-1 px-1 text-center font-mono text-[9px] text-purple-900 font-black">
-                            {assessmentGradeStudents.length} คน
-                          </td>
                         </tr>
                       </tfoot>
                     </table>
@@ -1933,15 +2212,15 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       <p className="font-bold text-slate-800">
                         ({selectedAcademicHead ? `${selectedAcademicHead.prefix}${selectedAcademicHead.firstName} ${selectedAcademicHead.lastName}` : '................................................'})
                       </p>
-                      <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ / ผู้ตรวจ</p>
+                      <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ</p>
                     </div>
 
                     <div className="space-y-0.5">
                       <p className="text-slate-600">ลงชื่อ ..................................................</p>
                       <p className="font-bold text-slate-800">
-                        ({directorPersonnel?.position || directorDisplayName})
+                        ({directorDisplayName})
                       </p>
-                      <p className="text-slate-500 text-[9px]">ผู้อำนวยการโรงเรียน</p>
+                      <p className="text-slate-500 text-[9px]">{directorPosition}</p>
                     </div>
                   </div>
 
@@ -1959,21 +2238,34 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
                       style={{ width: '210mm' }}
                     >
-                      {/* A4 Sheet Header - Exactly 3 Lines */}
+                      {/* A4 Sheet Header */}
                       <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
+                        <div className="flex justify-center mb-2">
+                          {schoolInfo.logoUrl ? (
+                            <img 
+                              src={schoolInfo.logoUrl} 
+                              alt="School Logo" 
+                              className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto" 
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-2xl mx-auto">
+                              🏫
+                            </div>
+                          )}
+                        </div>
                         {/* Line 1: แบบรายงานผลการเรียนและการประเมินผลการเรียน */}
                         <h1 className="text-sm font-bold text-slate-900 tracking-tight">
                           แบบรายงานผลการเรียนและคะแนนการวัดผล
                         </h1>
 
-                        {/* Line 2: ชื่อโรงเรียน และสังกัดสำนักงาน (ฟอนต์เล็ก ห้ามเกินไปบรรทัดที่ 3) */}
+                        {/* Line 2: ชื่อโรงเรียน และสังกัดสำนักงาน */}
                         <div className="text-[11px] font-semibold text-slate-800 mt-0.5">
-                          โรงเรียน{schoolInfo.schoolName || '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
+                          โรงเรียน{schoolInfo.schoolName ? schoolInfo.schoolName.replace(/^โรงเรียน\s*/, '') : '...................................................'} {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
                         </div>
 
                         {/* Line 3: เดือน, ปีการศึกษา, ภาคเรียน, ชั้น */}
                         <div className="text-[11px] font-bold text-slate-800 mt-0.5">
-                          ปีการศึกษา {selectedYear} | ภาคเรียนที่ {selectedSemester} | {getGradeCleanName(assessmentPopupGrade)}
+                          ปีการศึกษา {selectedYear}&nbsp;&nbsp;&nbsp;&nbsp;ภาคเรียนที่ {selectedSemester}&nbsp;&nbsp;&nbsp;&nbsp;{getGradeCleanName(assessmentPopupGrade)}
                         </div>
                       </div>
 
@@ -2110,9 +2402,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                         <div className="space-y-0.5">
                           <p className="text-slate-600">ลงชื่อ ..................................................</p>
                           <p className="font-bold text-slate-800">
-                            ({getSubjectTeacherName(chunk, personnel, selectedAdvisor)})
+                            ({selectedAdvisor ? `${selectedAdvisor.prefix || ''}${selectedAdvisor.firstName || ''} ${selectedAdvisor.lastName || ''}`.trim() : '................................................'})
                           </p>
-                          <p className="text-slate-500 text-[9px]">ครูผู้สอน</p>
+                          <p className="text-slate-500 text-[9px]">ครูประจำชั้น</p>
                         </div>
 
                         <div className="space-y-0.5">
@@ -2120,15 +2412,15 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           <p className="font-bold text-slate-800">
                             ({selectedAcademicHead ? `${selectedAcademicHead.prefix}${selectedAcademicHead.firstName} ${selectedAcademicHead.lastName}` : '................................................'})
                           </p>
-                          <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ / ผู้ตรวจ</p>
+                          <p className="text-slate-500 text-[9px]">หัวหน้าฝ่ายวิชาการ</p>
                         </div>
 
                         <div className="space-y-0.5">
                           <p className="text-slate-600">ลงชื่อ ..................................................</p>
                           <p className="font-bold text-slate-800">
-                            ({directorPersonnel?.position || directorDisplayName})
+                            ({directorDisplayName})
                           </p>
-                          <p className="text-slate-500 text-[9px]">ผู้อำนวยการโรงเรียน</p>
+                          <p className="text-slate-500 text-[9px]">{directorPosition}</p>
                         </div>
                       </div>
 
@@ -2192,12 +2484,13 @@ export const Module7Reports: React.FC<Module7Props> = ({
           personnel={personnel}
           schoolInfo={schoolInfo}
           grades={effectiveGrades}
-          subjects={subjects}
+          subjects={effectiveSubjects}
           selectedAdvisorId={selectedAdvisorId}
           setSelectedAdvisorId={setSelectedAdvisorId}
           selectedAcademicHeadId={selectedAcademicHeadId}
           setSelectedAcademicHeadId={setSelectedAcademicHeadId}
           directorDisplayName={directorDisplayName}
+          directorPosition={directorPosition}
           onShowToast={onShowToast}
         />
       )}
@@ -2228,7 +2521,21 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
         return (
           <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto a4-modal-overlay">
-            <div className="bg-slate-100 rounded-2xl w-full max-w-[980px] max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content">
+            {/* Dynamic Print CSS for Portrait / Landscape */}
+            <style dangerouslySetInnerHTML={{ __html: `
+              @media print {
+                @page {
+                  size: A4 ${reportOrientation} !important;
+                  margin: 4mm 5mm !important;
+                }
+                body {
+                  background: white !important;
+                  color: black !important;
+                }
+              }
+            ` }} />
+
+            <div className={`bg-slate-100 rounded-2xl w-full ${reportOrientation === 'landscape' ? 'max-w-[1240px]' : 'max-w-[980px]'} max-h-[96vh] flex flex-col shadow-2xl border border-slate-300 animate-in fade-in zoom-in-95 duration-150 my-auto a4-modal-content`}>
               
               {/* Modal Control Header (Hidden on print) */}
               <div className="px-4 py-3 bg-white border-b border-slate-200 rounded-t-2xl flex flex-wrap items-center justify-between gap-3 shrink-0 no-print">
@@ -2244,29 +2551,45 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
                         reportType === 'milk' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-sky-100 text-sky-800 border-sky-200'
                       }`}>
-                        {getGradeCleanName(targetGrade)}
+                        {getGradeCleanName(targetGrade)} • A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'}
                       </span>
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      แสดงข้อมูล 1 เดือนต่อ 1 หน้ากระดาษ A4 แนวตั้ง (ตามวันเรียน 100 วันที่กำหนด) | นักเรียน {targetStudents.length} คน
+                      แสดงข้อมูล 1 เดือนต่อ 1 หน้ากระดาษ A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'} (ตามวันเรียน 100 วันที่กำหนด) | นักเรียน {targetStudents.length} คน
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Action Download / Print Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.print();
-                      onShowToast('info', 'กำลังดาวน์โหลด / พิมพ์ PDF 🖨️', `บันทึก/พิมพ์รายงาน ${reportType === 'milk' ? 'การดื่มนม' : 'การแปรงฟัน'} ประจำ${activeMonthGroup?.monthTitle || ''}`);
-                    }}
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
-                    title="ดาวน์โหลด PDF"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>ดาวน์โหลด</span>
-                  </button>
+                  {/* Orientation Selector: แนวตั้ง (Default) vs แนวนอน */}
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setReportOrientation('portrait')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        reportOrientation === 'portrait'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="ขนาดกระดาษ A4 แนวตั้ง (210 × 297 มม.)"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>แนวตั้ง</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportOrientation('landscape')}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        reportOrientation === 'landscape'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="ขนาดกระดาษ A4 แนวนอน (297 × 210 มม.)"
+                    >
+                      <FileText className="w-3.5 h-3.5 rotate-90" />
+                      <span>แนวนอน</span>
+                    </button>
+                  </div>
 
                   <button
                     type="button"
@@ -2279,34 +2602,40 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 </div>
               </div>
 
-              {/* Personnel Signature Selectors Bar (No-Print) */}
+              {/* Dedicated Personnel Selectors Bar (No-Print) */}
               <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
-                <div className="flex items-center gap-3 flex-wrap">
-                  {/* Select Homeroom Teacher */}
+                <div className="flex items-center gap-4 flex-wrap">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-slate-700 whitespace-nowrap">ครูประจำชั้น:</span>
+                    <span className="font-bold text-slate-700 whitespace-nowrap">ครูผู้ประจำชั้น:</span>
                     <select
                       value={selectedAdvisorId}
                       onChange={(e) => setSelectedAdvisorId(e.target.value)}
                       className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/20 max-w-[210px] truncate"
                     >
-                      <option value="">-- อัตโนมัติ (ครูประจำชั้นของห้อง) --</option>
-                      {personnel.map(p => (
+                      {currentGradeAdvisors.map(p => (
                         <option key={p.id} value={p.id}>
-                          {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(${p.advisorGrade})` : ''}
+                          {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `(ประจำชั้น ${p.advisorGrade})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-slate-700 whitespace-nowrap">ฝ่ายวิชาการ:</span>
+                    <select
+                      value={selectedAcademicHeadId}
+                      onChange={(e) => setSelectedAcademicHeadId(e.target.value)}
+                      className="text-xs px-2.5 py-1 rounded-xl border border-slate-200 font-semibold bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/20 max-w-[210px] truncate"
+                    >
+                      {academicPersonnelList.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.prefix}{p.firstName} {p.lastName} {p.position ? `(${p.position})` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
                 </div>
-
-                <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
-                  <span>ผู้อำนวยการ:</span>
-                  <strong className="text-slate-800 font-bold">{directorDisplayName}</strong>
-                </div>
               </div>
-
-              {/* Modal Body: A4 Paper Preview Container (Render all months continuously) */}
               <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
                 {milkTeethMonthGroups.map((group, groupIdx) => {
                   const monthDays = group.days;
@@ -2315,20 +2644,45 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     <div 
                       key={group.monthKey}
                       id={`milk-teeth-pdf-sheet-${group.monthKey}`} 
-                      className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-                      style={{ width: '210mm' }}
+                      className={`bg-white border border-slate-300 shadow-xl rounded-sm p-6 sm:p-8 mx-auto text-slate-900 relative transition-all ${
+                        reportOrientation === 'landscape'
+                          ? 'a4-landscape-paper min-h-[210mm]'
+                          : 'a4-portrait-paper min-h-[297mm]'
+                      }`}
+                      style={{ 
+                        width: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm'
+                      }}
                     >
                       {/* Header */}
-                      <div className="text-center space-y-1 pb-3 border-b-2 border-slate-800">
-                        <h2 className="text-base sm:text-lg font-black text-slate-900">
-                          {schoolInfo?.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
-                        </h2>
-                        <h3 className="text-sm font-bold text-slate-800">
+                      <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
+                        <div className="flex justify-center mb-2">
+                          {schoolInfo?.logoUrl ? (
+                            <img 
+                              src={schoolInfo.logoUrl} 
+                              alt="School Logo" 
+                              className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto" 
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-2xl mx-auto">
+                              🏫
+                            </div>
+                          )}
+                        </div>
+                        {/* Line 2: Report Title */}
+                        <h1 className="text-sm font-bold text-slate-900 tracking-tight">
                           {reportType === 'milk' ? 'แบบบันทึกสรุปการดื่มนมโรงเรียน' : 'แบบบันทึกสรุปการแปรงฟันหลังอาหาร'}
-                        </h3>
-                        <p className="text-xs font-semibold text-slate-600">
-                          {group.monthTitle} • ภาคเรียนที่ {selectedSemester} ปีการศึกษา {selectedYear} • ระดับชั้น {getGradeCleanName(targetGrade)}
-                        </p>
+                        </h1>
+
+                        {/* Line 3: School Name & Affiliation */}
+                        <div className="text-[11px] font-semibold text-slate-800 mt-0.5">
+                          โรงเรียน{schoolInfo?.schoolName ? schoolInfo.schoolName.replace(/^โรงเรียน\s*/, '') : '...................................................'} {schoolInfo?.affiliation ? `สังกัด${schoolInfo.affiliation}` : ''}
+                        </div>
+
+                        {/* Line 4: Month, Semester, Year, Grade */}
+                        <div className="text-[11px] font-bold text-slate-800 mt-0.5">
+                          {group.monthTitle}&nbsp;&nbsp;&nbsp;&nbsp;ภาคเรียนที่ {selectedSemester}&nbsp;&nbsp;&nbsp;&nbsp;ปีการศึกษา {selectedYear}&nbsp;&nbsp;&nbsp;&nbsp;{getGradeCleanName(targetGrade)}
+                        </div>
                       </div>
 
                       {/* Matrix Table */}
@@ -2385,18 +2739,24 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                           symbol = '✓';
                                           symbolClass = 'text-emerald-700 font-extrabold text-xs';
                                           checkedCount++;
-                                        } else {
+                                        } else if (milkStatus === 'ไม่ได้ดื่ม') {
                                           symbol = '✕';
                                           symbolClass = 'text-rose-600 font-bold text-xs';
+                                        } else {
+                                          symbol = '-';
+                                          symbolClass = 'text-slate-400 font-semibold text-xs';
                                         }
                                       } else {
                                         if (toothStatus === 'แปรงฟันแล้ว') {
                                           symbol = '✓';
                                           symbolClass = 'text-emerald-700 font-extrabold text-xs';
                                           checkedCount++;
-                                        } else {
+                                        } else if (toothStatus === 'ยังไม่ได้แปรง') {
                                           symbol = '✕';
                                           symbolClass = 'text-rose-600 font-bold text-xs';
+                                        } else {
+                                          symbol = '-';
+                                          symbolClass = 'text-slate-400 font-semibold text-xs';
                                         }
                                       }
 
@@ -2418,27 +2778,36 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       </div>
 
                       {/* Official Signatures Section (Matching Module1ClassroomAdmin) */}
-                      <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs text-slate-800 print:pt-6">
-                        <div className="space-y-8">
-                          <div>
-                            ลงชื่อ ...........................................................
-                            <div className="mt-1 font-semibold">( {advisor ? `${advisor.prefix || ''}${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() : '...........................................................'} )</div>
-                            <div className="text-slate-500 mt-0.5">ครูประจำชั้น / ครูผู้บันทึก</div>
-                          </div>
+                      <div className="pt-8 grid grid-cols-3 gap-2 text-center text-xs text-slate-800 print:pt-6">
+                        <div className="space-y-1">
+                          <p className="text-slate-600">ลงชื่อ ..................................................</p>
+                          <p className="font-bold text-slate-800">
+                            ({selectedAdvisor ? `${selectedAdvisor.prefix || ''}${selectedAdvisor.firstName || ''} ${selectedAdvisor.lastName || ''}`.trim() : '................................................'})
+                          </p>
+                          <p className="text-slate-500 text-[11px]">ครูประจำชั้น</p>
                         </div>
-                        <div className="space-y-8">
-                          <div>
-                            ลงชื่อ ...........................................................
-                            <div className="mt-1 font-semibold">( {directorPersonnel?.position || directorDisplayName} )</div>
-                            <div className="text-slate-500 mt-0.5">ผู้อำนวยการโรงเรียน</div>
-                          </div>
+
+                        <div className="space-y-1">
+                          <p className="text-slate-600">ลงชื่อ ..................................................</p>
+                          <p className="font-bold text-slate-800">
+                            ({selectedAcademicHead ? `${selectedAcademicHead.prefix || ''}${selectedAcademicHead.firstName || ''} ${selectedAcademicHead.lastName || ''}`.trim() : '................................................'})
+                          </p>
+                          <p className="text-slate-500 text-[11px]">หัวหน้าฝ่ายวิชาการ</p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-slate-600">ลงชื่อ ..................................................</p>
+                          <p className="font-bold text-slate-800">
+                            ({directorDisplayName})
+                          </p>
+                          <p className="text-slate-500 text-[11px]">{directorPosition}</p>
                         </div>
                       </div>
 
                       {/* Visual Page Break line indicator for screen */}
                       <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-sky-400 text-center text-[10px] font-bold text-sky-700 no-print flex items-center justify-center gap-2 bg-sky-50/60 py-1 rounded">
                         <CheckCircle2 className="w-3.5 h-3.5 text-sky-600" />
-                        <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ {groupIdx + 1} ({group.monthTitle}) (297 mm) ---</span>
+                        <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ {groupIdx + 1} ({group.monthTitle}) ({reportOrientation === 'landscape' ? '210 mm แนวนอน' : '297 mm แนวตั้ง'}) ---</span>
                       </div>
                     </div>
                   );
@@ -2448,7 +2817,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
               {/* Modal Footer (No-Print) */}
               <div className="px-4 py-3 bg-white border-t border-slate-200 rounded-b-2xl flex items-center justify-between gap-3 shrink-0 no-print">
                 <span className="text-xs text-slate-500">
-                  พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 แนวตั้ง 1 เดือนต่อ 1 แผ่น)
+                  พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'} 1 เดือนต่อ 1 แผ่น)
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -2642,15 +3011,15 @@ export const Module7Reports: React.FC<Module7Props> = ({
       */}
       {selectedPhorPhor6Student && (
         <PhorPhor6Modal
-          student={selectedPhorPhor6Student}
+          student={effectiveStudents.find(s => s.id === selectedPhorPhor6Student.id) || selectedPhorPhor6Student}
           grade={selectedGrade || selectedPhorPhor6Student.gradeLevel}
           academicYear={selectedYear}
           semester={selectedSemester}
-          schoolInfo={schoolInfo}
-          personnel={personnel}
+          schoolInfo={StorageService.getSchoolInfo() || schoolInfo}
+          personnel={effectivePersonnel}
           subjects={effectiveSubjects}
           grades={effectiveGrades}
-          attendance={attendance}
+          attendance={effectiveAttendance}
           dailyTracking={effectiveDailyTracking}
           savings={savings}
           onClose={() => setSelectedPhorPhor6Student(null)}

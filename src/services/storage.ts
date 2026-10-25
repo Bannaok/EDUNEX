@@ -1064,11 +1064,16 @@ export const StorageService = {
 
   saveBehaviorEvaluation(evalData: StudentBehaviorEvaluation): Record<string, StudentBehaviorEvaluation> {
     const all = this.getBehaviorEvaluations();
-    const key = `${evalData.studentId}_${evalData.sessionId || 'default'}`;
-    all[key] = {
+    const payload = {
       ...evalData,
       updatedAt: new Date().toISOString()
     };
+    if (evalData.academicYear && evalData.semester) {
+      all[`${evalData.studentId}_${evalData.academicYear}_${evalData.semester}`] = payload;
+    }
+    const legacyKey = `${evalData.studentId}_${evalData.sessionId || 'default'}`;
+    all[legacyKey] = payload;
+    all[`${evalData.studentId}_default`] = payload;
     setLocal(KEYS.BEHAVIOR_EVALUATIONS, all);
     return all;
   },
@@ -1076,11 +1081,16 @@ export const StorageService = {
   saveBulkBehaviorEvaluations(evalList: StudentBehaviorEvaluation[]): Record<string, StudentBehaviorEvaluation> {
     const all = this.getBehaviorEvaluations();
     evalList.forEach(e => {
-      const key = `${e.studentId}_${e.sessionId || 'default'}`;
-      all[key] = {
+      const payload = {
         ...e,
         updatedAt: new Date().toISOString()
       };
+      if (e.academicYear && e.semester) {
+        all[`${e.studentId}_${e.academicYear}_${e.semester}`] = payload;
+      }
+      const legacyKey = `${e.studentId}_${e.sessionId || 'default'}`;
+      all[legacyKey] = payload;
+      all[`${e.studentId}_default`] = payload;
     });
     setLocal(KEYS.BEHAVIOR_EVALUATIONS, all);
     return all;

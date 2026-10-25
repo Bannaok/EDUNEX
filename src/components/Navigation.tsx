@@ -59,7 +59,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     },
     {
       id: 'classroom',
-      label: '1. ธุรการ',
+      label: 'ธุรการ',
       subLabel: 'บันทึกสุขภาพ',
       icon: <Activity className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-blue-600 bg-blue-50',
@@ -67,31 +67,31 @@ export const Navigation: React.FC<NavigationProps> = ({
     },
     {
       id: 'data_others',
-      label: '2. ข้อมูล/อื่นๆ',
+      label: 'ข้อมูล/อื่นๆ',
       subLabel: 'นักเรียน/ครู/รร.',
       icon: <Users className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-cyan-600 bg-cyan-50',
       activeColor: 'bg-cyan-600 text-white'
     },
     {
-      id: 'grading',
-      label: '3. งานวัดผล',
-      subLabel: 'ประเมินเกรด',
-      icon: <Award className="w-4 h-4 sm:w-5 sm:h-5" />,
-      color: 'text-amber-600 bg-amber-50',
-      activeColor: 'bg-amber-600 text-white'
-    },
-    {
       id: 'attendance_savings',
-      label: '4. เวลาเรียน',
+      label: 'เวลาเรียน',
       subLabel: 'เงินฝากออม',
       icon: <CalendarCheck className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-emerald-600 bg-emerald-50',
       activeColor: 'bg-emerald-600 text-white'
     },
     {
+      id: 'grading',
+      label: 'งานวัดผล',
+      subLabel: 'ประเมินเกรด',
+      icon: <Award className="w-4 h-4 sm:w-5 sm:h-5" />,
+      color: 'text-amber-600 bg-amber-50',
+      activeColor: 'bg-amber-600 text-white'
+    },
+    {
       id: 'assignments',
-      label: user?.role === 'member' ? '5. ส่งงาน' : '5. มอบหมาย',
+      label: user?.role === 'member' ? 'ส่งงาน' : 'มอบหมาย',
       subLabel: 'แจ้งให้ทราบ',
       icon: <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-purple-600 bg-purple-50',
@@ -99,42 +99,42 @@ export const Navigation: React.FC<NavigationProps> = ({
     },
     {
       id: 'documents',
-      label: '6. ศูนย์เอกสาร',
+      label: 'ศูนย์เอกสาร',
       subLabel: 'หนังสือคำสั่ง',
       icon: <FileText className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-teal-600 bg-teal-50',
       activeColor: 'bg-teal-600 text-white'
     },
     {
-      id: 'websites',
-      label: '7. Website',
-      subLabel: 'แนะนำ',
-      icon: <Globe className="w-4 h-4 sm:w-5 sm:h-5" />,
-      color: 'text-sky-600 bg-sky-50',
-      activeColor: 'bg-sky-600 text-white'
-    },
-    {
       id: 'reports',
-      label: '8. แสดงผล',
+      label: 'แสดงผล',
       subLabel: 'พิมพ์รายงาน',
       icon: <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5" />,
       color: 'text-rose-600 bg-rose-50',
       activeColor: 'bg-rose-600 text-white'
+    },
+    {
+      id: 'websites',
+      label: 'Website',
+      subLabel: 'แนะนำ',
+      icon: <Globe className="w-4 h-4 sm:w-5 sm:h-5" />,
+      color: 'text-sky-600 bg-sky-50',
+      activeColor: 'bg-sky-600 text-white'
     }
   ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 sm:static sm:bg-slate-100/95 bg-white/95 backdrop-blur-md border-t sm:border-t-0 sm:border-b border-slate-200/90 shadow-2xl sm:shadow-xs no-print">
-      <div className="max-w-6xl mx-auto px-1.5 sm:px-6 lg:px-8 py-1.5 sm:py-3">
-        {/* 2-Row Grid on Mobile (5 cols x 2 rows), 10 cols on Desktop */}
-        <div className="grid grid-cols-5 sm:grid-cols-5 md:grid-cols-10 lg:grid-cols-10 gap-1 sm:gap-2.5 justify-center">
+      <div className="max-w-7xl mx-auto px-1.5 sm:px-6 lg:px-8 py-1.5 sm:py-2.5">
+        {/* Responsive 9-item layout: Single-row horizontal scroll on mobile, perfect 9-column grid on desktop */}
+        <div className="flex sm:grid overflow-x-auto sm:overflow-x-visible no-scrollbar sm:grid-cols-9 gap-1 sm:gap-2 justify-start sm:justify-center">
           {menuItems.map((item) => {
             const isActive = activeTab === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
-                className={`relative flex flex-col items-center justify-center py-1 px-0.5 sm:p-2.5 rounded-xl sm:rounded-2xl border text-center transition-all duration-150 group shadow-2xs active:scale-95 cursor-pointer ${
+                className={`relative flex-1 min-w-[64px] sm:min-w-0 flex flex-col items-center justify-center py-1 px-1 sm:p-2.5 rounded-xl sm:rounded-2xl border text-center transition-all duration-150 group shadow-2xs active:scale-95 cursor-pointer shrink-0 sm:shrink ${
                   isActive
                     ? 'bg-indigo-50 sm:bg-white border-indigo-600 shadow-sm ring-1 sm:ring-2 ring-indigo-500/25'
                     : 'bg-white border-slate-200/80 sm:border-slate-200/90 hover:border-indigo-300 hover:bg-indigo-50/20'

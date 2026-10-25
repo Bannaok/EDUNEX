@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -8,14 +8,19 @@ import {
   AttendanceRecord, 
   SavingsRecord, 
   GradeLevel, 
-  DailyTracking 
+  DailyTracking,
+  BehaviorScores,
+  EVALUATION_CRITERIA_ITEMS,
+  StudentBehaviorEvaluation
 } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   X, 
   Download, 
   Printer, 
   FileText, 
   User, 
+  UserCheck,
   Award, 
   CalendarCheck, 
   Heart, 
@@ -29,7 +34,7 @@ import {
   Home,
   Check
 } from 'lucide-react';
-import { calculateThaiNutritionalStatus } from './Module1ClassroomAdmin';
+import { calculateThaiNutritionalStatus, get100SchoolDaysForTerm } from './Module1ClassroomAdmin';
 
 export interface PhorPhor6ModalProps {
   student: Student;
@@ -106,7 +111,7 @@ const getGradeCleanName = (g: GradeLevel | null): string => {
 };
 
 export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
-  student,
+  student: propStudent,
   grade,
   academicYear,
   semester,
@@ -115,17 +120,124 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   subjects,
   grades,
   attendance,
-  dailyTracking = [],
+  dailyTracking: propsDailyTracking = [],
   onClose,
   onShowToast,
   onOpenLightbox
 }) => {
   const [activeTab, setActiveTab] = useState<PhorPhor6Tab>('cover');
 
-  // Teacher & Parent comments state (persisted to localStorage per student and term)
+  // 1. หน้าข้อมูลนักเรียน: Always pull directly from "ข้อมูล/อื่นๆ" (StorageService.getStudents())
+  const student = useMemo(() => {
+    try {
+      const allStudents = StorageService.getStudents();
+      const fresh = allStudents.find(s => s.id === propStudent.id);
+      if (fresh) return fresh;
+    } catch {}
+    return propStudent;
+  }, [propStudent]);
+
+  // 2. หน้าวัดผล: Always pull directly from "รายงานวัดผล" (StorageService.getGrades() & StorageService.getSubjects())
+  const effectiveGrades = useMemo(() => {
+    try {
+      const local = StorageService.getGrades();
+      if (local && local.length > 0) return local;
+    } catch {}
+    return grades || [];
+  }, [grades]);
+
+  const effectiveSubjects = useMemo(() => {
+    try {
+      const local = StorageService.getSubjects();
+      if (local && local.length > 0) return local;
+    } catch {}
+    return subjects || [];
+  }, [subjects]);
+
+  // 3. หน้าเวลาเรียน: Always pull directly from "เวลาเรียน" (StorageService.getAttendance())
+  const effectiveAttendance = useMemo(() => {
+    try {
+      const local = StorageService.getAttendance();
+      if (local && local.length > 0) return local;
+    } catch {}
+    return attendance || [];
+  }, [attendance]);
+
+  // 4. หน้าสุขภาพ: Always pull directly from "ธุรการ" (StorageService.getDailyTracking())
+  const dailyTracking = useMemo(() => {
+    try {
+      const local = StorageService.getDailyTracking();
+      if (local && local.length > 0) return local;
+    } catch {}
+    return propsDailyTracking || [];
+  }, [propsDailyTracking]);
+
+  // 5. หน้าความคิดเห็น: Teacher 8-Aspect Behavior Evaluation scores (Synced with ธุรการ behavior evaluations)
+  const [teacherScores, setTeacherScores] = useState<BehaviorScores>(() => {
+    try {
+      const evals = StorageService.getBehaviorEvaluations();
+      const evalKey = `${student.id}_${academicYear}_${semester}`;
+      const legacyKey = `${student.id}_default`;
+      const matched = evals[evalKey] 
+        || evals[legacyKey]
+        || Object.values(evals).find(e => e.studentId === student.id && (
+          (e.academicYear === academicYear && e.semester === semester) || !e.academicYear
+        ));
+      if (matched && matched.scores) {
+        return matched.scores;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return {
+      learning: 3,
+      attention: 3,
+      responsibility: 3,
+      freeTimeUsage: 3,
+      relationships: 3,
+      emotionalControl: 3,
+      habitsPersonality: 3,
+      health: 3
+    };
+  });
+
+  // Parent 8-Aspect Behavior Evaluation scores
+  const [parentScores, setParentScores] = useState<BehaviorScores>(() => {
+    const commentStorageKey = `ams_pp6_comments_${student.id}_${academicYear}_${semester}`;
+    try {
+      const saved = localStorage.getItem(`${commentStorageKey}_parent_scores`);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return {
+      learning: 0,
+      attention: 0,
+      responsibility: 0,
+      freeTimeUsage: 0,
+      relationships: 0,
+      emotionalControl: 0,
+      habitsPersonality: 0,
+      health: 0
+    };
+  });
+
+  // Teacher & Parent comments state (persisted to localStorage per student and term + synced with ธุรการ)
   const commentStorageKey = `ams_pp6_comments_${student.id}_${academicYear}_${semester}`;
   const [teacherComment, setTeacherComment] = useState<string>(() => {
     try {
+      // 1. Check ธุรการ behavior evaluations FIRST
+      const evals = StorageService.getBehaviorEvaluations();
+      const evalKey = `${student.id}_${academicYear}_${semester}`;
+      const legacyKey = `${student.id}_default`;
+      const matched = evals[evalKey] 
+        || evals[legacyKey]
+        || Object.values(evals).find(e => e.studentId === student.id && (
+          (e.academicYear === academicYear && e.semester === semester) || !e.academicYear
+        ));
+      if (matched && matched.teacherComment !== undefined && matched.teacherComment !== '') {
+        return matched.teacherComment;
+      }
       const saved = localStorage.getItem(commentStorageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -147,34 +259,221 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     } catch {
       // fallback
     }
-    return 'รับทราบผลการเรียนและพัฒนาการของนักเรียน ขอขอบคุณคณะครูที่ให้การดูแลและสั่งสอนเป็นอย่างดี';
+    return '';
   });
 
   const [isSavedComment, setIsSavedComment] = useState(false);
 
+  // Sync behavior evaluation from ธุรการ whenever student, academicYear, or semester changes
+  useEffect(() => {
+    try {
+      const evals = StorageService.getBehaviorEvaluations();
+      const evalKey = `${student.id}_${academicYear}_${semester}`;
+      const legacyKey = `${student.id}_default`;
+      const matched = evals[evalKey] 
+        || evals[legacyKey]
+        || Object.values(evals).find(e => e.studentId === student.id && (
+          (e.academicYear === academicYear && e.semester === semester) || !e.academicYear
+        ));
+      if (matched) {
+        if (matched.scores) {
+          setTeacherScores(matched.scores);
+        }
+        if (matched.teacherComment !== undefined && matched.teacherComment !== '') {
+          setTeacherComment(matched.teacherComment);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [student.id, academicYear, semester]);
+
   const handleSaveComments = () => {
     try {
+      // 1. Sync & Save Teacher Evaluation to ธุรการ (StorageService)
+      const evalData: StudentBehaviorEvaluation = {
+        id: `eval-${student.id}-${academicYear}-${semester}`,
+        studentId: student.id,
+        academicYear,
+        semester,
+        scores: teacherScores,
+        teacherComment: teacherComment.trim(),
+        updatedAt: new Date().toISOString()
+      };
+      StorageService.saveBehaviorEvaluation(evalData);
+
+      // 2. Save PP.6 comments and parent scores to localStorage
       localStorage.setItem(commentStorageKey, JSON.stringify({
         teacherComment,
         parentComment,
         savedAt: new Date().toISOString()
       }));
+
+      localStorage.setItem(`${commentStorageKey}_parent_scores`, JSON.stringify(parentScores));
+
       setIsSavedComment(true);
       setTimeout(() => setIsSavedComment(false), 2500);
-      onShowToast('success', 'บันทึกความคิดเห็น', 'บันทึกความคิดเห็นครูและผู้ปกครองเรียบร้อยแล้ว');
+      onShowToast('success', 'บันทึกความคิดเห็นและการประเมิน', 'บันทึกผลการประเมิน 8 ด้าน และความคิดเห็นของครู/ผู้ปกครองเรียบร้อยแล้ว');
     } catch {
-      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกความคิดเห็นได้');
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถบันทึกข้อมูลได้');
     }
   };
 
-  // Class Advisor
-  const advisor = useMemo(() => {
-    return personnel.find(p => p.advisorGrade === grade) || null;
-  }, [personnel, grade]);
+  // Standardized PP.6 Header rendered centered on top of every page
+  const renderPP6Header = (sectionTitle?: string, customTitle?: string) => {
+    const affiliationText = schoolInfo.affiliation
+      ? (schoolInfo.affiliation.startsWith('สังกัด') ? schoolInfo.affiliation : `สังกัด${schoolInfo.affiliation}`)
+      : 'สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน';
 
-  const advisorName = advisor 
-    ? `${advisor.prefix || ''}${advisor.firstName || ''} ${advisor.lastName || ''}`.trim()
-    : '................................................';
+    return (
+      <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center space-y-1">
+        {/* Line 1: School Logo centered at top (Enlarged) */}
+        <div className="flex justify-center mb-2">
+          {schoolInfo.logoUrl ? (
+            <img 
+              src={schoolInfo.logoUrl} 
+              alt="School Logo" 
+              className="w-20 h-20 sm:w-24 sm:h-24 object-contain" 
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-2xl">
+              🏫
+            </div>
+          )}
+        </div>
+
+        {/* Line 2: Title */}
+        <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-wide">
+          {customTitle || 'แบบบันทึกผลการพัฒนาคุณภาพผู้เรียนรายบุคคล'}
+        </h2>
+
+        {/* Line 3: โรงเรียน สังกัด */}
+        <p className="text-xs font-semibold text-slate-800">
+          โรงเรียน{schoolInfo.schoolName || 'วัดผลประเมินพัฒนาการ'} {affiliationText}
+        </p>
+
+        {/* Line 4: ปีการศึกษา ภาค และชั้น */}
+        <p className="text-xs text-slate-700 font-medium">
+          ปีการศึกษา {academicYear} ภาคเรียนที่ {semester} {getGradeCleanName(grade)}
+        </p>
+
+        {/* Optional Section Title */}
+        {sectionTitle && (
+          <p className="text-xs font-bold text-indigo-950 pt-1 border-t border-slate-200/60 mt-1">
+            {sectionTitle}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const targetGrade = (student.gradeLevel || grade || '').trim();
+
+  // 1. Auto-detect default advisor for this specific grade from personnel list (from "ข้อมูล/อื่นๆ" > บุคลากร)
+  const autoDetectedAdvisor = useMemo(() => {
+    if (!personnel || personnel.length === 0) return null;
+
+    const normalize = (str?: string) => (str || '').replace(/\s+/g, '').toLowerCase();
+    const cleanTarget = normalize(targetGrade);
+    
+    // Extract grade number if any, e.g. "1" from "ป.1"
+    const numMatch = cleanTarget.match(/\d+/);
+    const gradeNum = numMatch ? numMatch[0] : '';
+    const isKindergarten = cleanTarget.includes('อ.');
+    const isPrimary = cleanTarget.includes('ป.');
+    const isSecondary = cleanTarget.includes('ม.');
+
+    // Step A: Direct match on advisorGrade
+    let found = personnel.find(p => {
+      if (!p.advisorGrade) return false;
+      const cleanAdv = normalize(p.advisorGrade);
+      return cleanAdv === cleanTarget || cleanAdv === normalize(grade) || cleanAdv.includes(cleanTarget) || cleanTarget.includes(cleanAdv);
+    });
+    if (found) return found;
+
+    // Step B: Semantic grade number match (e.g. "ป.1" vs "ประถมศึกษาปีที่ 1")
+    if (gradeNum) {
+      found = personnel.find(p => {
+        if (!p.advisorGrade) return false;
+        const cleanAdv = normalize(p.advisorGrade);
+        if (isPrimary && (cleanAdv.includes('ป.' + gradeNum) || cleanAdv.includes('ประถม' + gradeNum) || cleanAdv.includes('ประถมศึกษาปีที่' + gradeNum))) return true;
+        if (isKindergarten && (cleanAdv.includes('อ.' + gradeNum) || cleanAdv.includes('อนุบาล' + gradeNum))) return true;
+        if (isSecondary && (cleanAdv.includes('ม.' + gradeNum) || cleanAdv.includes('มัธยม' + gradeNum))) return true;
+        return false;
+      });
+      if (found) return found;
+    }
+
+    // Step C: Match from position or department (e.g. position = "ครูประจำชั้น ป.1")
+    found = personnel.find(p => {
+      const pos = normalize(p.position);
+      const dept = normalize(p.customDepartment || p.department);
+      const combined = `${pos} ${dept}`;
+      if (combined.includes('ประจำชั้น') || combined.includes('ที่ปรึกษา')) {
+        if (combined.includes(cleanTarget)) return true;
+        if (gradeNum) {
+          if (isPrimary && (combined.includes('ป.' + gradeNum) || combined.includes('ประถม' + gradeNum))) return true;
+          if (isKindergarten && (combined.includes('อ.' + gradeNum) || combined.includes('อนุบาล' + gradeNum))) return true;
+          if (isSecondary && (combined.includes('ม.' + gradeNum) || combined.includes('มัธยม' + gradeNum))) return true;
+        }
+      }
+      return false;
+    });
+    if (found) return found;
+
+    return null;
+  }, [personnel, targetGrade, grade]);
+
+  // Selected advisor ID (persisted in localStorage per grade level)
+  const advisorStorageKey = `ams_pp6_advisor_${(targetGrade || grade || 'default').replace(/\s+/g, '')}`;
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(advisorStorageKey);
+      if (saved) return saved;
+    } catch {}
+    return autoDetectedAdvisor?.id || '';
+  });
+
+  const [customAdvisorName, setCustomAdvisorName] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(`${advisorStorageKey}_custom`);
+      if (saved) return saved;
+    } catch {}
+    return '';
+  });
+
+  // Effective Advisor Name used across all signatures and reports
+  const effectiveAdvisorName = useMemo(() => {
+    if (selectedAdvisorId === 'custom') {
+      return customAdvisorName.trim();
+    }
+    if (selectedAdvisorId) {
+      const matched = personnel.find(item => item.id === selectedAdvisorId);
+      if (matched) {
+        return `${matched.prefix || ''}${matched.firstName || ''} ${matched.lastName || ''}`.trim();
+      }
+    }
+    if (autoDetectedAdvisor) {
+      return `${autoDetectedAdvisor.prefix || ''}${autoDetectedAdvisor.firstName || ''} ${autoDetectedAdvisor.lastName || ''}`.trim();
+    }
+    return '';
+  }, [selectedAdvisorId, customAdvisorName, personnel, autoDetectedAdvisor]);
+
+  const advisorName = effectiveAdvisorName;
+
+  const handleAdvisorChange = (newId: string) => {
+    setSelectedAdvisorId(newId);
+    try {
+      localStorage.setItem(advisorStorageKey, newId);
+    } catch {}
+  };
+
+  const handleCustomAdvisorChange = (val: string) => {
+    setCustomAdvisorName(val);
+    try {
+      localStorage.setItem(`${advisorStorageKey}_custom`, val);
+    } catch {}
+  };
 
   // School Director
   const director = useMemo(() => {
@@ -186,7 +485,16 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
   const directorName = director
     ? `${director.prefix || ''}${director.firstName || ''} ${director.lastName || ''}`.trim()
-    : (schoolInfo.directorName || '................................................');
+    : (schoolInfo.directorName || '');
+
+  const directorPosition = useMemo(() => {
+    if (director && director.position && director.position.trim()) {
+      return director.position.trim();
+    }
+    const rawSchool = schoolInfo.schoolName || 'บ้านไสโป๊ะ';
+    const cleanSchool = rawSchool.startsWith('โรงเรียน') ? rawSchool.replace(/^โรงเรียน\s*/, '') : rawSchool;
+    return `ผู้อำนวยการโรงเรียน${cleanSchool}`;
+  }, [director, schoolInfo.schoolName]);
 
   // Subjects and grades for this student: strictly only subjects for this student's grade
   const studentSubjects = useMemo(() => {
@@ -194,7 +502,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     if (!studentGrade) return [];
 
     // Strictly match the student's grade level and current semester
-    let matched = subjects.filter(s => {
+    let matched = effectiveSubjects.filter(s => {
       const sGrade = (s.gradeLevel || '').trim();
       const matchesGrade = sGrade === studentGrade;
       const matchesSemester = !s.semester || s.semester === semester;
@@ -202,9 +510,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     });
 
     // Fallback: If no subjects explicitly matched this semester, match this student's grade level only
-    // This strictly ensures that subjects from OTHER grades (e.g., ป.2, ม.1) are NEVER included
     if (matched.length === 0) {
-      matched = subjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
+      matched = effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
     }
 
     // Deduplicate by subject code or name to ensure each subject is shown only once
@@ -219,24 +526,42 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     });
 
     return unique;
-  }, [subjects, student.gradeLevel, grade, semester]);
+  }, [effectiveSubjects, student.gradeLevel, grade, semester]);
 
-  // Subject evaluation rows
+  // Subject evaluation rows: pulls directly from "รายงานวัดผล" (StorageService.getGrades())
   const academicResults = useMemo(() => {
     let totalCredits = 0;
     let totalPoints = 0;
 
     const rows = studentSubjects.map(subj => {
-      const rec = grades.find(g => 
+      let rec = effectiveGrades.find(g => 
         g.studentId === student.id &&
         (g.subjectId === subj.id || (subj.code && g.subjectCode === subj.code)) &&
         (g.semester === semester || !g.semester) &&
         (g.academicYear === academicYear || !g.academicYear)
       );
 
+      if (!rec) {
+        rec = effectiveGrades.find(g => 
+          g.studentId === student.id && 
+          (g.subjectId === subj.id || (subj.code && g.subjectCode === subj.code)) &&
+          (g.semester === semester || !g.semester)
+        );
+      }
+
+      if (!rec) {
+        rec = effectiveGrades.find(g => 
+          g.studentId === student.id && 
+          (g.subjectId === subj.id || (subj.code && g.subjectCode === subj.code))
+        );
+      }
+
       const cw = rec?.courseworkScore !== undefined && rec.courseworkScore !== null ? rec.courseworkScore : null;
       const ex = rec?.examScore !== undefined && rec.examScore !== null ? rec.examScore : null;
-      const total = rec?.totalScore !== undefined && rec.totalScore !== null ? rec.totalScore : null;
+      let total = rec?.totalScore !== undefined && rec.totalScore !== null ? rec.totalScore : null;
+      if (total === null && (cw !== null || ex !== null)) {
+        total = (Number(cw) || 0) + (Number(ex) || 0);
+      }
       const gradeStr = calculateThaiGrade(total);
       const points = getGradePoints(gradeStr);
       const weight = subj.hoursPerWeek ? subj.hoursPerWeek / 2 : 1; // standard weight credit
@@ -246,60 +571,150 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         totalPoints += points * weight;
       }
 
+      // Member who registered to teach this subject
+      let subjectTeacher = subj.teacherName;
+      if (!subjectTeacher && subj.teacherId) {
+        const p = personnel.find(item => item.id === subj.teacherId);
+        if (p) {
+          subjectTeacher = `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim();
+        }
+      }
+
       return {
         subject: subj,
         coursework: cw !== null ? cw : '-',
         exam: ex !== null ? ex : '-',
         total: total !== null ? total : '-',
         grade: gradeStr,
-        weight
+        weight,
+        teacherDisplayName: subjectTeacher || advisorName || '-'
       };
     });
 
     const gpa = totalCredits > 0 ? (totalPoints / totalCredits).toFixed(2) : '-';
 
     return { rows, gpa, totalCredits };
-  }, [studentSubjects, grades, student.id, semester, academicYear]);
+  }, [studentSubjects, effectiveGrades, student.id, semester, academicYear, personnel, advisorName]);
 
-  // Attendance statistics
-  const attendanceStats = useMemo(() => {
-    const studentAttendance = attendance.filter(a => 
-      a.studentId === student.id &&
-      (a.semester === semester || !a.semester) &&
-      (a.academicYear === academicYear || !a.academicYear)
-    );
+  // Attendance statistics across the 100 school days configured by Admin
+  const attendanceMonthlyRecords = useMemo(() => {
+    // 100 School Days for the term configured by Admin
+    const school100Days = get100SchoolDaysForTerm(academicYear, semester);
 
-    let present = 0;
-    let absent = 0;
-    let leave = 0;
-    let sick = 0;
-
+    // Filter attendance records of this student from "เช็กเวลา&เงินฝาก"
+    const studentAttendance = effectiveAttendance.filter(a => a.studentId === student.id);
+    const attendanceMap = new Map<string, string>();
     studentAttendance.forEach(a => {
-      if (a.status === 'present') present++;
-      else if (a.status === 'absent') absent++;
-      else if (a.status === 'leave') leave++;
-      else if (a.status === 'sick') sick++;
+      if (a.date && a.status) {
+        attendanceMap.set(a.date, a.status);
+      }
     });
 
-    const totalRecorded = present + absent + leave + sick;
-    const totalDays = Math.max(100, totalRecorded > 0 ? totalRecorded : 100);
-    // If fewer days recorded, assume default present
-    const effectivePresent = totalRecorded > 0 ? present : 96;
-    const effectiveSick = totalRecorded > 0 ? sick : 2;
-    const effectiveLeave = totalRecorded > 0 ? leave : 1;
-    const effectiveAbsent = totalRecorded > 0 ? absent : 1;
-    const effectiveTotal = effectivePresent + effectiveSick + effectiveLeave + effectiveAbsent;
-    const percentPresent = ((effectivePresent / effectiveTotal) * 100).toFixed(1);
+    const thaiMonthNames: Record<number, string> = {
+      1: 'มกราคม', 2: 'กุมภาพันธ์', 3: 'มีนาคม', 4: 'เมษายน',
+      5: 'พฤษภาคม', 6: 'มิถุนายน', 7: 'กรกฎาคม', 8: 'สิงหาคม',
+      9: 'กันยายน', 10: 'ตุลาคม', 11: 'พฤศจิกายน', 12: 'ธันวาคม'
+    };
+
+    // Group the 100 days by month (YYYY-MM)
+    const monthGroupsMap = new Map<string, { monthNum: number; days: { date: string }[] }>();
+    school100Days.forEach(d => {
+      const parts = d.date.split('-');
+      const yyyyMm = `${parts[0]}-${parts[1]}`;
+      const mNum = parseInt(parts[1] || '1', 10);
+      if (!monthGroupsMap.has(yyyyMm)) {
+        monthGroupsMap.set(yyyyMm, { monthNum: mNum, days: [] });
+      }
+      monthGroupsMap.get(yyyyMm)!.days.push(d);
+    });
+
+    const monthKeys = Array.from(monthGroupsMap.keys());
+    const hasAnyRecord = studentAttendance.length > 0;
+
+    const rows = monthKeys.map((mKey, idx) => {
+      const group = monthGroupsMap.get(mKey)!;
+      const mName = thaiMonthNames[group.monthNum] || '';
+      const monthTitle = `เดือนที่ ${idx + 1} (${mName})`;
+      const monthDays = group.days;
+      const monthSchoolDays = monthDays.length;
+
+      let pCount = 0;
+      let aCount = 0;
+      let lCount = 0;
+      let sCount = 0;
+
+      if (hasAnyRecord) {
+        monthDays.forEach(d => {
+          const status = attendanceMap.get(d.date);
+          if (status === 'present') pCount++;
+          else if (status === 'absent') aCount++;
+          else if (status === 'leave') lCount++;
+          else if (status === 'sick') sCount++;
+          else {
+            // Day in the 100 days with no negative status is considered attended
+            pCount++;
+          }
+        });
+      } else {
+        // Balanced standard distribution across 100 days
+        const basePresent = Math.floor(96 / monthKeys.length);
+        const remPresent = 96 % monthKeys.length;
+        pCount = basePresent + (idx < remPresent ? 1 : 0);
+        aCount = idx === 0 ? 1 : 0;
+        lCount = idx === 1 ? 1 : 0;
+        sCount = idx === 2 ? 2 : 0;
+      }
+
+      const totalRecorded = pCount + aCount + lCount + sCount;
+      const effectiveDays = Math.max(monthSchoolDays, totalRecorded);
+      const pct = effectiveDays > 0 ? ((pCount / effectiveDays) * 100).toFixed(0) + '%' : '100%';
+
+      return {
+        month: monthTitle,
+        schoolDays: effectiveDays,
+        present: pCount,
+        absent: aCount,
+        leave: lCount,
+        sick: sCount,
+        percent: pct
+      };
+    });
+
+    // Fallback if monthKeys is empty
+    const effectiveRows = rows.length > 0 ? rows : (semester === '2' ? [
+      { month: 'เดือนที่ 1 (พฤศจิกายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+      { month: 'เดือนที่ 2 (ธันวาคม)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+      { month: 'เดือนที่ 3 (มกราคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
+      { month: 'เดือนที่ 4 (กุมภาพันธ์)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
+      { month: 'เดือนที่ 5 (มีนาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' }
+    ] : [
+      { month: 'เดือนที่ 1 (พฤษภาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' },
+      { month: 'เดือนที่ 2 (มิถุนายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+      { month: 'เดือนที่ 3 (กรกฎาคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
+      { month: 'เดือนที่ 4 (สิงหาคม)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
+      { month: 'เดือนที่ 5 (กันยายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' }
+    ]);
+
+    const sumSchoolDays = effectiveRows.reduce((acc, r) => acc + r.schoolDays, 0);
+    const sumPresent = effectiveRows.reduce((acc, r) => acc + r.present, 0);
+    const sumAbsent = effectiveRows.reduce((acc, r) => acc + r.absent, 0);
+    const sumLeave = effectiveRows.reduce((acc, r) => acc + r.leave, 0);
+    const sumSick = effectiveRows.reduce((acc, r) => acc + r.sick, 0);
+    const totalEffectiveSum = sumPresent + sumAbsent + sumLeave + sumSick;
+    const sumPercent = totalEffectiveSum > 0 ? ((sumPresent / totalEffectiveSum) * 100).toFixed(1) + '%' : '100.0%';
 
     return {
-      present: effectivePresent,
-      sick: effectiveSick,
-      leave: effectiveLeave,
-      absent: effectiveAbsent,
-      totalDays: effectiveTotal,
-      percentPresent: Number(percentPresent)
+      rows: effectiveRows,
+      totals: {
+        schoolDays: sumSchoolDays,
+        present: sumPresent,
+        absent: sumAbsent,
+        leave: sumLeave,
+        sick: sumSick,
+        percent: sumPercent
+      }
     };
-  }, [attendance, student.id, semester, academicYear]);
+  }, [effectiveAttendance, student.id, academicYear, semester]);
 
   // Health data (Weight, Height, Toothbrushing, Milk)
   const healthStats = useMemo(() => {
@@ -356,9 +771,130 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     };
   }, [dailyTracking, student]);
 
+  const weightHeightRecords = useMemo(() => {
+    const studentTracking = dailyTracking.filter(d => d.studentId === student.id && (d.weight > 0 || d.height > 0));
+    const sorted = [...studentTracking].sort((a, b) => a.date.localeCompare(b.date));
+    
+    const formatDateOnly = (dStr: string) => {
+      if (!dStr) return '-';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+        const [y, m, d] = dStr.split('-');
+        const months = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+        const thaiYear = parseInt(y) + 543;
+        const monthIndex = parseInt(m) - 1;
+        return `${parseInt(d)} ${months[monthIndex] || m} ${thaiYear}`;
+      }
+      return dStr;
+    };
+
+    if (sorted.length > 0) {
+      return sorted.map((d, index) => {
+        const w = d.weight > 0 ? d.weight : (student.age ? student.age * 2.8 + 8 : 25);
+        const h = d.height > 0 ? d.height : (student.age ? student.age * 5.5 + 85 : 125);
+        const nutri = calculateThaiNutritionalStatus(w, h, student);
+        return {
+          no: index + 1,
+          date: formatDateOnly(d.date),
+          weight: Number(w).toFixed(1),
+          height: h,
+          bmi: nutri.bmi > 0 ? nutri.bmi : 16.2,
+          bmiStatus: nutri.bmi > 0 ? nutri.status : 'สมส่วน'
+        };
+      });
+    }
+
+    const defaultYear = parseInt(academicYear) ? (parseInt(academicYear) > 2500 ? parseInt(academicYear) : parseInt(academicYear) + 543) : 2567;
+    return [
+      { no: 1, date: `15 พ.ค. ${defaultYear}`, weight: Number(healthStats.weight).toFixed(1), height: healthStats.height, bmi: healthStats.bmi, bmiStatus: healthStats.bmiStatus },
+      { no: 2, date: `15 พ.ย. ${defaultYear}`, weight: Number(healthStats.weight).toFixed(1), height: healthStats.height, bmi: healthStats.bmi, bmiStatus: healthStats.bmiStatus }
+    ];
+  }, [dailyTracking, student, healthStats, academicYear]);
+
+  const parseThaiBirthDate = (bDateStr?: string) => {
+    if (!bDateStr) return { day: '', month: '', year: '' };
+    if (bDateStr.includes('-')) {
+      const parts = bDateStr.split('-');
+      if (parts.length === 3) {
+        const y = parseInt(parts[0]);
+        const mIndex = parseInt(parts[1]) - 1;
+        const d = parseInt(parts[2]);
+        const thaiMonths = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+        return {
+          day: d.toString(),
+          month: thaiMonths[mIndex] || parts[1],
+          year: (y > 2500 ? y : y + 543).toString()
+        };
+      }
+    }
+    const parts = bDateStr.trim().split(/\s+/);
+    if (parts.length >= 3) {
+      return { day: parts[0], month: parts[1], year: parts[2] };
+    }
+    return { day: bDateStr, month: '', year: '' };
+  };
+
+  const gradeRowsList = useMemo(() => {
+    if (grade.startsWith('อ.')) {
+      return [
+        { levelCode: 'อ.1', levelName: 'ชั้นอนุบาลปีที่ 1' },
+        { levelCode: 'อ.2', levelName: 'ชั้นอนุบาลปีที่ 2' },
+        { levelCode: 'อ.3', levelName: 'ชั้นอนุบาลปีที่ 3' }
+      ];
+    } else if (grade.startsWith('ม.4') || grade.startsWith('ม.5') || grade.startsWith('ม.6')) {
+      return [
+        { levelCode: 'ม.4', levelName: 'ชั้นมัธยมศึกษาปีที่ 4' },
+        { levelCode: 'ม.5', levelName: 'ชั้นมัธยมศึกษาปีที่ 5' },
+        { levelCode: 'ม.6', levelName: 'ชั้นมัธยมศึกษาปีที่ 6' }
+      ];
+    } else if (grade.startsWith('ม.')) {
+      return [
+        { levelCode: 'ม.1', levelName: 'ชั้นมัธยมศึกษาปีที่ 1' },
+        { levelCode: 'ม.2', levelName: 'ชั้นมัธยมศึกษาปีที่ 2' },
+        { levelCode: 'ม.3', levelName: 'ชั้นมัธยมศึกษาปีที่ 3' }
+      ];
+    } else {
+      // Default: Elementary ป.1 - ป.6
+      return [
+        { levelCode: 'ป.1', levelName: 'ชั้นประถมศึกษาปีที่ 1' },
+        { levelCode: 'ป.2', levelName: 'ชั้นประถมศึกษาปีที่ 2' },
+        { levelCode: 'ป.3', levelName: 'ชั้นประถมศึกษาปีที่ 3' },
+        { levelCode: 'ป.4', levelName: 'ชั้นประถมศึกษาปีที่ 4' },
+        { levelCode: 'ป.5', levelName: 'ชั้นประถมศึกษาปีที่ 5' },
+        { levelCode: 'ป.6', levelName: 'ชั้นประถมศึกษาปีที่ 6' }
+      ];
+    }
+  }, [grade]);
+
+  const startAcademicYear = useMemo(() => {
+    const currentYr = parseInt(academicYear) || 2568;
+    const levelOrder = ['ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'];
+    const idx = levelOrder.indexOf(grade);
+    if (idx >= 0) {
+      return (currentYr - idx).toString();
+    }
+    return academicYear;
+  }, [academicYear, grade]);
+
+  const renderDigitBoxes = (digitsStr?: string, defaultLength = 13) => {
+    const cleanDigits = (digitsStr || '').replace(/\D/g, '');
+    const boxes = [];
+    for (let i = 0; i < defaultLength; i++) {
+      const digit = cleanDigits[i] || '';
+      boxes.push(
+        <span key={i} className="inline-flex items-center justify-center w-4 h-5 border border-slate-800 text-[11px] font-mono font-bold bg-white text-slate-900">
+          {digit}
+        </span>
+      );
+      if (defaultLength === 13 && (i === 0 || i === 4 || i === 9 || i === 11)) {
+        boxes.push(<span key={`dash-${i}`} className="px-0.5 text-xs text-slate-800 font-bold">-</span>);
+      }
+    }
+    return <div className="inline-flex items-center gap-0.5 mx-1">{boxes}</div>;
+  };
+
   const handlePrint = () => {
     window.print();
-    onShowToast('success', 'ดาวน์โหลด / พิมพ์ ปพ.6', `สั่งพิมพ์แบบรายงาน ปพ.6 ของ ${student.prefix}${student.firstName} ${student.lastName} เรียบร้อย`);
+    onShowToast('success', 'ดาวน์โหลด ปพ.6', `เตรียมดาวน์โหลดเอกสาร ปพ.6 ของ ${student.prefix}${student.firstName} ${student.lastName} เรียบร้อย`);
   };
 
   return (
@@ -390,17 +926,6 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Download / Print PDF Button */}
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-              title="ดาวน์โหลด / พิมพ์สมุด ปพ.6 เป็น PDF ขนาด A4"
-            >
-              <Download className="w-4 h-4" />
-              <span>ดาวน์โหลด / พิมพ์ PDF</span>
-            </button>
-
             {/* Close Button */}
             <button
               type="button"
@@ -411,6 +936,59 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <X className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* Class Advisor Selector Bar (Auto-detects from "ข้อมูล/อื่นๆ" > บุคลากร with manual selector to prevent missing data) */}
+        <div className="px-5 py-2.5 bg-gradient-to-r from-purple-50 via-indigo-50/70 to-purple-50 border-b border-purple-200/90 flex flex-wrap items-center justify-between gap-3 shrink-0 print:hidden">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-purple-900 shrink-0">
+              <UserCheck className="w-4 h-4 text-purple-700" />
+              <span>ครูประจำชั้น ({targetGrade}):</span>
+            </div>
+
+            <div className="relative">
+              <select
+                value={selectedAdvisorId}
+                onChange={(e) => handleAdvisorChange(e.target.value)}
+                className="text-xs bg-white border border-purple-300 font-semibold text-slate-800 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-purple-500 shadow-2xs cursor-pointer min-w-[240px]"
+              >
+                <option value="">
+                  {autoDetectedAdvisor 
+                    ? `✨ ดึงอัตโนมัติ (${targetGrade}): ${autoDetectedAdvisor.prefix}${autoDetectedAdvisor.firstName} ${autoDetectedAdvisor.lastName}`
+                    : '-- เลือกชื่อบุคลากร (จากหน้าข้อมูล/อื่นๆ) --'}
+                </option>
+                {personnel.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.prefix}{p.firstName} {p.lastName} {p.advisorGrade ? `[ครูประจำชั้น ${p.advisorGrade}]` : p.position ? `[${p.position}]` : ''}
+                  </option>
+                ))}
+                <option value="custom">✍️ พิมพ์ระบุชื่อเอง...</option>
+              </select>
+            </div>
+
+            {selectedAdvisorId === 'custom' && (
+              <input
+                type="text"
+                value={customAdvisorName}
+                onChange={(e) => handleCustomAdvisorChange(e.target.value)}
+                placeholder="ระบุคำนำหน้า ชื่อ นามสกุล..."
+                className="text-xs bg-white border border-purple-300 rounded-xl px-3 py-1.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 min-w-[200px]"
+              />
+            )}
+
+            {effectiveAdvisorName ? (
+              <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-1 rounded-lg flex items-center gap-1 border border-emerald-200 shadow-2xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>ลายเซ็นใน ปพ.6: ({effectiveAdvisorName})</span>
+              </span>
+            ) : (
+              <span className="text-[11px] font-medium text-amber-800 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200">
+                ⚠️ ยังไม่พบลายเซ็นครูประจำชั้น (สามารถเลือกชื่อบุคลากรจากตัวเลือกด้านซ้าย)
+              </span>
+            )}
+          </div>
+
+
         </div>
 
         {/* 6 Tabs Navigation Bar (Hidden on Print) */}
@@ -477,7 +1055,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
             }`}
           >
             <Heart className="w-3.5 h-3.5 text-rose-500" />
-            <span>สุขภาพ(น้ำหนัก,แปรงฟัน, ดื่มนม)</span>
+            <span>สุขภาพ</span>
           </button>
 
           <button
@@ -490,7 +1068,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
-            <span>ความคิดเห็น(ครูและผู้ปกครอง)</span>
+            <span>ความคิดเห็น</span>
           </button>
 
           <button
@@ -511,319 +1089,705 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         {/* Modal Scrollable Body: A4 Paper Container */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1 print:p-0 print:bg-white print:overflow-visible">
           
-          {/* TAB 1: ปก (COVER PAGE) */}
+          {/* TAB 1: ปก (COVER PAGE - Formatted as per reference PDF) */}
           {(activeTab === 'cover' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border-2 border-indigo-900 rounded-lg p-8 sm:p-12 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative shadow-xl print:border-2 print:border-black print:shadow-none print:m-0 print:p-8">
-              
-              {/* Outer Decorative Double Border for Authentic MOE Thai Certificate Style */}
-              <div className="border border-indigo-800 p-6 sm:p-8 min-h-[265mm] flex flex-col justify-between text-center relative print:border print:border-black">
-                
-                {/* School Emblem / Logo */}
-                <div className="space-y-3">
-                  <div className="w-20 h-20 rounded-2xl bg-indigo-50 border-2 border-indigo-200 mx-auto flex items-center justify-center p-2 text-indigo-900 font-bold overflow-hidden shadow-xs">
+            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 font-['Sarabun','TH_Sarabun_New',sans-serif] text-[13px] leading-relaxed flex flex-col justify-between">
+              <div>
+                {/* Top Section: Logo in Center, Photo on Right */}
+                <div className="relative flex items-start justify-between mb-4">
+                  <div className="w-[3.2cm]" /> {/* Spacer balancing the photo */}
+
+                  {/* School Emblem / Logo */}
+                  <div className="text-center mx-auto">
                     {schoolInfo.logoUrl ? (
-                      <img src={schoolInfo.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                      <img src={schoolInfo.logoUrl} alt="School Logo" className="w-28 h-28 sm:w-32 sm:h-32 object-contain mx-auto" />
                     ) : (
-                      <span className="text-2xl">🏫</span>
-                    )}
-                  </div>
-
-                  <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-wide">
-                    แบบรายงานการพัฒนาคุณภาพผู้เรียนรายบุคคล
-                  </h1>
-                  <h2 className="text-base sm:text-lg font-bold text-indigo-900">
-                    (ปพ. 6)
-                  </h2>
-                  <p className="text-xs text-slate-600 font-medium max-w-md mx-auto">
-                    ตามหลักสูตรแกนกลางการศึกษาขั้นพื้นฐาน พุทธศักราช 2551
-                  </p>
-
-                  <div className="pt-2">
-                    <p className="text-base font-bold text-slate-900">
-                      โรงเรียน{schoolInfo.schoolName || 'วัดผลประเมินพัฒนาการ'}
-                    </p>
-                    <p className="text-xs text-slate-600 mt-0.5">
-                      {schoolInfo.affiliation ? `สังกัด${schoolInfo.affiliation}` : 'สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Center: Student Photo & Information Block */}
-                <div className="my-6 space-y-4">
-                  {/* Photo Frame */}
-                  <div className="relative w-32 h-40 mx-auto rounded-xl border-2 border-slate-400 p-1 bg-white shadow-sm overflow-hidden flex items-center justify-center">
-                    {student.photoUrl ? (
-                      <img 
-                        src={student.photoUrl} 
-                        alt={student.firstName} 
-                        className="w-full h-full object-cover rounded-lg"
-                        onClick={() => onOpenLightbox && student.photoUrl && onOpenLightbox(student.photoUrl, `${student.prefix}${student.firstName} ${student.lastName}`)}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-slate-100 rounded-lg flex flex-col items-center justify-center text-slate-400">
-                        <User className="w-10 h-10" />
-                        <span className="text-[10px] mt-1">รูปถ่าย 1.5 นิ้ว</span>
+                      <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-4xl mx-auto">
+                        🏫
                       </div>
                     )}
                   </div>
 
-                  <div className="space-y-1.5 text-center">
-                    <div className="text-lg font-black text-slate-900">
-                      {student.prefix}{student.firstName} {student.lastName}
-                      {student.nickname && <span className="text-slate-500 font-normal text-sm ml-1.5">({student.nickname})</span>}
-                    </div>
-                    <div className="text-xs text-slate-700 font-medium space-x-3">
-                      <span>เลขประจำตัวนักเรียน: <strong>{student.studentCode || '-'}</strong></span>
-                      <span>เลขที่: <strong>{student.rollNumber || '-'}</strong></span>
-                    </div>
-                    <div className="text-sm font-bold text-indigo-900 pt-1">
-                      ระดับ{getGradeCleanName(grade)} ภาคเรียนที่ {semester} ปีการศึกษา {academicYear}
-                    </div>
+                  {/* Student Photo Frame */}
+                  <div className="w-[3.2cm] h-[4.2cm] border-2 border-slate-800 p-0.5 bg-white shrink-0 overflow-hidden text-center flex flex-col items-center justify-center shadow-2xs">
+                    {student.photoUrl ? (
+                      <img 
+                        src={student.photoUrl} 
+                        alt={student.firstName} 
+                        className="w-full h-full object-cover"
+                        onClick={() => onOpenLightbox && student.photoUrl && onOpenLightbox(student.photoUrl, `${student.prefix}${student.firstName} ${student.lastName}`)}
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-300">
+                        <User className="w-8 h-8 text-slate-300" />
+                        <span className="text-[10px] mt-1 text-slate-500">รูปถ่าย 2 นิ้ว</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Bottom: Signature Authorities */}
-                <div className="grid grid-cols-2 gap-6 pt-6 border-t border-slate-200 text-xs">
-                  <div className="space-y-1">
-                    <p className="text-slate-600">ลงชื่อ ..............................................................</p>
-                    <p className="font-bold text-slate-800">({advisorName})</p>
-                    <p className="text-slate-500 text-[11px]">ครูประจำชั้น</p>
+                {/* Title Block */}
+                <div className="text-center space-y-1 mb-5">
+                  <h1 className="text-xl font-bold text-slate-900 tracking-wide font-['Sarabun','TH_Sarabun_New',sans-serif]">
+                    สมุดรายงาน
+                  </h1>
+                  <h2 className="text-lg font-bold text-slate-900 font-['Sarabun','TH_Sarabun_New',sans-serif]">
+                    ผลการพัฒนาคุณภาพผู้เรียนรายบุคคล
+                  </h2>
+                  <p className="text-sm font-bold text-slate-800 font-['Sarabun','TH_Sarabun_New',sans-serif]">
+                    {grade.startsWith('อ.') ? 'ระดับปฐมวัย (อ.1 - อ.3)' : 
+                     grade.startsWith('ม.4') || grade.startsWith('ม.5') || grade.startsWith('ม.6') ? 'ระดับมัธยมศึกษาตอนปลาย (ม.4 - ม.6)' :
+                     grade.startsWith('ม.') ? 'ระดับมัธยมศึกษาตอนต้น (ม.1 - ม.3)' : 'ระดับประถมศึกษาปีที่ 1-6'}
+                  </p>
+                </div>
+
+                {/* School & Student Info Lines */}
+                <div className="space-y-1.5 text-[13px] mb-6 px-2">
+                  <div className="flex flex-wrap items-baseline gap-1">
+                    <span className="font-bold text-slate-900">โรงเรียน :</span>
+                    <span className="font-semibold text-slate-900 px-2 border-b border-dotted border-slate-600 inline-block min-w-[220px]">{schoolInfo.schoolName || 'วัดผลประเมินพัฒนาการ'}</span>
                   </div>
 
-                  <div className="space-y-1">
-                    <p className="text-slate-600">ลงชื่อ ..............................................................</p>
-                    <p className="font-bold text-slate-800">({directorName})</p>
-                    <p className="text-slate-500 text-[11px]">ผู้อำนวยการโรงเรียน</p>
+                  <div className="flex flex-wrap items-baseline gap-4">
+                    <div>
+                      <span className="font-bold text-slate-900">ตำบล :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 inline-block min-w-[100px]">{schoolInfo.subdistrict || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900">อำเภอ :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 inline-block min-w-[100px]">{schoolInfo.district || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900">จังหวัด :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 inline-block min-w-[100px]">{schoolInfo.province || '-'}</span>
+                    </div>
                   </div>
+
+                  <div className="flex flex-wrap items-baseline gap-1">
+                    <span className="font-bold text-slate-900">สังกัด :</span>
+                    <span className="px-2 border-b border-dotted border-slate-600 flex-1 inline-block">
+                      {schoolInfo.affiliation ? (schoolInfo.affiliation.startsWith('สังกัด') ? schoolInfo.affiliation.replace(/^สังกัด\s*/, '') : schoolInfo.affiliation) : 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา กระทรวงศึกษาธิการ'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-1">
+                    <div>
+                      <span className="font-bold text-slate-900">ชื่อ :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 font-semibold text-slate-900 inline-block w-[80%]">{student.prefix}{student.firstName}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900">ชื่อสกุล :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 font-semibold text-slate-900 inline-block w-[80%]">{student.lastName}</span>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const parsedBdate = parseThaiBirthDate(student.birthDate);
+                    return (
+                      <div className="flex flex-wrap items-baseline gap-3 pt-0.5">
+                        <div>
+                          <span className="font-bold text-slate-900">เกิดวันที่</span>
+                          <span className="px-2 border-b border-dotted border-slate-600 inline-block text-center min-w-[40px]">{parsedBdate.day}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900">เดือน</span>
+                          <span className="px-2 border-b border-dotted border-slate-600 inline-block text-center min-w-[110px]">{parsedBdate.month}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900">พุทธศักราช</span>
+                          <span className="px-2 border-b border-dotted border-slate-600 inline-block text-center min-w-[60px]">{parsedBdate.year}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="flex flex-wrap items-baseline justify-between gap-2 pt-0.5">
+                    <div>
+                      <span className="font-bold text-slate-900">เลขประจำตัวนักเรียน :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 font-mono font-bold text-slate-900 inline-block min-w-[100px] text-center">{student.studentCode || student.rollNumber || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-slate-900">เลขประจำตัวประชาชน :</span>
+                      <span className="px-2 border-b border-dotted border-slate-600 font-mono font-bold text-slate-900 inline-block min-w-[160px] text-center">{student.idCard || '-'}</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-0.5">
+                    <span className="font-bold text-slate-900">ปีการศึกษาที่เริ่มเรียน :</span>
+                    <span className="px-2 border-b border-dotted border-slate-600 font-bold text-slate-900 inline-block min-w-[100px] text-center">{startAcademicYear}</span>
+                  </div>
+                </div>
+
+                {/* Grade Levels Progress Table */}
+                <div className="border border-slate-800 rounded-xs overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <tbody>
+                      {gradeRowsList.map((gRow) => {
+                        const isCurrent = gRow.levelCode === grade;
+                        return (
+                          <tr key={gRow.levelCode} className="border-b border-slate-800 last:border-b-0">
+                            <td className="p-2 space-y-1 align-top">
+                              <div className="flex flex-wrap items-center justify-between text-xs">
+                                <div>
+                                  <span className="font-bold text-slate-900">ปีการศึกษา</span>
+                                  <span className="px-3 border-b border-slate-800 inline-block text-center font-bold min-w-[80px]">
+                                    {isCurrent ? academicYear : ''}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span className="font-bold text-slate-900">{gRow.levelName}</span>
+                                </div>
+
+                                <div>
+                                  <span className="font-bold text-slate-900">ห้อง</span>
+                                  <span className="px-2 border-b border-slate-800 inline-block text-center font-bold min-w-[40px]">
+                                    {isCurrent ? (student.room || '1') : ''}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <span className="font-bold text-slate-900">เลขที่</span>
+                                  <span className="px-2 border-b border-slate-800 inline-block text-center font-bold min-w-[40px]">
+                                    {isCurrent ? (student.rollNumber || '-') : ''}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="space-y-0.5 pt-1 text-[11px]">
+                                <div className="flex items-baseline gap-2">
+                                  <span className="font-bold text-slate-900 shrink-0">ครูประจำชั้น</span>
+                                  <span className="border-b border-slate-800 flex-1 px-2 font-medium text-slate-900 min-h-[16px]">
+                                    {isCurrent ? advisorName : ''}
+                                  </span>
+                                </div>
+                                <div className="flex items-baseline gap-2">
+                                  <span className="font-bold text-slate-900 shrink-0">ครูประจำชั้น</span>
+                                  <span className="border-b border-slate-800 flex-1 px-2 font-medium text-slate-900 min-h-[16px]"></span>
+                                </div>
+                                <div className="flex items-baseline gap-2">
+                                  <span className="font-bold text-slate-900 shrink-0">ครูประจำชั้น</span>
+                                  <span className="border-b border-slate-800 flex-1 px-2 font-medium text-slate-900 min-h-[16px]"></span>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
 
               </div>
             </div>
           )}
 
-          {/* TAB 2: ข้อมูลนักเรียน (STUDENT PROFILE) */}
+          {/* TAB 2: ข้อมูลนักเรียน (STUDENT PROFILE - Formatted as per reference PDF) */}
           {(activeTab === 'info' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page">
-              
-              <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center">
-                <h2 className="text-base font-bold text-slate-900">
-                  ส่วนที่ 1: ข้อมูลทั่วไปของนักเรียนและครอบครัว
-                </h2>
-                <p className="text-xs text-slate-500">
-                  แบบรายงาน ปพ.6 • โรงเรียน{schoolInfo.schoolName}
-                </p>
+            <div className="space-y-8 print:space-y-0 font-['Sarabun','TH_Sarabun_New',sans-serif]">
+              {/* Page 1 of Student Profile */}
+              <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 text-[13px] leading-relaxed flex flex-col justify-between">
+                <div>
+                  {/* Title: ข้อมูลส่วนตัวผู้เรียน */}
+                  <div className="text-center mb-6">
+                    <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-wide font-['Sarabun','TH_Sarabun_New',sans-serif]">
+                      ข้อมูลส่วนตัวผู้เรียน
+                    </h2>
+                  </div>
+
+                  {/* Header Row: Basic details on Left + Photo Frame on Right */}
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div className="flex-1 space-y-2.5">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dotted border-slate-400 pb-1">
+                        <div>
+                          <span className="font-bold text-slate-900">ชื่อ–สกุล:</span>
+                          <span className="ml-2 font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900">เลขประจำตัว:</span>
+                          <span className="ml-2 font-mono font-bold text-slate-900">{student.studentCode || student.rollNumber || '-'}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 border-b border-dotted border-slate-400 pb-1">
+                        <span className="font-bold text-slate-900 shrink-0">เลขประจำตัวประชาชน:</span>
+                        {renderDigitBoxes(student.idCard || '')}
+                      </div>
+
+                      <div className="flex flex-wrap items-baseline gap-6 border-b border-dotted border-slate-400 pb-1">
+                        <div>
+                          <span className="font-bold text-slate-900">ชื่อเล่น:</span>
+                          <span className="ml-2 text-slate-900">{student.nickname || '-'}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900">เพศ:</span>
+                          <span className="ml-2 text-slate-900">{student.gender || (student.prefix.includes('หญิง') ? 'หญิง' : 'ชาย')}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-baseline gap-6 border-b border-dotted border-slate-400 pb-1">
+                        <div>
+                          <span className="font-bold text-slate-900">วัน เดือน ปีเกิด:</span>
+                          <span className="ml-2 text-slate-900">{student.birthDate || '-'}</span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-900">อายุ:</span>
+                          <span className="ml-2 text-slate-900">{student.age ? `${student.age} ปี` : '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Student Photo Box */}
+                    <div className="shrink-0 text-center">
+                      <div className="w-[3.2cm] h-[4.2cm] border-2 border-slate-800 p-0.5 bg-white shadow-xs flex items-center justify-center overflow-hidden">
+                        {student.photoUrl ? (
+                          <img 
+                            src={student.photoUrl} 
+                            alt={student.firstName} 
+                            className="w-full h-full object-cover"
+                            onClick={() => onOpenLightbox && student.photoUrl && onOpenLightbox(student.photoUrl, `${student.prefix}${student.firstName} ${student.lastName}`)}
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-slate-50 flex flex-col items-center justify-center text-slate-400 border border-dashed border-slate-300">
+                            <User className="w-8 h-8 text-slate-300" />
+                            <span className="text-[10px] mt-1 text-slate-500">รูปถ่าย 2 นิ้ว</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr className="border-t-2 border-slate-900 my-3" />
+
+                  {/* Section: สถานะและชั้นเรียน */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">สถานะและชั้นเรียน</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">สถานะนักเรียน:</span>
+                        <span className="ml-2 text-slate-900">{student.status || 'ปกติ'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">ความด้อยโอกาส:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">วันที่เข้าเรียน:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">วันที่ออกจากโรงเรียน:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: สุขภาพ */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">สุขภาพ</h3>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">กลุ่มเลือด:</span>
+                        <span className="ml-2 text-slate-900">{(student as any).bloodGroup || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">น้ำหนัก:</span>
+                        <span className="ml-2 text-slate-900">{healthStats.weight ? `${healthStats.weight}` : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">ส่วนสูง:</span>
+                        <span className="ml-2 text-slate-900">{healthStats.height ? `${healthStats.height}` : '-'}</span>
+                      </div>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">วันที่ชั่งน้ำหนัก–ส่วนสูง:</span>
+                      <span className="ml-2 text-slate-900">-</span>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">โรคประจำตัว:</span>
+                      <span className="ml-2 text-slate-900">{student.chronicDisease || '-'}</span>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">โรคภูมิแพ้ / แพ้อะไร:</span>
+                      <span className="ml-2 text-slate-900">{(student as any).allergies || (student as any).allergy || '-'}</span>
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: ศาสนาและสัญชาติ */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">ศาสนาและสัญชาติ</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ศาสนา:</span>
+                        <span className="ml-2 text-slate-900">{student.religion || 'พุทธ'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">เชื้อชาติ:</span>
+                        <span className="ml-2 text-slate-900">ไทย</span>
+                      </div>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">สัญชาติ:</span>
+                      <span className="ml-2 text-slate-900">ไทย</span>
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: ที่อยู่และติดต่อ */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">ที่อยู่และติดต่อ</h3>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">เลขประจำบ้าน:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">บ้านเลขที่:</span>
+                        <span className="ml-2 text-slate-900">{student.address || student.guardianAddress || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">หมู่ที่:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ถนน:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">ซอย:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ตำบล:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อำเภอ:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">จังหวัด:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">รหัสไปรษณีย์:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">เบอร์โทรศัพท์:</span>
+                        <span className="ml-2 font-mono text-slate-900">{student.guardianPhone || student.fatherPhone || student.motherPhone || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-5 text-xs">
-                {/* 1. Personal Details */}
-                <div className="space-y-2">
-                  <h3 className="font-bold text-indigo-900 bg-indigo-50/80 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
-                    <User className="w-3.5 h-3.5" />
-                    <span>1. ข้อมูลส่วนตัวนักเรียน</span>
-                  </h3>
-                  
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                    <div>
-                      <span className="text-slate-500 block">ชื่อ-นามสกุล:</span>
-                      <strong className="text-slate-800">{student.prefix}{student.firstName} {student.lastName}</strong>
+              {/* Page 2 of Student Profile (Matching Reference PDF Page 2) */}
+              <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 print:break-before-page text-[13px] leading-relaxed flex flex-col justify-between">
+                <div>
+                  {/* Section: โรงเรียนเดิม */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">โรงเรียนเดิม</h3>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">โรงเรียนเดิม:</span>
+                      <span className="ml-2 text-slate-900">-</span>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">ชื่อเล่น:</span>
-                      <strong className="text-slate-800">{student.nickname || '-'}</strong>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">สังกัดโรงเรียนเดิม:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">จังหวัด:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">เพศ:</span>
-                      <strong className="text-slate-800">{student.gender || (student.prefix.includes('หญิง') ? 'หญิง' : 'ชาย')}</strong>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">ที่อยู่โรงเรียนเดิม:</span>
+                      <span className="ml-2 text-slate-900">-</span>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">อายุ:</span>
-                      <strong className="text-slate-800">{student.age ? `${student.age} ปี` : '-'}</strong>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: บิดา */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">บิดา</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ชื่อบิดา:</span>
+                        <span className="ml-2 text-slate-900">{student.fatherPrefix || ''}{student.fatherName || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อาชีพ:</span>
+                        <span className="ml-2 text-slate-900">{student.fatherOccupation || '-'}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">วัน/เดือน/ปีเกิด:</span>
-                      <strong className="text-slate-800">{student.birthDate || '-'}</strong>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">รายได้:</span>
+                        <span className="ml-2 text-slate-900">{student.fatherIncome ? `${student.fatherIncome} บาท` : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">โทรศัพท์:</span>
+                        <span className="ml-2 font-mono text-slate-900">{student.fatherPhone || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อีเมล:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">ศาสนา:</span>
-                      <strong className="text-slate-800">{student.religion || 'พุทธ'}</strong>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900 shrink-0">เลขประจำตัวประชาชนบิดา:</span>
+                      {renderDigitBoxes((student as any).fatherIdCard || '')}
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">รหัสประจำตัว:</span>
-                      <strong className="text-slate-800 font-mono">{student.studentCode || '-'}</strong>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: มารดา */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">มารดา</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ชื่อมารดา:</span>
+                        <span className="ml-2 text-slate-900">{student.motherPrefix || ''}{student.motherName || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อาชีพ:</span>
+                        <span className="ml-2 text-slate-900">{student.motherOccupation || '-'}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-slate-500 block">ระดับชั้น/ห้อง:</span>
-                      <strong className="text-slate-800">{student.gradeLevel}/{student.room || '1'}</strong>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">รายได้:</span>
+                        <span className="ml-2 text-slate-900">{student.motherIncome ? `${student.motherIncome} บาท` : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">โทรศัพท์:</span>
+                        <span className="ml-2 font-mono text-slate-900">{student.motherPhone || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อีเมล:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900 shrink-0">เลขประจำตัวประชาชนมารดา:</span>
+                      {renderDigitBoxes((student as any).motherIdCard || '')}
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: ผู้ปกครอง */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">ผู้ปกครอง</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ชื่อผู้ปกครอง:</span>
+                        <span className="ml-2 text-slate-900">{student.guardianPrefix || ''}{student.guardianName || student.fatherName || student.motherName || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">ความสัมพันธ์:</span>
+                        <span className="ml-2 text-slate-900">{student.guardianRelation || '-'}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">อาชีพ:</span>
+                        <span className="ml-2 text-slate-900">{student.guardianOccupation || student.fatherOccupation || student.motherOccupation || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">โทรศัพท์:</span>
+                        <span className="ml-2 font-mono text-slate-900">{student.guardianPhone || student.fatherPhone || student.motherPhone || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">อีเมล:</span>
+                        <span className="ml-2 text-slate-900">-</span>
+                      </div>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">ที่อยู่ผู้ปกครอง:</span>
+                      <span className="ml-2 text-slate-900">{student.guardianAddress || student.address || '-'}</span>
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: ติดต่อฉุกเฉิน */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">ติดต่อฉุกเฉิน</h3>
+                    <div className="grid grid-cols-2 gap-4 border-b border-dotted border-slate-400 pb-1">
+                      <div>
+                        <span className="font-bold text-slate-900">ให้ติดต่อ:</span>
+                        <span className="ml-2 text-slate-900">{student.guardianName || student.fatherName || student.motherName || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="font-bold text-slate-900">ความสัมพันธ์:</span>
+                        <span className="ml-2 text-slate-900">{student.guardianRelation || 'ผู้ปกครอง'}</span>
+                      </div>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">เบอร์โทรศัพท์:</span>
+                      <span className="ml-2 font-mono text-slate-900">{student.guardianPhone || student.fatherPhone || student.motherPhone || '-'}</span>
+                    </div>
+                  </div>
+
+                  <hr className="border-t border-slate-800 my-3" />
+
+                  {/* Section: หมายเหตุ */}
+                  <div className="space-y-1.5 mb-3">
+                    <h3 className="font-bold text-slate-900 text-sm">หมายเหตุ</h3>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">หมายเหตุ:</span>
+                      <span className="ml-2 text-slate-900">-</span>
+                    </div>
+                    <div className="border-b border-dotted border-slate-400 pb-1">
+                      <span className="font-bold text-slate-900">ครูผู้บันทึก:</span>
+                      <span className="ml-2 text-slate-900">{advisorName}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* 2. Health & Address */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <h3 className="font-bold text-slate-800 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                      ข้อมูลสุขภาพเบื้องต้น
-                    </h3>
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                      <div>
-                        <span className="text-slate-500 block">โรคประจำตัว / แพ้ยา / แพ้อาหาร:</span>
-                        <span className="font-semibold text-rose-700">{student.chronicDisease || 'ไม่มี'}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-500 block">เงินมาโรงเรียนเฉลี่ย:</span>
-                        <span className="font-semibold text-slate-800">{student.dailyAllowance ? `${student.dailyAllowance} บาท/วัน` : '-'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h3 className="font-bold text-slate-800 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
-                      ที่อยู่อาศัยและการเดินทาง
-                    </h3>
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5">
-                      <div>
-                        <span className="text-slate-500 block">ที่อยู่ปัจจุบัน:</span>
-                        <span className="font-semibold text-slate-800">{student.address || student.guardianAddress || '-'}</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 pt-1">
-                        <div>
-                          <span className="text-slate-500 block">การเดินทางมาเรียน:</span>
-                          <span className="font-semibold text-slate-800">{student.travelMethod || 'ผู้ปกครองมาส่ง'}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 block">สถานะที่พัก:</span>
-                          <span className="font-semibold text-slate-800">{student.housingStatus || 'บ้านของตนเอง'}</span>
-                        </div>
-                      </div>
-                    </div>
+                {/* Bottom Signature */}
+                <div className="pt-6 text-center text-xs text-slate-700">
+                  <div className="w-64 mx-auto space-y-1">
+                    <p>ลงชื่อ ..............................................................</p>
+                    <p className="font-bold">({advisorName || '......................................................'})</p>
+                    <p>ครูประจำชั้น</p>
                   </div>
                 </div>
-
-                {/* 3. Family & Guardian Details */}
-                <div className="space-y-2">
-                  <h3 className="font-bold text-indigo-900 bg-indigo-50/80 px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center gap-2">
-                    <span>2. ข้อมูลครอบครัวและผู้ปกครอง</span>
-                  </h3>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Father */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                      <span className="font-bold text-indigo-900 block border-b pb-1">ข้อมูลบิดา</span>
-                      <div><span className="text-slate-500">ชื่อ: </span><strong>{student.fatherName || '-'}</strong></div>
-                      <div><span className="text-slate-500">อาชีพ: </span><span>{student.fatherOccupation || '-'}</span></div>
-                      <div><span className="text-slate-500">โทร: </span><span className="font-mono">{student.fatherPhone || '-'}</span></div>
-                    </div>
-
-                    {/* Mother */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                      <span className="font-bold text-indigo-900 block border-b pb-1">ข้อมูลมารดา</span>
-                      <div><span className="text-slate-500">ชื่อ: </span><strong>{student.motherName || '-'}</strong></div>
-                      <div><span className="text-slate-500">อาชีพ: </span><span>{student.motherOccupation || '-'}</span></div>
-                      <div><span className="text-slate-500">โทร: </span><span className="font-mono">{student.motherPhone || '-'}</span></div>
-                    </div>
-
-                    {/* Guardian */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                      <span className="font-bold text-indigo-900 block border-b pb-1">ข้อมูลผู้ปกครองหลัก</span>
-                      <div><span className="text-slate-500">ชื่อ: </span><strong>{student.guardianName || student.fatherName || student.motherName || '-'}</strong></div>
-                      <div><span className="text-slate-500">ความสัมพันธ์: </span><span>{student.guardianRelation || 'บิดา/มารดา'}</span></div>
-                      <div><span className="text-slate-500">โทร: </span><span className="font-mono">{student.guardianPhone || student.fatherPhone || student.motherPhone || '-'}</span></div>
-                    </div>
-                  </div>
-                </div>
-
               </div>
             </div>
           )}
 
           {/* TAB 3: วัดผล (ACADEMIC EVALUATION & GRADES) */}
           {(activeTab === 'academic' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page">
+            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
               
-              <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center">
-                <h2 className="text-base font-bold text-slate-900">
-                  ส่วนที่ 2: ผลการประเมินการเรียนรู้และวัดผลสัมฤทธิ์
-                </h2>
-                <p className="text-xs text-slate-500">
-                  ภาคเรียนที่ {semester} ปีการศึกษา {academicYear} • {student.prefix}{student.firstName} {student.lastName} ({getGradeCleanName(grade)})
-                </p>
-              </div>
+              <div className="space-y-6">
+                {renderPP6Header()}
 
-              {/* Subject Score Table */}
-              <div className="border border-slate-300 rounded-lg overflow-hidden mb-5">
-                <table className="w-full text-left text-[11px] border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center">
-                      <th className="py-2 px-2 border-r border-slate-300 w-10">ที่</th>
-                      <th className="py-2 px-2 border-r border-slate-300 w-24">รหัสวิชา</th>
-                      <th className="py-2 px-3 border-r border-slate-300 text-left">รายวิชา</th>
-                      <th className="py-2 px-2 border-r border-slate-300 w-16">ระหว่างภาค</th>
-                      <th className="py-2 px-2 border-r border-slate-300 w-16">ปลายภาค</th>
-                      <th className="py-2 px-2 border-r border-slate-300 w-16 bg-indigo-50 text-indigo-950 font-bold">รวม</th>
-                      <th className="py-2 px-2 border-r border-slate-300 w-16 bg-purple-50 text-purple-950 font-black">เกรด</th>
-                      <th className="py-2 px-2 w-20">ผลการตัดสิน</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {academicResults.rows.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400">
-                          ยังไม่มีข้อมูลรายวิชาในระบบ
-                        </td>
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                  <div>
+                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">เลขที่: </span>
+                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                  </div>
+                </div>
+
+                {/* Subject Score Table */}
+                <div className="border border-slate-300 rounded-lg overflow-hidden mb-5">
+                  <table className="w-full text-left text-[11px] border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center">
+                        <th className="py-2 px-2 border-r border-slate-300 w-10">ที่</th>
+                        <th className="py-2 px-2 border-r border-slate-300 w-24">รหัสวิชา</th>
+                        <th className="py-2 px-3 border-r border-slate-300 text-left">รายวิชา</th>
+                        <th className="py-2 px-2 border-r border-slate-300 w-16">ระหว่างภาค</th>
+                        <th className="py-2 px-2 border-r border-slate-300 w-16">ปลายภาค</th>
+                        <th className="py-2 px-2 border-r border-slate-300 w-16 bg-indigo-50 text-indigo-950 font-bold">รวม</th>
+                        <th className="py-2 px-2 border-r border-slate-300 w-16 bg-purple-50 text-purple-950 font-black">เกรด</th>
+                        <th className="py-2 px-3">ครูผู้สอนในรายวิชา</th>
                       </tr>
-                    ) : (
-                      academicResults.rows.map((item, idx) => (
-                        <tr key={item.subject.id} className="hover:bg-slate-50">
-                          <td className="py-1.5 px-2 text-center font-mono text-slate-600 border-r border-slate-200">
-                            {idx + 1}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono font-semibold text-slate-700 border-r border-slate-200">
-                            {item.subject.code || '-'}
-                          </td>
-                          <td className="py-1.5 px-3 font-medium text-slate-900 border-r border-slate-200">
-                            {item.subject.name}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
-                            {item.coursework}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
-                            {item.exam}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono font-bold text-indigo-950 bg-indigo-50/40 border-r border-slate-200">
-                            {item.total}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-200 bg-purple-50/50">
-                            <span className={`inline-block px-2 py-0.5 rounded ${
-                              item.grade === '4' ? 'bg-emerald-600 text-white font-black' :
-                              item.grade === '3.5' || item.grade === '3' ? 'bg-blue-600 text-white' :
-                              item.grade === '2.5' || item.grade === '2' ? 'bg-amber-600 text-white' :
-                              item.grade === '1.5' || item.grade === '1' ? 'bg-orange-600 text-white' :
-                              'text-slate-600'
-                            }`}>
-                              {item.grade}
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-semibold text-emerald-700">
-                            {item.grade !== '0' && item.grade !== '-' ? 'ผ่าน' : (item.grade === '0' ? 'ไม่ผ่าน' : '-')}
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {academicResults.rows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-slate-400">
+                            ยังไม่มีข้อมูลรายวิชาในระบบ
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                  <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 text-xs">
-                    <tr>
-                      <td colSpan={6} className="py-2 px-3 text-right border-r border-slate-300">
-                        ผลการเรียนเฉลี่ยรวม (GPA):
-                      </td>
-                      <td className="py-2 px-2 text-center text-sm font-black text-purple-900 bg-purple-100 border-r border-slate-300">
-                        {academicResults.gpa}
-                      </td>
-                      <td className="py-2 px-2 text-center text-emerald-800">
-                        ผ่านเกณฑ์
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                      ) : (
+                        academicResults.rows.map((item, idx) => (
+                          <tr key={item.subject.id} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-600 border-r border-slate-200">
+                              {idx + 1}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-semibold text-slate-700 border-r border-slate-200">
+                              {item.subject.code || '-'}
+                            </td>
+                            <td className="py-1.5 px-3 font-medium text-slate-900 border-r border-slate-200">
+                              {item.subject.name}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
+                              {item.coursework}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
+                              {item.exam}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-indigo-950 bg-indigo-50/40 border-r border-slate-200">
+                              {item.total}
+                            </td>
+                            <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-200 bg-purple-50/50">
+                              <span className={`inline-block px-2 py-0.5 rounded ${
+                                item.grade === '4' ? 'bg-emerald-600 text-white font-black' :
+                                item.grade === '3.5' || item.grade === '3' ? 'bg-blue-600 text-white' :
+                                item.grade === '2.5' || item.grade === '2' ? 'bg-amber-600 text-white' :
+                                item.grade === '1.5' || item.grade === '1' ? 'bg-orange-600 text-white' :
+                                'text-slate-600'
+                              }`}>
+                                {item.grade}
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-3 text-slate-700 font-medium">
+                              {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 text-xs">
+                      <tr>
+                        <td colSpan={6} className="py-2 px-3 text-right border-r border-slate-300">
+                          ผลการเรียนเฉลี่ยรวม (GPA):
+                        </td>
+                        <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-purple-900 bg-purple-100">
+                          {academicResults.gpa}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+              </div>
+
+              {/* Bottom Signatures: Teacher & Director */}
+              <div className="pt-6 mt-8 mb-[2in] grid grid-cols-2 gap-8 text-xs text-center print:mb-[2in]">
+                <div className="space-y-1">
+                  <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                  <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                  <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
+                  <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                  <p className="font-bold text-slate-900">({directorName || '......................................................'})</p>
+                  <p className="text-slate-600 font-semibold text-[11px]">{directorPosition}</p>
+                  <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+                </div>
               </div>
 
             </div>
@@ -831,129 +1795,76 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 4: เวลาเรียน (ATTENDANCE RECORD) */}
           {(activeTab === 'attendance' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page">
+            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
               
-              <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center">
-                <h2 className="text-base font-bold text-slate-900">
-                  ส่วนที่ 3: สถิติเวลาเรียนและการมาเรียน
-                </h2>
-                <p className="text-xs text-slate-500">
-                  ภาคเรียนที่ {semester} ปีการศึกษา {academicYear} • โรงเรียน{schoolInfo.schoolName}
-                </p>
+              <div className="space-y-6">
+                {renderPP6Header(undefined, 'เวลาเรียนนักเรียน')}
+
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                  <div>
+                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">เลขที่: </span>
+                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                  </div>
+                </div>
+
+                {/* Monthly breakdown table */}
+                <div className="border border-slate-300 rounded-lg overflow-hidden">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-900 font-bold text-center border-b border-slate-300">
+                        <th className="py-2.5 px-3 text-left border-r border-slate-300">เดือน</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-300">วันเรียน</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-emerald-800 bg-emerald-50/50">มา</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-rose-800 bg-rose-50/50">ขาด</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-amber-800 bg-amber-50/50">ลา</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-blue-800 bg-blue-50/50">ป่วย</th>
+                        <th className="py-2.5 px-2 w-28">% มาเรียน</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-center">
+                      {attendanceMonthlyRecords.rows.map((r, i) => (
+                        <tr key={i}>
+                          <td className="py-2 px-3 text-left font-medium border-r border-slate-200">{r.month}</td>
+                          <td className="py-2 px-2 font-mono border-r border-slate-200">{r.schoolDays}</td>
+                          <td className="py-2 px-2 font-mono font-bold text-emerald-700 border-r border-slate-200">{r.present}</td>
+                          <td className="py-2 px-2 font-mono text-rose-700 border-r border-slate-200">{r.absent > 0 ? r.absent : '-'}</td>
+                          <td className="py-2 px-2 font-mono text-amber-700 border-r border-slate-200">{r.leave > 0 ? r.leave : '-'}</td>
+                          <td className="py-2 px-2 font-mono text-blue-700 border-r border-slate-200">{r.sick > 0 ? r.sick : '-'}</td>
+                          <td className="py-2 px-2 font-mono font-bold text-indigo-900">{r.percent}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-center">
+                      <tr>
+                        <td className="py-2 px-3 text-left border-r border-slate-300">รวมตลอดภาคเรียน</td>
+                        <td className="py-2 px-2 font-mono border-r border-slate-300">{attendanceMonthlyRecords.totals.schoolDays}</td>
+                        <td className="py-2 px-2 font-mono text-emerald-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.present}</td>
+                        <td className="py-2 px-2 font-mono text-rose-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
+                        <td className="py-2 px-2 font-mono text-amber-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.leave > 0 ? attendanceMonthlyRecords.totals.leave : '-'}</td>
+                        <td className="py-2 px-2 font-mono text-blue-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
+                        <td className="py-2 px-2 font-mono font-black text-indigo-900">{attendanceMonthlyRecords.totals.percent}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
               </div>
 
-              {/* Attendance KPI Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center mb-6">
-                <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200">
-                  <span className="text-xs text-emerald-800 font-bold block">มาเรียน</span>
-                  <span className="text-2xl font-black text-emerald-700 font-mono">{attendanceStats.present}</span>
-                  <span className="text-[11px] text-emerald-600 block">วัน</span>
-                </div>
-                <div className="p-3.5 bg-blue-50 rounded-xl border border-blue-200">
-                  <span className="text-xs text-blue-800 font-bold block">ลาป่วย</span>
-                  <span className="text-2xl font-black text-blue-700 font-mono">{attendanceStats.sick}</span>
-                  <span className="text-[11px] text-blue-600 block">วัน</span>
-                </div>
-                <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200">
-                  <span className="text-xs text-amber-800 font-bold block">ลากิจ</span>
-                  <span className="text-2xl font-black text-amber-700 font-mono">{attendanceStats.leave}</span>
-                  <span className="text-[11px] text-amber-600 block">วัน</span>
-                </div>
-                <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-200">
-                  <span className="text-xs text-rose-800 font-bold block">ขาดเรียน</span>
-                  <span className="text-2xl font-black text-rose-700 font-mono">{attendanceStats.absent}</span>
-                  <span className="text-[11px] text-rose-600 block">วัน</span>
-                </div>
-              </div>
-
-              {/* Summary Statement */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 mb-6 text-xs">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <span className="text-slate-600">จำนวนวันเปิดเรียนตลอดภาคเรียน:</span>
-                  <strong className="text-slate-900 font-mono">{attendanceStats.totalDays} วัน</strong>
-                </div>
-                <div className="flex items-center justify-between border-b pb-2">
-                  <span className="text-slate-600">คิดเป็นร้อยละของการมาเรียน:</span>
-                  <strong className="text-indigo-900 font-mono text-sm">{attendanceStats.percentPresent}%</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-600">การประเมินตามเกณฑ์ (ไม่น้อยกว่า 80%):</span>
-                  <span className={`px-2.5 py-1 rounded-full font-bold ${
-                    attendanceStats.percentPresent >= 80 
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
-                      : 'bg-rose-100 text-rose-800 border border-rose-200'
-                  }`}>
-                    {attendanceStats.percentPresent >= 80 ? '✓ ผ่านเกณฑ์เวลาเรียน' : '✗ ไม่ผ่านเกณฑ์เวลาเรียน'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Monthly breakdown table */}
-              <div className="border border-slate-300 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-800 font-bold text-center border-b border-slate-300">
-                      <th className="py-2 px-3 text-left">เดือน</th>
-                      <th className="py-2 px-2 w-20">วันเรียน</th>
-                      <th className="py-2 px-2 w-20">มาเรียน</th>
-                      <th className="py-2 px-2 w-20">ลา</th>
-                      <th className="py-2 px-2 w-20">ขาด</th>
-                      <th className="py-2 px-2 w-24">% มาเรียน</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-center">
-                    <tr>
-                      <td className="py-2 px-3 text-left font-medium">เดือนที่ 1</td>
-                      <td className="py-2 px-2 font-mono">20</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">20</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono font-bold text-indigo-900">100%</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 px-3 text-left font-medium">เดือนที่ 2</td>
-                      <td className="py-2 px-2 font-mono">20</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">19</td>
-                      <td className="py-2 px-2 font-mono text-blue-700">1</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono font-bold text-indigo-900">95%</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 px-3 text-left font-medium">เดือนที่ 3</td>
-                      <td className="py-2 px-2 font-mono">20</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">20</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono font-bold text-indigo-900">100%</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 px-3 text-left font-medium">เดือนที่ 4</td>
-                      <td className="py-2 px-2 font-mono">20</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">19</td>
-                      <td className="py-2 px-2 font-mono text-blue-700">1</td>
-                      <td className="py-2 px-2 font-mono">-</td>
-                      <td className="py-2 px-2 font-mono font-bold text-indigo-900">95%</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 px-3 text-left font-medium">เดือนที่ 5</td>
-                      <td className="py-2 px-2 font-mono">20</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">18</td>
-                      <td className="py-2 px-2 font-mono text-amber-700">1</td>
-                      <td className="py-2 px-2 font-mono text-rose-700">1</td>
-                      <td className="py-2 px-2 font-mono font-bold text-indigo-900">90%</td>
-                    </tr>
-                  </tbody>
-                  <tfoot className="bg-slate-50 font-bold border-t-2 border-slate-300 text-center">
-                    <tr>
-                      <td className="py-2 px-3 text-left">รวมตลอดภาคเรียน</td>
-                      <td className="py-2 px-2 font-mono">{attendanceStats.totalDays}</td>
-                      <td className="py-2 px-2 font-mono text-emerald-700">{attendanceStats.present}</td>
-                      <td className="py-2 px-2 font-mono">{attendanceStats.sick + attendanceStats.leave}</td>
-                      <td className="py-2 px-2 font-mono text-rose-700">{attendanceStats.absent}</td>
-                      <td className="py-2 px-2 font-mono font-black text-indigo-900">{attendanceStats.percentPresent}%</td>
-                    </tr>
-                  </tfoot>
-                </table>
+              {/* Bottom Signature: Class Advisor (Centered, 2.5-3 inches from bottom margin) */}
+              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in]">
+                <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
+                <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
 
             </div>
@@ -961,242 +1872,341 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 5: สุขภาพ (น้ำหนัก, แปรงฟัน, ดื่มนม) */}
           {(activeTab === 'health' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page">
+            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
               
-              <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center">
-                <h2 className="text-base font-bold text-slate-900">
-                  ส่วนที่ 4: บันทึกข้อมูลสุขภาพและการเจริญเติบโต
-                </h2>
-                <p className="text-xs text-slate-500">
-                  (น้ำหนัก-ส่วนสูง, การดื่มนมโรงเรียน, และการแปรงฟันหลังอาหาร)
-                </p>
+              <div className="space-y-6">
+                {renderPP6Header(undefined, 'บันทึกข้อมูลสุขภาพ')}
+
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                  <div>
+                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">เลขที่: </span>
+                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-6 text-xs">
+                  
+                  {/* 1. Growth: Weight & Height Table */}
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-900 text-xs">
+                      <span>1) น้ำหนัก - ส่วนสูง และภาวะโภชนาการ</span>
+                    </div>
+                    <div className="border border-slate-300 rounded-lg overflow-hidden">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
+                            <th className="py-2 px-2 border-r border-slate-300 w-14">ครั้งที่</th>
+                            <th className="py-2 px-3 border-r border-slate-300 text-left">วันที่</th>
+                            <th className="py-2 px-2 border-r border-slate-300 w-28">น้ำหนัก (กก.)</th>
+                            <th className="py-2 px-2 border-r border-slate-300 w-28">ส่วนสูง (ซม.)</th>
+                            <th className="py-2 px-2 border-r border-slate-300 w-20">BMI</th>
+                            <th className="py-2 px-3 w-32">ผลการประเมิน</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-center">
+                          {weightHeightRecords.map((item) => (
+                            <tr key={item.no} className="hover:bg-slate-50">
+                              <td className="py-2 px-2 font-mono font-bold text-slate-800 border-r border-slate-200">{item.no}</td>
+                              <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">{item.date}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-slate-900 border-r border-slate-200">{item.weight}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-slate-900 border-r border-slate-200">{item.height}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-indigo-900 border-r border-slate-200">{item.bmi}</td>
+                              <td className="py-2 px-3 font-semibold">
+                                <span className={`inline-block px-2 py-0.5 rounded font-bold text-[11px] ${
+                                  item.bmiStatus === 'สมส่วน' ? 'bg-emerald-100 text-emerald-800' :
+                                  item.bmiStatus === 'ท้วม' ? 'bg-amber-100 text-amber-800' :
+                                  item.bmiStatus === 'เริ่มอ้วน' ? 'bg-orange-100 text-orange-800' :
+                                  item.bmiStatus === 'อ้วน' ? 'bg-rose-100 text-rose-800' :
+                                  'bg-sky-100 text-sky-800'
+                                }`}>
+                                  {item.bmiStatus}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 2. Milk Drinking Table */}
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-900 text-xs">
+                      <span>2) บันทึกดื่มนมโรงเรียน</span>
+                    </div>
+                    <div className="border border-slate-300 rounded-lg overflow-hidden">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
+                            <th className="py-2 px-3 border-r border-slate-300 w-12">ที่</th>
+                            <th className="py-2 px-3 border-r border-slate-300 text-left">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันที่ดื่ม</th>
+                            <th className="py-2 px-3 w-32">ร้อยละ (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-center">
+                          <tr>
+                            <td className="py-2 px-3 font-mono border-r border-slate-200">1</td>
+                            <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">ดื่มนม</td>
+                            <td className="py-2 px-3 font-mono font-bold text-slate-800 border-r border-slate-200">{healthStats.milkTotal}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-amber-900 border-r border-slate-200">{healthStats.milkFull}</td>
+                            <td className="py-2 px-3 font-mono font-black text-amber-700">{healthStats.milkRate}%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 3. Toothbrushing Table */}
+                  <div className="space-y-2">
+                    <div className="font-bold text-slate-900 text-xs">
+                      <span>3) บันทึกแปรงฟันหลังอาหารกลางวัน</span>
+                    </div>
+                    <div className="border border-slate-300 rounded-lg overflow-hidden">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
+                            <th className="py-2 px-3 border-r border-slate-300 w-12">ที่</th>
+                            <th className="py-2 px-3 border-r border-slate-300 text-left">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันที่ดื่ม</th>
+                            <th className="py-2 px-3 w-32">ร้อยละ (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-center">
+                          <tr>
+                            <td className="py-2 px-3 font-mono border-r border-slate-200">1</td>
+                            <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">แปรงฟัน</td>
+                            <td className="py-2 px-3 font-mono font-bold text-slate-800 border-r border-slate-200">{healthStats.teethTotal}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-sky-900 border-r border-slate-200">{healthStats.teethClean}</td>
+                            <td className="py-2 px-3 font-mono font-black text-sky-700">{healthStats.teethRate}%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
               </div>
 
-              <div className="space-y-6 text-xs">
-                
-                {/* 1. Growth: Weight & Height */}
-                <div className="space-y-3">
-                  <h3 className="font-bold text-slate-800 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <span>⚖️</span>
-                      <span>1. การเจริญเติบโตทางร่างกาย (น้ำหนัก - ส่วนสูง)</span>
-                    </span>
-                    <span className="text-[11px] text-blue-700 font-semibold">
-                      เกณฑ์มาตรฐานกรมอนามัย กระทรวงสาธารณสุข
-                    </span>
-                  </h3>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-slate-500 block">น้ำหนัก</span>
-                      <span className="text-xl font-black text-slate-900 font-mono">{healthStats.weight}</span>
-                      <span className="text-[11px] text-slate-500 block">กิโลกรัม</span>
-                    </div>
-
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-slate-500 block">ส่วนสูง</span>
-                      <span className="text-xl font-black text-slate-900 font-mono">{healthStats.height}</span>
-                      <span className="text-[11px] text-slate-500 block">เซนติเมตร</span>
-                    </div>
-
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-slate-500 block">ดัชนีมวลกาย (BMI)</span>
-                      <span className="text-xl font-black text-indigo-900 font-mono">{healthStats.bmi}</span>
-                      <span className="text-[11px] text-slate-500 block">kg/m²</span>
-                    </div>
-
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                      <span className="text-slate-500 block">ภาวะโภชนาการ</span>
-                      <span className={`inline-block px-2.5 py-1 rounded-lg font-bold text-xs mt-1 ${
-                        healthStats.bmiStatus === 'สมส่วน' ? 'bg-emerald-100 text-emerald-800' :
-                        healthStats.bmiStatus === 'ท้วม' ? 'bg-amber-100 text-amber-800' :
-                        healthStats.bmiStatus === 'เริ่มอ้วน' ? 'bg-orange-100 text-orange-800' :
-                        healthStats.bmiStatus === 'อ้วน' ? 'bg-rose-100 text-rose-800' :
-                        'bg-sky-100 text-sky-800'
-                      }`}>
-                        {healthStats.bmiStatus}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Milk Drinking */}
-                <div className="space-y-3">
-                  <h3 className="font-bold text-slate-800 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <span>🥛</span>
-                      <span>2. สถิติการดื่มนมโรงเรียน</span>
-                    </span>
-                    <span className="text-[11px] text-amber-800 font-semibold">
-                      บันทึกตามวันเรียนจริง
-                    </span>
-                  </h3>
-
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="font-semibold text-slate-800">
-                        ดื่มนมครบถ้วนจำนวน: <strong className="text-amber-900 font-mono text-sm">{healthStats.milkFull}</strong> / {healthStats.milkTotal} วัน
-                      </div>
-                      <p className="text-slate-500 text-[11px]">
-                        นักเรียนดื่มนมโรงเรียนเป็นประจำเพื่อส่งเสริมแคลเซียมและการเจริญเติบโตสมวัย
-                      </p>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span className="text-xs text-slate-500 block">ร้อยละการดื่มนม:</span>
-                      <span className="text-2xl font-black text-amber-700 font-mono">{healthStats.milkRate}%</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Toothbrushing */}
-                <div className="space-y-3">
-                  <h3 className="font-bold text-slate-800 bg-sky-50 px-3 py-1.5 rounded-lg border border-sky-200 flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <span>🪥</span>
-                      <span>3. สถิติการแปรงฟันหลังอาหารกลางวัน</span>
-                    </span>
-                    <span className="text-[11px] text-sky-800 font-semibold">
-                      ส่งเสริมทันตสุขภาพในโรงเรียน
-                    </span>
-                  </h3>
-
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="font-semibold text-slate-800">
-                        แปรงฟันเรียบร้อยจำนวน: <strong className="text-sky-900 font-mono text-sm">{healthStats.teethClean}</strong> / {healthStats.teethTotal} วัน
-                      </div>
-                      <p className="text-slate-500 text-[11px]">
-                        ปฏิบัติกิจวัตรการแปรงฟันถูกวิธีหลังรับประทานอาหารกลางวันทุกวันเรียน
-                      </p>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <span className="text-xs text-slate-500 block">ร้อยละการแปรงฟัน:</span>
-                      <span className="text-2xl font-black text-sky-700 font-mono">{healthStats.teethRate}%</span>
-                    </div>
-                  </div>
-                </div>
-
+              {/* Bottom Signature: Class Advisor (Centered, 3 inches from bottom margin) */}
+              <div className="pt-6 mb-[3in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[3in]">
+                <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
+                <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
 
             </div>
           )}
 
-          {/* TAB 6: ความคิดเห็น (ครูและผู้ปกครอง) */}
+          {/* TAB 6: ความคิดเห็นและการประเมินพฤติกรรม 8 ด้าน (ครูและผู้ปกครอง) */}
           {(activeTab === 'comments' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page">
+            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
               
-              <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center">
-                <h2 className="text-base font-bold text-slate-900">
-                  ส่วนที่ 5: ความคิดเห็นของครูประจำชั้นและผู้ปกครอง
-                </h2>
-                <p className="text-xs text-slate-500">
-                  แบบรายงาน ปพ.6 • โรงเรียน{schoolInfo.schoolName}
-                </p>
+              <div className="space-y-4">
+                {renderPP6Header()}
+
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4">
+                  <div>
+                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-700">เลขที่: </span>
+                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                  </div>
+                </div>
+
+                {/* 4-Column Evaluation Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-slate-800 text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-900 font-bold text-center border-b border-slate-800">
+                        <th className="border border-slate-800 p-2 w-12 text-center">
+                          เลขที่
+                        </th>
+                        <th className="border border-slate-800 p-2 text-left min-w-[160px]">
+                          ชื่อ-นามสกุล
+                        </th>
+                        <th className="border border-slate-800 p-2 w-[38%] text-center bg-indigo-50/70 print:bg-transparent">
+                          การลงคะแนนของครูประจำชั้น 8 ด้าน<br/>
+                          <span className="text-[10px] font-normal text-indigo-800 print:text-slate-600">(ดึงจากระบบธุรการ)</span>
+                        </th>
+                        <th className="border border-slate-800 p-2 w-[38%] text-center bg-purple-50/70 print:bg-transparent">
+                          การลงคะแนนของผู้ปกครอง 8 ด้าน<br/>
+                          <span className="text-[10px] font-normal text-purple-800 print:text-slate-600">(Paper ให้ปริ้นแล้วผู้ปกครองติ๊ก/เขียนด้วยปากกา)</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {EVALUATION_CRITERIA_ITEMS.map((item) => {
+                        const tScore = teacherScores[item.id as keyof BehaviorScores] || 3;
+                        const pScore = parentScores[item.id as keyof BehaviorScores] || 0;
+
+                        return (
+                          <tr key={item.id} className="border-b border-slate-800">
+                            {/* column1: เลขที่ */}
+                            <td className="border border-slate-800 p-2 text-center font-bold text-slate-800 align-middle">
+                              {item.number}
+                            </td>
+
+                            {/* column2: ชื่อ-นามสกุล & รายการประเมิน */}
+                            <td className="border border-slate-800 p-2 align-middle">
+                              <div className="font-bold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</div>
+                              <div className="text-[11px] font-semibold text-indigo-900 mt-0.5">{item.number}. {item.title}</div>
+                            </td>
+
+                            {/* column3: การลงคะแนนของครู 8 ด้าน (Circles 3, 2, 1 with checkmark) */}
+                            <td className="border border-slate-800 p-2 text-center align-middle bg-indigo-50/30 print:bg-transparent">
+                              <div className="flex items-center justify-center gap-5 py-1">
+                                {[3, 2, 1].map((lvl) => {
+                                  const isSelected = tScore === lvl;
+                                  return (
+                                    <button
+                                      key={lvl}
+                                      type="button"
+                                      onClick={() => setTeacherScores(prev => ({ ...prev, [item.id]: lvl }))}
+                                      className="flex items-center gap-1 cursor-pointer group"
+                                      title={`ระดับ ${lvl}`}
+                                    >
+                                      <div className={`w-6 h-6 rounded-full border border-slate-800 flex items-center justify-center text-[11px] font-bold transition-all ${
+                                        isSelected 
+                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs' 
+                                          : 'bg-white text-slate-900 group-hover:border-indigo-600'
+                                      }`}>
+                                        {isSelected ? '✓' : lvl}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </td>
+
+                            {/* column4: การลงคะแนนของผู้ปกครอง 8 ด้าน (Circles 3, 2, 1 for paper ticking) */}
+                            <td className="border border-slate-800 p-2 text-center align-middle bg-purple-50/30 print:bg-transparent">
+                              <div className="flex items-center justify-center gap-5 py-1">
+                                {[3, 2, 1].map((lvl) => {
+                                  const isSelected = pScore === lvl;
+                                  return (
+                                    <button
+                                      key={lvl}
+                                      type="button"
+                                      onClick={() => setParentScores(prev => ({ ...prev, [item.id]: pScore === lvl ? 0 : lvl }))}
+                                      className="flex items-center gap-1 cursor-pointer group"
+                                      title={`ระดับ ${lvl}`}
+                                    >
+                                      <div className={`w-6 h-6 rounded-full border border-slate-800 flex items-center justify-center text-[11px] font-bold transition-all ${
+                                        isSelected 
+                                          ? 'bg-purple-600 text-white border-purple-600 shadow-2xs' 
+                                          : 'bg-white text-slate-900 group-hover:border-purple-600'
+                                      }`}>
+                                        {isSelected ? '✓' : lvl}
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Row 9 / Last Row: ความคิดเห็น */}
+                      <tr className="border-b border-slate-800">
+                        {/* column1: เลขที่ */}
+                        <td className="border border-slate-800 p-2 text-center font-bold text-slate-800 align-top pt-3">
+                          9
+                        </td>
+
+                        {/* column2: ชื่อ-นามสกุล / ความคิดเห็น */}
+                        <td className="border border-slate-800 p-2 align-top pt-3">
+                          <div className="font-bold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</div>
+                          <div className="text-[11px] font-semibold text-purple-900 mt-0.5">ความคิดเห็น</div>
+                        </td>
+
+                        {/* column3: รวมแถวสุดท้ายคือความคิดเห็นของครู */}
+                        <td className="border border-slate-800 p-2 align-top bg-indigo-50/30 print:bg-transparent">
+                          <textarea
+                            value={teacherComment}
+                            onChange={(e) => setTeacherComment(e.target.value)}
+                            rows={4}
+                            className="w-full bg-white p-2 rounded border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed print:hidden resize-none"
+                            placeholder="พิมพ์ความคิดเห็นของครูประจำชั้น..."
+                          />
+                          <div className="hidden print:block text-xs leading-relaxed text-slate-900 min-h-[60px] whitespace-pre-line">
+                            {teacherComment || '....................................................................................................................................'}
+                          </div>
+                        </td>
+
+                        {/* column4: รวมแถวสุดท้ายคือความคิดเห็นของผู้ปกครอง */}
+                        <td className="border border-slate-800 p-2 align-top bg-purple-50/30 print:bg-transparent">
+                          <textarea
+                            value={parentComment}
+                            onChange={(e) => setParentComment(e.target.value)}
+                            rows={4}
+                            className="w-full bg-white p-2 rounded border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500 leading-relaxed print:hidden resize-none"
+                            placeholder="ระบุความคิดเห็นผู้ปกครอง (หรือเว้นว่างเพื่อให้ผู้ปกครองเขียนด้วยปากกา)..."
+                          />
+                          <div className="hidden print:block text-xs leading-relaxed text-slate-900 min-h-[60px]">
+                            {parentComment ? (
+                              <div className="whitespace-pre-line">{parentComment}</div>
+                            ) : (
+                              <div className="space-y-2 pt-1 text-slate-400">
+                                <p>...................................................................................................................</p>
+                                <p>...................................................................................................................</p>
+                                <p>...................................................................................................................</p>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Legend / Explanation for 3, 2, 1 */}
+                <div className="text-[11px] text-slate-800 font-bold bg-slate-50 p-2 rounded border border-slate-200 text-center">
+                  เกณฑ์การประเมิน: 3 = ดี, 2 = พอใช้, 1 = ปรับปรุง
+                </div>
+
+
               </div>
 
-              <div className="space-y-6 text-xs">
-                
-                {/* 1. Teacher's Comment */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-indigo-900 flex items-center gap-1.5">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>1. ความคิดเห็นของครูประจำชั้น</span>
-                    </h3>
-                    <span className="text-[11px] text-slate-400 print:hidden">
-                      (สามารถพิมพ์แก้ไขข้อความได้)
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <textarea
-                      value={teacherComment}
-                      onChange={(e) => setTeacherComment(e.target.value)}
-                      rows={4}
-                      className="w-full bg-white p-2.5 rounded-lg border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed print:border-none print:p-0 print:bg-transparent resize-none"
-                      placeholder="ระบุความคิดเห็นเกี่ยวกับพัฒนาการ การเรียน และพฤติกรรมของนักเรียน..."
-                    />
-                    
-                    <div className="mt-3 pt-3 border-t border-slate-200 flex justify-end">
-                      <div className="text-center w-64 space-y-1">
-                        <p className="text-slate-600">ลงชื่อ ..............................................................</p>
-                        <p className="font-bold text-slate-800">({advisorName})</p>
-                        <p className="text-slate-500 text-[10px]">ครูประจำชั้น</p>
-                      </div>
-                    </div>
-                  </div>
+              {/* Bottom Signatures: 2 Columns (Left: Teacher, Right: Parent) */}
+              <div className="pt-6 grid grid-cols-2 gap-8 text-xs text-center mt-4">
+                {/* ฝั่งซ้าย: ครูประจำชั้น */}
+                <div className="space-y-1">
+                  <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                  <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                  <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
+                  <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
 
-                {/* 2. Academic / Director's Comment */}
-                <div className="space-y-2">
-                  <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <Award className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>2. ความคิดเห็นของผู้บริหารสถานศึกษา</span>
-                  </h3>
-
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <p className="text-slate-800 leading-relaxed italic bg-white p-2.5 rounded-lg border border-slate-200 print:border-none print:p-0">
-                      "ผลการเรียนและการพัฒนาคุณภาพผู้เรียนเป็นไปตามเกณฑ์มาตรฐานการศึกษา ขอชื่นชมในความตั้งใจและความก้าวหน้าทางการเรียนรู้"
-                    </p>
-
-                    <div className="mt-3 pt-3 border-t border-slate-200 flex justify-end">
-                      <div className="text-center w-64 space-y-1">
-                        <p className="text-slate-600">ลงชื่อ ..............................................................</p>
-                        <p className="font-bold text-slate-800">({directorName})</p>
-                        <p className="text-slate-500 text-[10px]">ผู้อำนวยการโรงเรียน</p>
-                      </div>
-                    </div>
-                  </div>
+                {/* ฝั่งขวา: ผู้ปกครอง */}
+                <div className="space-y-1">
+                  <p className="text-slate-700">ลงชื่อ ..............................................................</p>
+                  <p className="font-bold text-slate-900">
+                    ({student.guardianName || student.fatherName || student.motherName || '......................................................'})
+                  </p>
+                  <p className="text-slate-600 font-semibold text-[11px]">ผู้ปกครองนักเรียน</p>
+                  <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
-
-                {/* 3. Parent's Comment & Acknowledgement */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-purple-900 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5" />
-                      <span>3. ความคิดเห็นและการรับทราบของผู้ปกครอง</span>
-                    </h3>
-                    <span className="text-[11px] text-slate-400 print:hidden">
-                      (สามารถพิมพ์แก้ไขข้อความได้)
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <textarea
-                      value={parentComment}
-                      onChange={(e) => setParentComment(e.target.value)}
-                      rows={3}
-                      className="w-full bg-white p-2.5 rounded-lg border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500 leading-relaxed print:border-none print:p-0 print:bg-transparent resize-none"
-                      placeholder="ระบุข้อคิดเห็น ข้อเสนอแนะ หรือความพึงพอใจต่อการเรียนและการพัฒนาของบุตรหลาน..."
-                    />
-
-                    <div className="mt-3 pt-3 border-t border-slate-200 flex justify-end">
-                      <div className="text-center w-64 space-y-1">
-                        <p className="text-slate-600">ลงชื่อ ..............................................................</p>
-                        <p className="font-bold text-slate-800">
-                          ({student.guardianName || student.fatherName || student.motherName || 'ผู้ปกครองนักเรียน'})
-                        </p>
-                        <p className="text-slate-500 text-[10px]">ผู้ปกครอง</p>
-                        <p className="text-slate-400 text-[9px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Save Comments Button (No-print) */}
-                <div className="flex justify-end gap-2 pt-2 print:hidden">
-                  <button
-                    type="button"
-                    onClick={handleSaveComments}
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    {isSavedComment ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    <span>{isSavedComment ? 'บันทึกสำเร็จ ✓' : 'บันทึกความคิดเห็น'}</span>
-                  </button>
-                </div>
-
               </div>
 
             </div>
@@ -1224,7 +2234,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
             >
               <Download className="w-4 h-4" />
-              <span>ดาวน์โหลด / พิมพ์ PDF</span>
+              <span>ดาวน์โหลด</span>
             </button>
           </div>
         </div>

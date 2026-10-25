@@ -12,19 +12,52 @@
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html, body {
+    width: 210mm;
+    height: auto;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    color: #111827 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .no-print {
     display: none !important;
   }
   .print-only {
     display: block !important;
   }
-  body {
-    background: white !important;
-    color: #111827 !important;
-    padding: 0 !important;
-  }
   .print-break-inside-avoid {
     break-inside: avoid;
+  }
+
+  .a4-pp6-page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    max-width: 210mm !important;
+    box-sizing: border-box !important;
+    margin: 0 auto !important;
+    padding: 12mm 15mm !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+  }
+
+  .a4-pp6-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 }
 

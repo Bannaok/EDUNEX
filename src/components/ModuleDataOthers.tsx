@@ -1,12 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Student, 
   Personnel, 
   SchoolInfo, 
   GradeLevel, 
   UserSession,
-  ParentsMaritalStatus
+  ParentsMaritalStatus,
+  AttendanceRecord
 } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   Users, 
   UserPlus, 
@@ -37,7 +39,10 @@ import {
   RotateCcw,
   FileCheck,
   MapPin,
-  GraduationCap
+  GraduationCap,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown
 } from 'lucide-react';
 
 export const RELIGION_OPTIONS = ['พุทธ', 'อิสลาม', 'คริสต์', 'พราหมณ์-ฮินดู', 'ซิกข์', 'ไม่มีศาสนา', 'อื่นๆ'];
@@ -160,6 +165,7 @@ export const DEFAULT_DUTY_SLOTS: DutyTimeSlot[] = [
 interface ModuleDataOthersProps {
   user: UserSession;
   students: Student[];
+  attendance?: AttendanceRecord[];
   personnel: Personnel[];
   schoolInfo: SchoolInfo;
   onSaveStudent: (student: Student) => void;
@@ -174,6 +180,7 @@ interface ModuleDataOthersProps {
 export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   user,
   students,
+  attendance = [],
   personnel,
   schoolInfo,
   onSaveStudent,
@@ -184,6 +191,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   onOpenLightbox,
   onShowToast
 }) => {
+  // Synchronize live student information and attendance records
+  const effectiveStudents = useMemo(() => {
+    const local = StorageService.getStudents();
+    return (local && local.length > 0) ? local : students;
+  }, [students]);
+
+  const effectiveAttendance = useMemo(() => {
+    const local = StorageService.getAttendance();
+    return (local && local.length > 0) ? local : (attendance || []);
+  }, [attendance]);
+
   const [activeSubTab, setActiveSubTab] = useState<'students' | 'personnel' | 'school' | 'leave' | 'duty'>('students');
 
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>(() => {
@@ -271,7 +289,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     } catch (e) {}
   }, [dutyLogs]);
 
-  const [dutyLogSubView, setDutyLogSubView] = useState<'fill' | 'history' | 'schedule'>('fill');
+  const [dutyLogSubView, setDutyLogSubView] = useState<'fill' | 'history'>('fill');
 
   // Duty Log Fill Form State
   const [dutyLogForm, setDutyLogForm] = useState<{
@@ -317,6 +335,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   }, [dutyLogs, dutyLogForm.dutyTeacherName, user.fullName]);
 
   const [previewDutyLog, setPreviewDutyLog] = useState<DailyDutyLog | null>(null);
+  const [previewAllDutyLogs, setPreviewAllDutyLogs] = useState(false);
+  const [isDutyCalendarModalOpen, setIsDutyCalendarModalOpen] = useState(false);
   const [editingSlotPopup, setEditingSlotPopup] = useState<{ index: number; time: string; description: string } | null>(null);
 
   // Time Slot Handlers
@@ -367,6 +387,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const handleSaveDutyLog = () => {
     if (!dutyLogForm.dutyTeacherName.trim()) {
       onShowToast('warning', 'กรุณาระบุชื่อครูเวร', 'กรุณากรอกชื่อครูเวรผู้ปฏิบัติหน้าที่');
+      return;
+    }
+    if (dutyActiveSchoolDays.length > 0 && !dutyActiveSchoolDayDatesSet.has(dutyLogForm.date)) {
+      onShowToast('warning', 'วันอื่นกดไม่ได้', 'วันที่เลือกไม่อยู่ในปฏิทิน 100 วันที่ Admin กำหนด');
       return;
     }
     const logId = dutyLogForm.id || `dlog-${Date.now()}`;
@@ -465,6 +489,148 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     note: ''
   });
   const [editingDutyId, setEditingDutyId] = useState<string | null>(null);
+
+  // Helper for formatting Thai date string
+  const formatThaiDate = (dateStr?: string) => {
+    const p = parseThaiDateParts(dateStr);
+    return `${p.day} ${p.month} ${p.year}`;
+  };
+
+  const getThaiDayName = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    const thaiDays = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
+    return isNaN(d.getTime()) ? 'วันจันทร์' : thaiDays[d.getDay()];
+  };
+
+  // 100-day Academic Calendar configuration defined by Admin (same source as Module3)
+  const attendanceConfigsByTerm = useMemo(() => StorageService.getAttendanceConfigsByTerm(), []);
+
+  const activeDutyTermKey = useMemo(() => {
+    return localStorage.getItem('ams_latest_attendance_term') || `${schoolInfo?.semester || '1'}_${schoolInfo?.academicYear || '2569'}`;
+  }, [schoolInfo?.semester, schoolInfo?.academicYear]);
+
+  const [activeDutySem, activeDutyYr] = useMemo(() => {
+    const parts = activeDutyTermKey.split('_');
+    return [parts[0] || schoolInfo?.semester || '1', parts[1] || schoolInfo?.academicYear || '2569'];
+  }, [activeDutyTermKey, schoolInfo?.semester, schoolInfo?.academicYear]);
+
+  // Active 100-day config based on what Admin selected
+  const activeDutyConfig = useMemo(() => {
+    const cfg = attendanceConfigsByTerm[activeDutyTermKey] || attendanceConfigsByTerm['1_2569'];
+    if (cfg && cfg.schoolDays && cfg.schoolDays.length > 0) {
+      return cfg;
+    }
+    // Default fallback Mon-Fri between term dates
+    const startStr = activeDutySem === '1' ? `${Number(activeDutyYr) - 543}-05-18` : `${Number(activeDutyYr) - 543}-11-02`;
+    const endStr = activeDutySem === '1' ? `${Number(activeDutyYr) - 543}-10-07` : `${Number(activeDutyYr) - 542}-03-31`;
+    const start = new Date(startStr + 'T00:00:00');
+    const end = new Date(endStr + 'T00:00:00');
+    const days: { date: string; dayOfWeek: string; isHoliday: boolean }[] = [];
+    const thaiDays = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+    let curr = new Date(start);
+    while (curr <= end) {
+      const dNum = curr.getDay();
+      const isWeekend = dNum === 0 || dNum === 6;
+      const yyyy = curr.getFullYear();
+      const mm = String(curr.getMonth() + 1).padStart(2, '0');
+      const dd = String(curr.getDate()).padStart(2, '0');
+      days.push({
+        date: `${yyyy}-${mm}-${dd}`,
+        dayOfWeek: thaiDays[dNum],
+        isHoliday: isWeekend
+      });
+      curr.setDate(curr.getDate() + 1);
+    }
+    return {
+      academicYear: activeDutyYr,
+      semester: activeDutySem as '1' | '2',
+      startDate: startStr,
+      endDate: endStr,
+      targetDays: 100,
+      schoolDays: days
+    };
+  }, [activeDutyTermKey, attendanceConfigsByTerm, activeDutySem, activeDutyYr]);
+
+  const dutyActiveSchoolDays = useMemo(() => {
+    return (activeDutyConfig?.schoolDays || []).filter(d => !d.isHoliday);
+  }, [activeDutyConfig]);
+
+  const dutyActiveSchoolDayDatesSet = useMemo(() => {
+    return new Set(dutyActiveSchoolDays.map(d => d.date));
+  }, [dutyActiveSchoolDays]);
+
+  // Ensure dutyLogForm.date is always restricted to a valid 100-day date
+  useEffect(() => {
+    if (dutyActiveSchoolDays.length > 0 && !dutyActiveSchoolDayDatesSet.has(dutyLogForm.date)) {
+      const today = new Date().toISOString().split('T')[0];
+      const validDate = dutyActiveSchoolDayDatesSet.has(today) ? today : dutyActiveSchoolDays[0].date;
+      setDutyLogForm(prev => ({ ...prev, date: validDate }));
+    }
+  }, [dutyActiveSchoolDays, dutyActiveSchoolDayDatesSet, dutyLogForm.date]);
+
+  // Calendar View Month & Year for duty 100-day calendar
+  const [dutyCalMonth, setDutyCalMonth] = useState<number>(() => {
+    if (dutyActiveSchoolDays.length > 0) {
+      const d = new Date(dutyActiveSchoolDays[0].date);
+      return isNaN(d.getTime()) ? 4 : d.getMonth();
+    }
+    return new Date().getMonth();
+  });
+
+  const [dutyCalYear, setDutyCalYear] = useState<number>(() => {
+    if (dutyActiveSchoolDays.length > 0) {
+      const d = new Date(dutyActiveSchoolDays[0].date);
+      return isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
+    }
+    return new Date().getFullYear();
+  });
+
+  const [selectedDutyCalendarDate, setSelectedDutyCalendarDate] = useState<string>(() => {
+    const today = new Date().toISOString().split('T')[0];
+    if (dutyActiveSchoolDayDatesSet.has(today)) return today;
+    return dutyActiveSchoolDays[0]?.date || today;
+  });
+
+  // Calendar available months from active 100 school days (exact same format as Module3)
+  const dutyCalendarAvailableMonths = useMemo(() => {
+    const map = new Map<string, { year: number; month: number; name: string }>();
+    dutyActiveSchoolDays.forEach(d => {
+      const parts = d.date.split('-');
+      if (parts.length === 3) {
+        const y = Number(parts[0]);
+        const m = Number(parts[1]) - 1;
+        const key = `${y}-${m}`;
+        if (!map.has(key)) {
+          const thaiMonthShort = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'][m];
+          const thaiYearShort = String((y + 543) % 100).padStart(2, '0');
+          map.set(key, { year: y, month: m, name: `${thaiMonthShort} ${thaiYearShort}` });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [dutyActiveSchoolDays]);
+
+  // Calendar cells generation for dutyCalYear & dutyCalMonth
+  const dutyCalendarCells = useMemo(() => {
+    const firstDayOfWeek = new Date(dutyCalYear, dutyCalMonth, 1).getDay();
+    const daysInMonth = new Date(dutyCalYear, dutyCalMonth + 1, 0).getDate();
+    const cells: { dateStr: string; dayNum: number; isSchoolDay: boolean; isCurrentMonth: boolean }[] = [];
+
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      cells.push({ dateStr: '', dayNum: 0, isSchoolDay: false, isCurrentMonth: false });
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const yyyy = dutyCalYear;
+      const mm = String(dutyCalMonth + 1).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      const dateStr = `${yyyy}-${mm}-${dd}`;
+      const isSchoolDay = dutyActiveSchoolDayDatesSet.has(dateStr);
+      cells.push({ dateStr, dayNum: day, isSchoolDay, isCurrentMonth: true });
+    }
+
+    return cells;
+  }, [dutyCalYear, dutyCalMonth, dutyActiveSchoolDayDatesSet]);
 
   // Student filtering
   const [gradeCategory, setGradeCategory] = useState<'primary' | 'secondary'>('primary');
@@ -1617,15 +1783,19 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ชื่อสถานศึกษา (School Name)
+                  ชื่อสถานศึกษา / ชื่อโรงเรียน (School Name) *
                 </label>
                 <input
                   type="text"
                   disabled={user.role !== 'admin'}
                   value={editingSchoolInfo.schoolName}
                   onChange={(e) => setEditingSchoolInfo({ ...editingSchoolInfo, schoolName: e.target.value })}
-                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
+                  placeholder="เช่น บ้านนาออก"
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-semibold"
                 />
+                <p className="text-[11px] text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 rounded-xl px-2.5 py-1.5 mt-1.5 leading-normal">
+                  💡 <strong>คำแนะนำ:</strong> ให้ใส่เฉพาะชื่อโรงเรียน ไม่ต้องใส่คำว่า "โรงเรียน" (เช่น ใส่คำว่า <strong>บ้านนาออก</strong> ระบบจะแสดงผลเป็น <strong>โรงเรียนบ้านนาออก</strong> โดยอัตโนมัติ)
+                </p>
               </div>
 
               <div>
@@ -3699,11 +3869,11 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         <div className="space-y-4 animate-in fade-in duration-150">
           {/* Top Bar with View Mode Switcher */}
           <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setDutyLogSubView('fill')}
-                className={`w-full sm:w-auto h-10 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`w-full sm:w-auto h-10 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   dutyLogSubView === 'fill'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200/70 border border-slate-200/80'
@@ -3715,7 +3885,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               <button
                 type="button"
                 onClick={() => setDutyLogSubView('history')}
-                className={`w-full sm:w-auto h-10 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                className={`w-full sm:w-auto h-10 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                   dutyLogSubView === 'history'
                     ? 'bg-blue-600 text-white shadow-sm'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200/70 border border-slate-200/80'
@@ -3724,14 +3894,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 <FileText className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate">ประวัติรายงาน ({dutyLogs.length})</span>
               </button>
-
             </div>
+
 
           </div>
 
           {/* VIEW 1: DIRECT DUTY LOG FORM */}
           {dutyLogSubView === 'fill' && (
-            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-5 space-y-3.5 animate-in fade-in duration-150">
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
               {/* Form Title & Overview Banner */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
                 <div className="flex items-center gap-2.5">
@@ -3746,23 +3916,45 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 </div>
               </div>
 
-              {/* General Information Grid - Compact & Narrow Date */}
-              <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200/80">
-                <div className="w-full sm:w-auto shrink-0">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    วันที่ปฏิบัติหน้าที่ *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={dutyLogForm.date}
-                    onChange={(e) => setDutyLogForm({ ...dutyLogForm, date: e.target.value })}
-                    className="w-full sm:w-36 text-xs font-bold text-slate-800 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
-                  />
+              {/* General Information Grid - Compact Date Button & Duty Teacher */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-slate-50/90 p-3.5 rounded-2xl border border-slate-200/90">
+                {/* Compact Date Selection Button */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-700 truncate">
+                      วันที่ปฏิบัติหน้าที่ (ปฏิทิน 100 วัน) *
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsDutyCalendarModalOpen(true)}
+                    className="w-full bg-white hover:bg-sky-50/80 border border-slate-200 hover:border-sky-300 p-2 rounded-xl flex items-center justify-between gap-2 transition-all cursor-pointer shadow-2xs group text-left"
+                    title="กดเพื่อเปิดปฏิทิน 100 วันสำหรับเลือกวันที่"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold shrink-0 group-hover:scale-105 transition-transform">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate">
+                          {getThaiDayName(dutyLogForm.date)}ที่ {formatThaiDate(dutyLogForm.date)}
+                        </div>
+                        <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                          <span>วันเปิดเรียน 100 วันตาม Admin กำหนด</span>
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white rounded-lg text-[11px] font-bold shrink-0 flex items-center gap-1 shadow-2xs transition-all">
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>เลือกปฏิทิน 100 วัน</span>
+                    </span>
+                  </button>
                 </div>
 
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                {/* Duty Teacher Input */}
+                <div className="flex-1 min-w-0">
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 truncate">
                     ครูเวรผู้ปฏิบัติหน้าที่ *
                   </label>
                   <div className="flex items-center gap-1.5">
@@ -3772,14 +3964,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       value={dutyLogForm.dutyTeacherName}
                       onChange={(e) => setDutyLogForm({ ...dutyLogForm, dutyTeacherName: e.target.value })}
                       placeholder="ระบุชื่อ-นามสกุล ครูเวร..."
-                      className="w-full text-xs font-bold text-slate-800 bg-white px-3 py-1.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
+                      className="w-full text-xs font-bold text-slate-800 bg-white px-3 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
                     />
                     <select
                       value=""
                       onChange={(e) => {
                         if (e.target.value) setDutyLogForm({ ...dutyLogForm, dutyTeacherName: e.target.value });
                       }}
-                      className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1.5 rounded-xl border border-slate-300 text-xs focus:outline-none cursor-pointer"
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none cursor-pointer shrink-0"
                       title="เลือกจากรายชื่อบุคลากร"
                     >
                       <option value="">เลือกบุคลากร...</option>
@@ -3790,42 +3982,27 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       ))}
                     </select>
                   </div>
-                </div>
-
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                    จุดปฏิบัติหน้าที่หลัก
-                  </label>
-                  <div className="space-y-1">
-                    <input
-                      type="text"
-                      list="duty-location-history-list"
-                      value={dutyLogForm.location}
-                      onChange={(e) => setDutyLogForm({ ...dutyLogForm, location: e.target.value })}
-                      placeholder="เช่น หน้าประตูโรงเรียน / อาคารเรียน 1"
-                      className="w-full text-xs font-semibold text-slate-800 bg-white px-3 py-1.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
-                    />
-                    <datalist id="duty-location-history-list">
-                      {userLocationHistory.map((loc, idx) => (
-                        <option key={idx} value={loc} />
-                      ))}
-                    </datalist>
-                    {userLocationHistory.length > 0 && (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-[10px] text-slate-500 font-semibold">ประวัติ:</span>
-                        {userLocationHistory.map((loc, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setDutyLogForm(prev => ({ ...prev, location: loc }))}
-                            className="px-1.5 py-0.5 bg-white hover:bg-blue-100 text-slate-700 hover:text-blue-900 border border-slate-200 hover:border-blue-300 rounded-md text-[10px] font-medium transition-colors cursor-pointer shadow-2xs"
-                          >
-                            {loc}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  {(() => {
+                    const thaiDayName = getThaiDayName(dutyLogForm.date);
+                    const assigned = dutyAssignments.find(a => a.dayOfWeek === thaiDayName);
+                    if (assigned && assigned.teacherNames) {
+                      return (
+                        <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                          <span>ครูเวรตามคำสั่ง ({thaiDayName}): <strong className="text-blue-700">{assigned.teacherNames}</strong></span>
+                          {!dutyLogForm.dutyTeacherName && (
+                            <button
+                              type="button"
+                              onClick={() => setDutyLogForm(prev => ({ ...prev, dutyTeacherName: assigned.teacherNames }))}
+                              className="text-blue-600 hover:underline font-bold"
+                            >
+                              (ใช้ชื่อนี้)
+                            </button>
+                          )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               </div>
 
@@ -3991,14 +4168,31 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   <FileText className="w-4 h-4 text-blue-600" />
                   <span>ประวัติรายงานการปฏิบัติหน้าที่ครูเวรประจำวัน ({dutyLogs.length} รายการ)</span>
                 </h3>
-                <button
-                  type="button"
-                  onClick={() => setDutyLogSubView('fill')}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ กรอกรายงานเวรใหม่</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (dutyLogs.length === 0) {
+                        onShowToast('warning', 'ไม่มีข้อมูลรายงาน', 'ยังไม่มีประวัติรายงานการปฏิบัติหน้าที่ครูเวรสำหรับดาวน์โหลดทั้งหมด');
+                        return;
+                      }
+                      setPreviewAllDutyLogs(true);
+                      onShowToast('info', 'แสดงตัวอย่างรายงาน', 'เปิดหน้าตัวอย่างรายงานครูเวรทั้งหมดก่อนดาวน์โหลด/พิมพ์');
+                    }}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>ดาวน์โหลดทั้งหมด</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDutyLogSubView('fill')}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ กรอกรายงานเวรใหม่</span>
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -4036,10 +4230,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                                 type="button"
                                 onClick={() => setPreviewDutyLog(log)}
                                 className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                                title="ดู/พิมพ์รายงาน A4"
+                                title="ดาวน์โหลดรายงาน A4"
                               >
-                                <Printer className="w-4 h-4 shrink-0" />
-                                <span>ตัวอย่าง / พิมพ์รายงาน A4</span>
+                                <Download className="w-4 h-4 shrink-0" />
+                                <span>ดาวน์โหลด</span>
                               </button>
                               <button
                                 type="button"
@@ -4086,127 +4280,194 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             </div>
           )}
 
-          {/* VIEW 3: WEEKLY DUTY ROSTER SCHEDULE */}
-          {dutyLogSubView === 'schedule' && (
-            <div className="space-y-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between flex-wrap gap-3">
+
+        </div>
+      )}
+
+      {/* MODAL: 100-DAY DUTY CALENDAR PICKER */}
+      {isDutyCalendarModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-3.5 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold shrink-0 border border-sky-200/80 shadow-2xs">
+                  <Calendar className="w-5 h-5" />
+                </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-emerald-600" />
-                    <span>ตารางเวรปฏิบัติหน้าที่ประจำวันและเวรยามรักษาความปลอดภัย</span>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    เลือกวันที่ปฏิบัติหน้าที่ (ปฏิทิน 100 วัน)
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    กำหนดและตรวจสอบตารางครูเวรประจำวัน เวรโภชนาการ และเวรยามโรงเรียน
+                  <p className="text-[11px] text-slate-500">
+                    เลือกวันเปิดเรียน 100 วันที่ Admin กำหนด (ภาคเรียนที่ {activeDutySem}/{activeDutyYr})
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.print();
-                      onShowToast('success', 'ดาวน์โหลด PDF', 'พิมพ์/บันทึกตารางครูเวรเป็น PDF เรียบร้อยแล้ว');
-                    }}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>พิมพ์ตารางเวร</span>
-                  </button>
-                  {user.role === 'admin' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingDutyId(null);
-                        setDutyForm({
-                          id: 'duty-' + Date.now(),
-                          dayOfWeek: 'วันจันทร์',
-                          teacherNames: '',
-                          dutyType: 'ครูเวรประจำวัน',
-                          location: 'หน้าประตูโรงเรียน / อาคาร 1',
-                          note: ''
-                        });
-                        setIsDutyModalOpen(true);
-                      }}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
-                    >
-                      <Users className="w-3.5 h-3.5" />
-                      <span>+ กำหนดครูเวร</span>
-                    </button>
-                  )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDutyCalendarModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Monthly Calendar View */}
+            <div className="space-y-2.5">
+              {/* Month Navigation & Title */}
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dutyCalMonth === 0) {
+                      setDutyCalMonth(11);
+                      setDutyCalYear(y => y - 1);
+                    } else {
+                      setDutyCalMonth(m => m - 1);
+                    }
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                  title="เดือนก่อนหน้า"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="text-center font-bold text-sm text-slate-800">
+                  {THAI_MONTHS_NAMES[dutyCalMonth]} {dutyCalYear + 543}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (dutyCalMonth === 11) {
+                      setDutyCalMonth(0);
+                      setDutyCalYear(y => y + 1);
+                    } else {
+                      setDutyCalMonth(m => m + 1);
+                    }
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                  title="เดือนถัดไป"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
-                        <th className="py-3 px-4 w-36">วันประจำสัปดาห์</th>
-                        <th className="py-3 px-3 w-40 text-center">ประเภทเวร</th>
-                        <th className="py-3 px-4">รายชื่อคุณครูเวรปฏิบัติหน้าที่</th>
-                        <th className="py-3 px-4">จุดปฏิบัติหน้าที่</th>
-                        <th className="py-3 px-4">หมายเหตุ / คำสั่ง</th>
-                        {user.role === 'admin' && <th className="py-3 px-3 text-right">จัดการ</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {dutyAssignments.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="py-8 text-center text-slate-400">
-                            ยังไม่มีข้อมูลตารางครูเวรประจำวัน
-                          </td>
-                        </tr>
-                      ) : (
-                        dutyAssignments.map((duty) => (
-                          <tr key={duty.id} className="hover:bg-blue-50/30 transition-colors">
-                            <td className="py-3 px-4 font-bold text-slate-800">{duty.dayOfWeek}</td>
-                            <td className="py-3 px-3 text-center">
-                              <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-md font-semibold text-[11px] border border-emerald-200">
-                                {duty.dutyType}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 font-bold text-blue-800">{duty.teacherNames}</td>
-                            <td className="py-3 px-4 text-slate-700">{duty.location}</td>
-                            <td className="py-3 px-4 text-slate-500">{duty.note || '-'}</td>
-                            {user.role === 'admin' && (
-                              <td className="py-3 px-3 text-right whitespace-nowrap">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingDutyId(duty.id);
-                                      setDutyForm(duty);
-                                      setIsDutyModalOpen(true);
-                                    }}
-                                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer"
-                                    title="แก้ไขเวร"
-                                  >
-                                    <Edit className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (confirm('คุณต้องการลบรายการเวรนี้ใช่หรือไม่?')) {
-                                        setDutyAssignments(prev => prev.filter(d => d.id !== duty.id));
-                                        onShowToast('info', 'ลบสำเร็จ', 'ลบตารางเวรออกจากระบบแล้ว');
-                                      }
-                                    }}
-                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                                    title="ลบเวร"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+              {/* Quick Month Switcher Pills */}
+              {dutyCalendarAvailableMonths.length > 0 && (
+                <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-100 scrollbar-none">
+                  {dutyCalendarAvailableMonths.map(item => (
+                    <button
+                      key={`${item.year}-${item.month}`}
+                      type="button"
+                      onClick={() => {
+                        setDutyCalMonth(item.month);
+                        setDutyCalYear(item.year);
+                      }}
+                      className={`text-[10px] px-2.5 py-0.5 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
+                        dutyCalMonth === item.month && dutyCalYear === item.year
+                          ? 'bg-sky-600 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Days of Week Header */}
+              <div className="grid grid-cols-7 gap-1 text-center py-1 text-[11px] font-bold text-slate-400 border-b border-slate-100">
+                <span className="text-rose-500">อา</span>
+                <span>จ</span>
+                <span>อ</span>
+                <span>พ</span>
+                <span>พฤ</span>
+                <span>ศ</span>
+                <span className="text-rose-500">ส</span>
+              </div>
+
+              {/* Month Grid Cells: ONLY 100 days clickable */}
+              <div className="grid grid-cols-7 gap-1">
+                {dutyCalendarCells.map((cell, idx) => {
+                  if (!cell.isCurrentMonth) {
+                    return <div key={`empty-${idx}`} className="h-9 w-full" />;
+                  }
+
+                  const isSelected = cell.dateStr === dutyLogForm.date;
+                  const isRecorded = dutyLogs.some(l => l.date === cell.dateStr);
+
+                  if (cell.isSchoolDay) {
+                    return (
+                      <button
+                        key={cell.dateStr}
+                        type="button"
+                        onClick={() => {
+                          const dayName = getThaiDayName(cell.dateStr);
+                          const assigned = dutyAssignments.find(a => a.dayOfWeek === dayName);
+                          setDutyLogForm(prev => ({
+                            ...prev,
+                            date: cell.dateStr,
+                            dutyTeacherName: prev.dutyTeacherName || assigned?.teacherNames || ''
+                          }));
+                          setIsDutyCalendarModalOpen(false);
+                          onShowToast('success', 'เลือกวันที่สำเร็จ', `เลือกวันที่ ${formatThaiDate(cell.dateStr)} เรียบร้อยแล้ว`);
+                        }}
+                        className={`h-9 w-full rounded-xl text-xs font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white ring-2 ring-blue-300 shadow-sm scale-105 z-10'
+                            : isRecorded
+                            ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200'
+                        }`}
+                        title={`วันเปิดเรียน 100 วัน: ${formatThaiDate(cell.dateStr)} ${isRecorded ? '(บันทึกรายงานแล้ว)' : ''}`}
+                      >
+                        <span className="leading-tight">{cell.dayNum}</span>
+                        {isRecorded && (
+                          <span className={`w-1.5 h-1.5 rounded-full mt-0.5 shrink-0 ${isSelected ? 'bg-white' : 'bg-emerald-600'}`} />
+                        )}
+                      </button>
+                    );
+                  } else {
+                    // วันหยุด / นอกปฏิทิน 100 วัน: วันอื่นกดไม่ได้
+                    return (
+                      <button
+                        key={cell.dateStr}
+                        type="button"
+                        disabled
+                        className="h-9 w-full rounded-xl text-xs font-mono font-normal flex flex-col items-center justify-center bg-slate-100/60 text-slate-300 border border-slate-200/40 cursor-not-allowed opacity-40 select-none"
+                        title="วันหยุด / นอกปฏิทิน 100 วัน (กดไม่ได้)"
+                      >
+                        <span className="leading-tight">{cell.dayNum}</span>
+                      </button>
+                    );
+                  }
+                })}
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-[10px] text-slate-500 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-md bg-blue-600" />
+                    <span>วันที่เลือก</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-md bg-sky-100 border border-sky-300" />
+                    <span>วันเปิดเรียน (กดได้)</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-md bg-emerald-100 border border-emerald-300" />
+                    <span>บันทึกแล้ว</span>
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-md bg-slate-100 border border-slate-200" />
+                    <span>วันอื่น (กดไม่ได้)</span>
+                  </span>
                 </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       )}
 
@@ -4485,6 +4746,11 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const officerName = previewLeave.personnelOfficer || 'เจ้าหน้าที่งานบุคลากร';
         const directorName = previewLeave.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน';
 
+        const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
+        const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
+          ? rawSchoolName
+          : `โรงเรียน${rawSchoolName}`;
+
         const startDateThai = `${startDateParts.day} ${startDateParts.month} พ.ศ. ${startDateParts.year}`;
         const endDateThai = `${endDateParts.day} ${endDateParts.month} พ.ศ. ${endDateParts.year}`;
         const createdDateThai = `${createdDate.day} ${createdDate.month} พ.ศ. ${createdDate.year}`;
@@ -4493,64 +4759,87 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
             <style dangerouslySetInnerHTML={{ __html: `
-              @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+              @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
 
               @page {
                 size: A4 portrait;
-                margin: 8mm 12mm;
+                margin: 0;
               }
 
               #leave-official-a4-print, #leave-official-a4-print * {
                 font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
-                box-sizing: border-box;
+                box-sizing: border-box !important;
               }
 
               @media print {
+                html, body {
+                  width: 210mm !important;
+                  height: 297mm !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  background: white !important;
+                  -webkit-print-color-adjust: exact !important;
+                  print-color-adjust: exact !important;
+                }
+
                 body * {
                   visibility: hidden !important;
                 }
+
                 #leave-official-a4-print, #leave-official-a4-print * {
                   visibility: visible !important;
                 }
+
                 #leave-official-a4-print {
                   position: absolute !important;
                   left: 0 !important;
                   top: 0 !important;
-                  width: 100% !important;
-                  max-width: 100% !important;
-                  height: auto !important;
+                  width: 210mm !important;
+                  min-width: 210mm !important;
+                  max-width: 210mm !important;
+                  height: 297mm !important;
+                  min-height: 297mm !important;
+                  max-height: 297mm !important;
                   margin: 0 !important;
-                  padding: 4mm 8mm !important;
+                  padding: 12mm 15mm 10mm 15mm !important;
                   border: none !important;
                   box-shadow: none !important;
                   background: white !important;
                   z-index: 999999 !important;
-                  font-family: 'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif !important;
-                  font-size: 16pt !important;
-                  line-height: 1.35 !important;
+                  box-sizing: border-box !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  justify-content: space-between !important;
                   page-break-inside: avoid !important;
                   page-break-after: avoid !important;
+                  break-inside: avoid !important;
+                  break-after: avoid !important;
+                  overflow: hidden !important;
                 }
+
                 #leave-official-a4-print h1 {
                   font-size: 18pt !important;
                   font-weight: 700 !important;
                 }
+
                 .no-print {
                   display: none !important;
                 }
               }
             `}} />
-
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-5xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
               {/* Top Action Bar */}
               <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
                     <FileText className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-800">ตัวอย่างแบบใบลา (ขนาด A4 ตามแบบราชการ)</h3>
-                    <p className="text-xs text-slate-500">จัดรูปแบบตรงตามแบบมาตรฐานราชการ พอดีหน้ากระดาษ A4 1 หน้า</p>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-800">ตัวอย่างแบบใบลา (หน้ากระดาษ A4 แนวตั้ง ขนาด 210 × 297 มม.)</h3>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">ขนาดจริง 1:1</span>
+                    </div>
+                    <p className="text-xs text-slate-500">จำลองหน้ากระดาษ A4 แนวตั้งมาตรฐานราชการจริง เมื่อพิมพ์หรือบันทึก PDF จะได้ขนาด 1 หน้าพอดี</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -4558,13 +4847,12 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     type="button"
                     onClick={() => {
                       window.print();
-                      onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบใบลาเป็นไฟล์ PDF');
+                      onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบใบลาเป็นไฟล์ PDF (ขนาด A4 แนวตั้ง)');
                     }}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
                   >
-                    <Download className="w-4 h-4" />
                     <Printer className="w-4 h-4" />
-                    <span>ดาวน์โหลด / พิมพ์แบบใบลา</span>
+                    <span>พิมพ์ / บันทึก PDF (A4)</span>
                   </button>
                   <button
                     type="button"
@@ -4577,277 +4865,297 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               </div>
 
               {/* Scrollable A4 Document View */}
-              <div className="p-4 sm:p-6 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
+              <div className="p-4 sm:p-8 overflow-auto bg-slate-300/80 flex justify-center flex-1">
                 <div
                   id="leave-official-a4-print"
-                  className="bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-black leading-[1.35] text-[16px] flex flex-col justify-between font-normal"
-                  style={{ fontFamily: "'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif", fontSize: '16px', lineHeight: '1.35' }}
+                  className="bg-white shadow-2xl border border-slate-300 text-black flex flex-col justify-between shrink-0 mx-auto box-border"
+                  style={{
+                    fontFamily: "'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif",
+                    width: '210mm',
+                    minHeight: '297mm',
+                    height: '297mm',
+                    padding: '12mm 15mm 10mm 15mm',
+                    fontSize: '14.5pt',
+                    lineHeight: '1.25',
+                    boxSizing: 'border-box'
+                  }}
                 >
-                  <div>
-                    {/* Form Title (18pt / 18px font-bold) */}
-                    <h1 className="text-center font-bold text-[18px] text-black tracking-normal mb-3">
+                  {/* Top Portion: Official Leave Letter Body */}
+                  <div className="space-y-1">
+                    {/* Form Title */}
+                    <h1 className="text-center font-bold text-[18pt] text-black tracking-normal mb-1.5">
                       แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว
                     </h1>
 
-                    {/* Date & Location (Right indented matching reference image) */}
-                    <div className="mb-3 flex flex-col items-end pr-2 font-normal">
-                      <div className="flex items-baseline gap-1 w-[320px]">
+                    {/* Date & Location (Right indented) */}
+                    <div className="mb-1.5 flex flex-col items-end pr-2 font-normal text-[14.5pt]">
+                      <div className="flex items-baseline gap-1 w-[310px]">
                         <span className="shrink-0">เขียนที่</span>
-                        <span className="border-b border-dotted border-black flex-1 text-center font-normal px-2">
-                          {schoolInfo.schoolName || 'โรงเรียนศึกษาพัฒนา'}
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 text-center font-normal px-2 pb-0 leading-none">
+                          {formattedSchoolName}
                         </span>
                       </div>
-                      <div className="flex items-baseline gap-1 w-[400px] mt-1.5 font-normal">
+                      <div className="flex items-baseline gap-1 w-[380px] mt-1 font-normal">
                         <span className="shrink-0">วันที่</span>
-                        <span className="border-b border-dotted border-black min-w-[36px] text-center font-normal px-2 ml-1">
-                          {createdDate.day}
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[38px] text-center font-normal px-1 pb-0 leading-none ml-1">
+                          {createdDate.day || '\u00A0'}
                         </span>
-                        <span className="shrink-0 ml-2">เดือน</span>
-                        <span className="border-b border-dotted border-black min-w-[95px] text-center font-normal px-3 ml-1">
-                          {createdDate.month}
+                        <span className="shrink-0 ml-1.5">เดือน</span>
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[100px] text-center font-normal px-2 pb-0 leading-none ml-1">
+                          {createdDate.month || '\u00A0'}
                         </span>
-                        <span className="shrink-0 ml-2">พ.ศ.</span>
-                        <span className="border-b border-dotted border-black min-w-[55px] text-center font-normal px-2 ml-1">
-                          {createdDate.year}
+                        <span className="shrink-0 ml-1.5">พ.ศ.</span>
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[60px] text-center font-normal px-1 pb-0 leading-none ml-1">
+                          {createdDate.year || '\u00A0'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Subject & Recipient (Bold on เรื่อง, เรียน) */}
-                    <div className="space-y-1 mb-2.5 font-normal">
+                    {/* Subject & Recipient */}
+                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
                       <div className="flex items-baseline">
                         <span className="font-bold w-14 shrink-0">เรื่อง</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[300px] font-normal ml-1">
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
                           {isPersonal ? 'ขอลากิจส่วนตัว' : isSick ? 'ขอลาป่วย' : isMaternity ? 'ขอลาคลอดบุตร' : `ขอ${previewLeave.leaveType}`}
                         </span>
                       </div>
                       <div className="flex items-baseline">
                         <span className="font-bold w-14 shrink-0">เรียน</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[300px] font-normal ml-1">
-                          ผู้อำนวยการ{schoolInfo.schoolName || 'โรงเรียนศึกษาพัฒนา'}
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
+                          ผู้อำนวยการ{formattedSchoolName}
                         </span>
                       </div>
                     </div>
 
-                    {/* Applicant Information (font-normal) */}
-                    <div className="space-y-1 mb-2 font-normal">
+                    {/* Applicant Information */}
+                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
                       <div className="flex items-baseline">
-                        <span className="inline-block w-14"></span>
+                        <span className="inline-block w-12 shrink-0"></span>
                         <span className="shrink-0">ข้าพเจ้า</span>
-                        <span className="border-b border-dotted border-black px-3 min-w-[220px] text-center font-normal ml-3">
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 text-center font-normal ml-2 pb-0 leading-none">
                           {previewLeave.teacherName}
                         </span>
-                        <span className="shrink-0 ml-5">ตำแหน่ง</span>
-                        <span className="border-b border-dotted border-black px-3 min-w-[180px] text-center font-normal ml-3">
+                        <span className="shrink-0 ml-3">ตำแหน่ง</span>
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[190px] text-center font-normal ml-2 pb-0 leading-none">
                           {teacherPosition}
                         </span>
                       </div>
                       <div className="flex items-baseline">
                         <span className="shrink-0">สังกัด</span>
-                        <span className="border-b border-dotted border-black px-3 min-w-[380px] font-normal ml-3">
-                          {schoolInfo.affiliation || schoolInfo.schoolName || 'สพป. บ้านครูดา'}
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none">
+                          {schoolInfo.affiliation || formattedSchoolName || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Checkboxes with reasons (font-normal) */}
-                    <div className="space-y-1 mb-2 font-normal">
+                    {/* Checkboxes with reasons */}
+                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
                       <div className="flex items-baseline">
                         <span className="shrink-0">ขอลา</span>
-                        <span className="font-mono text-base ml-2 shrink-0">( {isSick ? '✓' : ' '} )</span>
-                        <span className="ml-1 shrink-0">ป่วย เนื่องจาก</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[440px] font-normal ml-2">
-                          {isSick ? previewLeave.reason : ''}
+                        <span className="font-mono text-[15pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
+                        <span className="ml-1.5 shrink-0">ป่วย เนื่องจาก</span>
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                          {isSick ? previewLeave.reason : '\u00A0'}
                         </span>
                       </div>
-                      <div className="flex items-baseline pl-10">
-                        <span className="font-mono text-base shrink-0">( {isPersonal ? '✓' : ' '} )</span>
-                        <span className="ml-1 shrink-0">กิจส่วนตัว เนื่องจาก</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[440px] font-normal ml-2">
-                          {isPersonal ? previewLeave.reason : ''}
+                      <div className="flex items-baseline pl-8">
+                        <span className="font-mono text-[15pt] shrink-0 font-normal">({isPersonal ? ' ✓ ' : '   '})</span>
+                        <span className="ml-1.5 shrink-0">กิจส่วนตัว เนื่องจาก</span>
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                          {isPersonal ? previewLeave.reason : '\u00A0'}
                         </span>
                       </div>
-                      <div className="flex items-baseline pl-10">
-                        <span className="font-mono text-base shrink-0">( {isMaternity ? '✓' : ' '} )</span>
-                        <span className="ml-1 shrink-0">คลอดบุตร</span>
-                        {isMaternity && previewLeave.reason && (
+                      <div className="flex items-baseline pl-8">
+                        <span className="font-mono text-[15pt] shrink-0 font-normal">({isMaternity ? ' ✓ ' : '   '})</span>
+                        <span className="ml-1.5 shrink-0">คลอดบุตร</span>
+                        {isMaternity && previewLeave.reason ? (
                           <>
                             <span className="ml-2 shrink-0">เนื่องจาก</span>
-                            <span className="border-b border-dotted border-black px-2 min-w-[360px] font-normal ml-2">
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                               {previewLeave.reason}
                             </span>
                           </>
+                        ) : (
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">&nbsp;</span>
                         )}
                       </div>
                       {isOther && (
-                        <div className="flex items-baseline pl-10">
-                          <span className="font-mono text-base shrink-0">( ✓ )</span>
-                          <span className="ml-1 shrink-0">{previewLeave.leaveType} เนื่องจาก</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[360px] font-normal ml-2">
+                        <div className="flex items-baseline pl-8">
+                          <span className="font-mono text-[15pt] shrink-0 font-normal">( ✓ )</span>
+                          <span className="ml-1.5 shrink-0">{previewLeave.leaveType} เนื่องจาก</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                             {previewLeave.reason}
                           </span>
                         </div>
                       )}
                     </div>
 
-                    {/* Leave Dates & Duration (font-normal) */}
-                    <div className="mb-2 flex items-baseline font-normal">
+                    {/* Leave Dates & Duration */}
+                    <div className="mb-1.5 flex items-baseline font-normal text-[14.5pt]">
                       <span className="shrink-0">ตั้งแต่วันที่</span>
-                      <span className="border-b border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1">
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal ml-1 pb-0 leading-none">
                         {startDateThai}
                       </span>
                       <span className="shrink-0 ml-2">ถึงวันที่</span>
-                      <span className="border-b border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1">
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal ml-1 pb-0 leading-none">
                         {endDateThai}
                       </span>
                       <span className="shrink-0 ml-2">มีกำหนด</span>
-                      <span className="border-b border-dotted border-black px-2 min-w-[70px] text-center font-normal ml-1">
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
                         {leaveDays}
                       </span>
-                      <span className="shrink-0 ml-4">วัน</span>
+                      <span className="shrink-0 ml-2">วัน</span>
                     </div>
 
-                    {/* Previous Leave History (ticked personal leave & font-normal) */}
-                    <div className="space-y-1 mb-2 font-normal">
-                      <div className="flex items-baseline gap-2 font-normal">
+                    {/* Previous Leave History */}
+                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
+                      <div className="flex items-baseline gap-2 font-normal flex-wrap">
                         <span>ข้าพเจ้าได้ลา</span>
-                        <span className="font-mono text-base">( {isSick || lastLeaveSick ? '✓' : ' '} ) ป่วย</span>
-                        <span className="font-mono text-base">( {isPersonal || lastLeavePersonal ? '✓' : ' '} ) กิจส่วนตัว</span>
-                        <span className="font-mono text-base">( {isMaternity || lastLeaveMaternity ? '✓' : ' '} ) คลอดบุตร</span>
+                        <span className="font-mono text-[15pt] font-normal">({isSick || lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
+                        <span className="font-mono text-[15pt] font-normal">({isPersonal || lastLeavePersonal ? ' ✓ ' : '   '}) กิจส่วนตัว</span>
+                        <span className="font-mono text-[15pt] font-normal">({isMaternity || lastLeaveMaternity ? ' ✓ ' : '   '}) คลอดบุตร</span>
                         <span>ครั้งสุดท้ายตั้งแต่วันที่</span>
                       </div>
                       <div className="flex items-baseline font-normal">
-                        <span className="border-b border-dotted border-black px-2 min-w-[165px] text-center font-normal">
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal pb-0 leading-none">
                           {lastLeaveStartStr || '1 ตุลาคม พ.ศ. 2569'}
                         </span>
                         <span className="shrink-0 ml-2">ถึงวันที่</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[165px] text-center font-normal ml-1">
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal ml-1 pb-0 leading-none">
                           {lastLeaveEndStr || '2 ตุลาคม พ.ศ. 2569'}
                         </span>
                         <span className="shrink-0 ml-2">มีกำหนด</span>
-                        <span className="border-b border-dotted border-black px-2 min-w-[70px] text-center font-normal ml-1">
+                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
                           {lastLeaveDaysStr || '1'}
                         </span>
-                        <span className="shrink-0 ml-4">วัน</span>
+                        <span className="shrink-0 ml-2">วัน</span>
                       </div>
                     </div>
 
-                    {/* Contact Phone (font-normal) */}
-                    <div className="mb-2.5 flex items-baseline font-normal">
-                      <span>ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่</span>
-                      <span className="ml-2">โทรศัพท์</span>
-                      <span className="border-b border-dotted border-black px-3 min-w-[260px] font-normal ml-1">
+                    {/* Contact Phone */}
+                    <div className="mb-1.5 flex items-baseline font-normal text-[14.5pt]">
+                      <span className="shrink-0">ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่</span>
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                        {formattedSchoolName}
+                      </span>
+                      <span className="shrink-0 ml-3">โทรศัพท์</span>
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[180px] text-center font-normal ml-1 pb-0 leading-none">
                         {teacherPhone}
                       </span>
                     </div>
 
-                    {/* Signature of Applicant (removed mock signature, print & sign manually) */}
-                    <div className="flex justify-end pr-6 mb-1 font-normal">
-                      <div className="w-72 text-center space-y-0.5 font-normal">
+                    {/* Signature of Applicant */}
+                    <div className="flex justify-end pr-8 mb-1.5 font-normal text-[14.5pt]">
+                      <div className="w-72 text-center space-y-1 font-normal">
                         <p>ขอแสดงความนับถือ</p>
-                        <p className="pt-1">
-                          (ลงชื่อ)...........................................................
-                        </p>
-                        <p>( {previewLeave.teacherName.replace(/^ครู\s*/, '')} )</p>
+                        <div className="flex items-baseline justify-center pt-1">
+                          <span className="shrink-0">(ลงชื่อ)</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 mx-1.5 pb-0 leading-none"></span>
+                        </div>
+                        <p className="pt-0.5">( {previewLeave.teacherName.replace(/^ครู\s*/, '')} )</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Bottom Section (2 Columns matching reference image) */}
-                  <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-300 font-normal">
-                    {/* Left Column: Fiscal Year Stats & Auditor (font-normal) */}
-                    <div className="space-y-3 font-normal">
+                  {/* Bottom Section (2 Columns: Fiscal Year Stats & Approvals) */}
+                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-black font-normal text-[14pt]">
+                    {/* Left Column: Fiscal Year Stats & Auditor */}
+                    <div className="space-y-1.5 font-normal">
                       <div>
-                        <h4 className="font-bold text-[16px] mb-1.5 font-normal">สถิติการลาในปีงบประมาณนี้</h4>
-                        <table className="w-full text-center border-collapse border border-black text-[15px] font-normal">
+                        <h4 className="font-bold text-[14.5pt] mb-1 font-normal">สถิติการลาในปีงบประมาณนี้</h4>
+                        <table className="w-full text-center border-collapse border border-black text-[12.5pt] font-normal">
                           <thead>
                             <tr className="border-b border-black">
-                              <th className="border-r border-black p-1 font-normal w-[22%]">ประเภท<br/>ลา</th>
-                              <th className="border-r border-black p-1 font-normal w-[26%]">ลามาแล้ว<br/>(วัน<br/>ทำการ)</th>
-                              <th className="border-r border-black p-1 font-normal w-[26%]">ลาครั้งนี้<br/>(วัน<br/>ทำการ)</th>
-                              <th className="p-1 font-normal w-[26%]">รวมเป็น<br/>(วัน<br/>ทำการ)</th>
+                              <th className="border-r border-black p-0.5 font-normal w-[24%]">ประเภทลา</th>
+                              <th className="border-r border-black p-0.5 font-normal w-[25%] leading-tight">ลามาแล้ว<br/>(วันทำการ)</th>
+                              <th className="border-r border-black p-0.5 font-normal w-[25%] leading-tight">ลาครั้งนี้<br/>(วันทำการ)</th>
+                              <th className="p-0.5 font-normal w-[26%] leading-tight">รวมเป็น<br/>(วันทำการ)</th>
                             </tr>
                           </thead>
                           <tbody>
                             <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black p-1 text-center font-normal">ป่วย</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{priorSick}</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{currSick}</td>
-                              <td className="p-1 font-mono font-normal">{priorSick + currSick}</td>
+                              <td className="border-r border-black p-0.5 text-center font-normal">ป่วย</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorSick}</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{currSick}</td>
+                              <td className="p-0.5 font-mono font-normal">{priorSick + currSick}</td>
                             </tr>
                             <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black p-1 text-center font-normal">กิจส่วนตัว</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{priorPersonal}</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{currPersonal}</td>
-                              <td className="p-1 font-mono font-normal">{priorPersonal + currPersonal}</td>
+                              <td className="border-r border-black p-0.5 text-center font-normal">กิจส่วนตัว</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorPersonal}</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{currPersonal}</td>
+                              <td className="p-0.5 font-mono font-normal">{priorPersonal + currPersonal}</td>
                             </tr>
                             <tr className="font-normal">
-                              <td className="border-r border-black p-1 text-center font-normal">คลอดบุตร</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{priorMaternity}</td>
-                              <td className="border-r border-black p-1 font-mono font-normal">{currMaternity}</td>
-                              <td className="p-1 font-mono font-normal">{priorMaternity + currMaternity}</td>
+                              <td className="border-r border-black p-0.5 text-center font-normal">คลอดบุตร</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorMaternity}</td>
+                              <td className="border-r border-black p-0.5 font-mono font-normal">{currMaternity}</td>
+                              <td className="p-0.5 font-mono font-normal">{priorMaternity + currMaternity}</td>
                             </tr>
                           </tbody>
                         </table>
                       </div>
 
-                      {/* Auditor Signature (removed mock signature, print & sign manually) */}
+                      {/* Auditor Signature */}
                       <div className="space-y-0.5 text-center font-normal pt-1">
-                        <p>
-                          (ลงชื่อ)........................................................... ผู้ตรวจสอบ
-                        </p>
+                        <div className="flex items-baseline justify-center">
+                          <span className="shrink-0">(ลงชื่อ)</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-32 mx-1.5 pb-0 leading-none"></span>
+                          <span className="shrink-0">ผู้ตรวจสอบ</span>
+                        </div>
                         <p className="pt-0.5">( {officerName} )</p>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>ตำแหน่ง</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[140px] text-center">เจ้าหน้าที่งานบุคลากร</span>
+                          <span className="shrink-0">ตำแหน่ง</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[140px] text-center pb-0 leading-none">เจ้าหน้าที่งานบุคลากร</span>
                         </div>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>วันที่</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[130px] text-center">{createdDateThai}</span>
+                          <span className="shrink-0">วันที่</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center pb-0 leading-none">{createdDateThai}</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Right Column: Supervisor Comment & Director Order */}
-                    <div className="space-y-3 pl-2 font-normal">
+                    <div className="space-y-1.5 pl-2 font-normal">
                       {/* Supervisor Comment */}
                       <div className="space-y-0.5 text-center font-normal">
-                        <h4 className="font-bold text-[16px] text-left mb-0.5">ความเห็นผู้บังคับบัญชา</h4>
+                        <h4 className="font-bold text-[14.5pt] text-left mb-0.5">ความเห็นผู้บังคับบัญชา</h4>
                         <div className="text-left pl-2 font-normal flex items-baseline">
-                          <span className="border-b border-dotted border-black pr-6">เห็นควรอนุญาต</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black pr-6 pb-0 leading-none">เห็นควรอนุญาต</span>
                         </div>
-                        <p className="pt-1 font-normal">
-                          (ลงชื่อ)...........................................................
-                        </p>
+                        <div className="flex items-baseline justify-center pt-0.5">
+                          <span className="shrink-0">(ลงชื่อ)</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
+                        </div>
                         <p className="font-normal pt-0.5">( {deputyName} )</p>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>ตำแหน่ง</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[130px] text-center font-normal">{deputyPosition}</span>
+                          <span className="shrink-0">ตำแหน่ง</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{deputyPosition}</span>
                         </div>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>วันที่</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[130px] text-center font-normal">{createdDateThai}</span>
+                          <span className="shrink-0">วันที่</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{createdDateThai}</span>
                         </div>
                       </div>
 
                       {/* Director Order */}
-                      <div className="space-y-0.5 text-center font-normal pt-1">
-                        <h4 className="font-bold text-[16px] text-left mb-0.5">คำสั่ง</h4>
+                      <div className="space-y-0.5 text-center font-normal pt-1 border-t border-slate-300">
+                        <h4 className="font-bold text-[14.5pt] text-left mb-0.5">คำสั่ง</h4>
                         <div className="flex items-center justify-start gap-6 pl-2 mb-0.5 font-normal">
-                          <span className="font-mono font-normal">( {isApproved ? '✓' : ' '} ) อนุญาต</span>
-                          <span className="font-mono font-normal">( {!isApproved ? '✓' : ' '} ) ไม่อนุญาต</span>
+                          <span className="font-mono font-normal">({isApproved ? ' ✓ ' : '   '}) อนุญาต</span>
+                          <span className="font-mono font-normal">({!isApproved ? ' ✓ ' : '   '}) ไม่อนุญาต</span>
                         </div>
-                        <p className="pt-1 font-normal">
-                          (ลงชื่อ)...........................................................
-                        </p>
+                        <div className="flex items-baseline justify-center pt-0.5">
+                          <span className="shrink-0">(ลงชื่อ)</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
+                        </div>
                         <p className="font-normal pt-0.5">( {directorName} )</p>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>ตำแหน่ง</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[150px] text-center font-normal">ผู้อำนวยการ{schoolInfo.schoolName || 'โรงเรียนศึกษาพัฒนา'}</span>
+                          <span className="shrink-0">ตำแหน่ง</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal pb-0 leading-none">ผู้อำนวยการ{formattedSchoolName}</span>
                         </div>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span>วันที่</span>
-                          <span className="border-b border-dotted border-black px-2 min-w-[130px] text-center font-normal">{createdDateThai}</span>
+                          <span className="shrink-0">วันที่</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{createdDateThai}</span>
                         </div>
                       </div>
                     </div>
@@ -4859,318 +5167,557 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         );
       })()}
 
-      {/* MODAL: OFFICIAL DUTY REPORT A4 PREVIEW */}
-      {previewDutyLog && (() => {
-        const dateParts = parseThaiDateParts(previewDutyLog.date);
-        const schoolYear = schoolInfo.academicYear || dateParts.year;
-        const directorName = schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน';
+      {/* MODAL: OFFICIAL DUTY REPORT A4 PREVIEW (SINGLE & ALL) */}
+      {(() => {
+        // Normalize date string to YYYY-MM-DD
+        const normalizeDateToIso = (dStr?: string): string => {
+          if (!dStr) return '';
+          const dateClean = dStr.split('T')[0].trim();
+          const parts = dateClean.split('-');
+          if (parts.length === 3) {
+            let y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const d = parseInt(parts[2], 10);
+            if (isNaN(y) || isNaN(m) || isNaN(d)) return dateClean;
+            if (y > 2400) y -= 543;
+            return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          }
+          return dateClean;
+        };
 
-        const getStudentStats = (gradeTarget: string) => {
-          const matchingStudents = students.filter(s => s.gradeLevel === gradeTarget);
-          const maleTotal = matchingStudents.filter(s => s.gender === 'ชาย').length;
-          const femaleTotal = matchingStudents.filter(s => s.gender === 'หญิง').length;
-          const total = maleTotal + femaleTotal;
+        // Helper to calculate student statistics by grade, pulling live from effectiveStudents and effectiveAttendance
+        const calculateDutyStudentStats = (logDateStr: string) => {
+          const targetIso = normalizeDateToIso(logDateStr);
+
+          // Attendance records recorded by teachers for this specific day
+          const dayAttendance = effectiveAttendance.filter(a => {
+            const aIso = normalizeDateToIso(a.date);
+            return aIso === targetIso || a.date === logDateStr;
+          });
+
+          const isFemale = (s: Student) => {
+            if (s.gender === 'หญิง') return true;
+            if (s.gender === 'ชาย') return false;
+            const p = (s.prefix || '').trim();
+            return p === 'เด็กหญิง' || p === 'ด.ญ.' || p === 'ด.ญ' || p === 'นางสาว' || p === 'น.ส.';
+          };
+
+          const computeForGrade = (targetGrade: GradeLevel) => {
+            const gradeStudents = effectiveStudents.filter(s => s.gradeLevel === targetGrade);
+            let maleTotal = 0;
+            let femaleTotal = 0;
+            let malePresent = 0;
+            let femalePresent = 0;
+            let maleAbsent = 0;
+            let femaleAbsent = 0;
+
+            const hasAttendanceForGrade = dayAttendance.some(a => a.gradeLevel === targetGrade);
+
+            gradeStudents.forEach(s => {
+              const female = isFemale(s);
+              if (female) femaleTotal++;
+              else maleTotal++;
+
+              if (hasAttendanceForGrade) {
+                const sFullName = `${s.prefix || ''}${s.firstName} ${s.lastName}`.trim();
+                const att = dayAttendance.find(a => a.studentId === s.id || (a.studentName && a.studentName.trim() === sFullName));
+                if (att) {
+                  if (att.status === 'present') {
+                    if (female) femalePresent++;
+                    else malePresent++;
+                  } else {
+                    // 'absent' | 'leave' | 'sick' counted as not present / absent
+                    if (female) femaleAbsent++;
+                    else maleAbsent++;
+                  }
+                } else {
+                  // Default to present if student was not marked absent
+                  if (female) femalePresent++;
+                  else malePresent++;
+                }
+              } else {
+                // If no daily attendance records exist for this grade yet, default to present
+                if (female) femalePresent++;
+                else malePresent++;
+              }
+            });
+
+            return {
+              maleTotal,
+              femaleTotal,
+              total: maleTotal + femaleTotal,
+              malePresent,
+              femalePresent,
+              presentTotal: malePresent + femalePresent,
+              maleAbsent,
+              femaleAbsent,
+              absentTotal: maleAbsent + femaleAbsent
+            };
+          };
+
+          const statsO2 = computeForGrade('อ.2');
+          const statsO3 = computeForGrade('อ.3');
+          const statsKindergarten = {
+            maleTotal: statsO2.maleTotal + statsO3.maleTotal,
+            femaleTotal: statsO2.femaleTotal + statsO3.femaleTotal,
+            total: statsO2.total + statsO3.total,
+            malePresent: statsO2.malePresent + statsO3.malePresent,
+            femalePresent: statsO2.femalePresent + statsO3.femalePresent,
+            presentTotal: statsO2.presentTotal + statsO3.presentTotal,
+            maleAbsent: statsO2.maleAbsent + statsO3.maleAbsent,
+            femaleAbsent: statsO2.femaleAbsent + statsO3.femaleAbsent,
+            absentTotal: statsO2.absentTotal + statsO3.absentTotal
+          };
+
+          const statsP1 = computeForGrade('ป.1');
+          const statsP2 = computeForGrade('ป.2');
+          const statsP3 = computeForGrade('ป.3');
+          const statsP4 = computeForGrade('ป.4');
+          const statsP5 = computeForGrade('ป.5');
+          const statsP6 = computeForGrade('ป.6');
+
+          const statsPrimary = {
+            maleTotal: statsP1.maleTotal + statsP2.maleTotal + statsP3.maleTotal + statsP4.maleTotal + statsP5.maleTotal + statsP6.maleTotal,
+            femaleTotal: statsP1.femaleTotal + statsP2.femaleTotal + statsP3.femaleTotal + statsP4.femaleTotal + statsP5.femaleTotal + statsP6.femaleTotal,
+            total: statsP1.total + statsP2.total + statsP3.total + statsP4.total + statsP5.total + statsP6.total,
+            malePresent: statsP1.malePresent + statsP2.malePresent + statsP3.malePresent + statsP4.malePresent + statsP5.malePresent + statsP6.malePresent,
+            femalePresent: statsP1.femalePresent + statsP2.femalePresent + statsP3.femalePresent + statsP4.femalePresent + statsP5.femalePresent + statsP6.femalePresent,
+            presentTotal: statsP1.presentTotal + statsP2.presentTotal + statsP3.presentTotal + statsP4.presentTotal + statsP5.presentTotal + statsP6.presentTotal,
+            maleAbsent: statsP1.maleAbsent + statsP2.maleAbsent + statsP3.maleAbsent + statsP4.maleAbsent + statsP5.maleAbsent + statsP6.maleAbsent,
+            femaleAbsent: statsP1.femaleAbsent + statsP2.femaleAbsent + statsP3.femaleAbsent + statsP4.femaleAbsent + statsP5.femaleAbsent + statsP6.femaleAbsent,
+            absentTotal: statsP1.absentTotal + statsP2.absentTotal + statsP3.absentTotal + statsP4.absentTotal + statsP5.absentTotal + statsP6.absentTotal
+          };
+
+          const statsAll = {
+            maleTotal: statsKindergarten.maleTotal + statsPrimary.maleTotal,
+            femaleTotal: statsKindergarten.femaleTotal + statsPrimary.femaleTotal,
+            total: statsKindergarten.total + statsPrimary.total,
+            malePresent: statsKindergarten.malePresent + statsPrimary.malePresent,
+            femalePresent: statsKindergarten.femalePresent + statsPrimary.femalePresent,
+            presentTotal: statsKindergarten.presentTotal + statsPrimary.presentTotal,
+            maleAbsent: statsKindergarten.maleAbsent + statsPrimary.maleAbsent,
+            femaleAbsent: statsKindergarten.femaleAbsent + statsPrimary.femaleAbsent,
+            absentTotal: statsKindergarten.absentTotal + statsPrimary.absentTotal
+          };
+
           return {
-            maleTotal, femaleTotal, total,
-            malePresent: maleTotal, femalePresent: femaleTotal, presentTotal: total,
-            maleAbsent: 0, femaleAbsent: 0, absentTotal: 0
+            statsO2,
+            statsO3,
+            statsKindergarten,
+            statsP1,
+            statsP2,
+            statsP3,
+            statsP4,
+            statsP5,
+            statsP6,
+            statsPrimary,
+            statsAll
           };
         };
 
-        const statsO2 = getStudentStats('อ.2');
-        const statsO3 = getStudentStats('อ.3');
-        const statsKindergarten = {
-          maleTotal: statsO2.maleTotal + statsO3.maleTotal,
-          femaleTotal: statsO2.femaleTotal + statsO3.femaleTotal,
-          total: statsO2.total + statsO3.total,
-          malePresent: statsO2.malePresent + statsO3.malePresent,
-          femalePresent: statsO2.femalePresent + statsO3.femalePresent,
-          presentTotal: statsO2.presentTotal + statsO3.presentTotal,
-          maleAbsent: 0, femaleAbsent: 0, absentTotal: 0
-        };
+        const renderDutyOfficialSheet = (log: DailyDutyLog, index?: number) => {
+          const dateParts = parseThaiDateParts(log.date);
+          const directorName = schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน';
+          const stats = calculateDutyStudentStats(log.date);
 
-        const statsP1 = getStudentStats('ป.1');
-        const statsP2 = getStudentStats('ป.2');
-        const statsP3 = getStudentStats('ป.3');
-        const statsP4 = getStudentStats('ป.4');
-        const statsP5 = getStudentStats('ป.5');
-        const statsP6 = getStudentStats('ป.6');
-        const statsPrimary = {
-          maleTotal: statsP1.maleTotal + statsP2.maleTotal + statsP3.maleTotal + statsP4.maleTotal + statsP5.maleTotal + statsP6.maleTotal,
-          femaleTotal: statsP1.femaleTotal + statsP2.femaleTotal + statsP3.femaleTotal + statsP4.femaleTotal + statsP5.femaleTotal + statsP6.femaleTotal,
-          total: statsP1.total + statsP2.total + statsP3.total + statsP4.total + statsP5.total + statsP6.total,
-          malePresent: statsP1.malePresent + statsP2.malePresent + statsP3.malePresent + statsP4.malePresent + statsP5.malePresent + statsP6.malePresent,
-          femalePresent: statsP1.femalePresent + statsP2.femalePresent + statsP3.femalePresent + statsP4.femalePresent + statsP5.femalePresent + statsP6.femalePresent,
-          presentTotal: statsP1.presentTotal + statsP2.presentTotal + statsP3.presentTotal + statsP4.presentTotal + statsP5.presentTotal + statsP6.presentTotal,
-          maleAbsent: 0, femaleAbsent: 0, absentTotal: 0
-        };
+          const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
+          const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
+            ? rawSchoolName
+            : `โรงเรียน${rawSchoolName}`;
 
-        const statsAll = {
-          maleTotal: statsKindergarten.maleTotal + statsPrimary.maleTotal,
-          femaleTotal: statsKindergarten.femaleTotal + statsPrimary.femaleTotal,
-          total: statsKindergarten.total + statsPrimary.total,
-          malePresent: statsKindergarten.malePresent + statsPrimary.malePresent,
-          femalePresent: statsKindergarten.femalePresent + statsPrimary.femalePresent,
-          presentTotal: statsKindergarten.presentTotal + statsPrimary.presentTotal,
-          maleAbsent: 0, femaleAbsent: 0, absentTotal: 0
-        };
-
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
-            <style dangerouslySetInnerHTML={{ __html: `
-              @media print {
-                body * {
-                  visibility: hidden !important;
-                }
-                #duty-official-a4-print, #duty-official-a4-print * {
-                  visibility: visible !important;
-                }
-                #duty-official-a4-print {
-                  position: fixed !important;
-                  left: 0 !important;
-                  top: 0 !important;
-                  width: 100vw !important;
-                  height: auto !important;
-                  margin: 0 !important;
-                  padding: 10mm 12mm !important;
-                  border: none !important;
-                  box-shadow: none !important;
-                  background: white !important;
-                  z-index: 999999 !important;
-                  font-family: 'Sarabun', 'TH Sarabun New', serif !important;
-                }
-                .no-print {
-                  display: none !important;
-                }
-              }
-            `}} />
-
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
-              {/* Top Action Bar */}
-              <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                    <Shield className="w-5 h-5" />
+          return (
+            <div className="space-y-3.5 flex flex-col justify-between flex-1">
+              <div className="space-y-3.5">
+                {/* Header */}
+                <div className="text-center space-y-1">
+                  {/* Line 1: School Logo centered top (same size as ปพ.6) */}
+                  <div className="text-center mx-auto mb-1.5">
+                    {schoolInfo.logoUrl ? (
+                      <img
+                        src={schoolInfo.logoUrl}
+                        alt="School Logo"
+                        className="w-24 h-24 sm:w-28 sm:h-28 object-contain mx-auto"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-4xl mx-auto">
+                        🏫
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800">ตัวอย่างแบบรายงานการปฏิบัติหน้าที่ครูเวร (ขนาด A4)</h3>
-                    <p className="text-xs text-slate-500">ตรวจสอบความถูกต้องก่อนสั่งพิมพ์ หรือดาวน์โหลดเป็นไฟล์ PDF</p>
+
+                  {/* Line 2: Header Title */}
+                  <h1 className="font-bold text-base sm:text-lg text-black tracking-wide">
+                    รายงานการปฏิบัติหน้าที่ครูเวรประจำวัน
+                  </h1>
+
+                  {/* Line 3: School Name & Affiliation */}
+                  <h2 className="font-semibold text-xs sm:text-sm text-slate-800">
+                    {formattedSchoolName} {schoolInfo.affiliation || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา'}
+                  </h2>
+
+                  {/* Line 4: Date, Month, Year */}
+                  <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-slate-700 font-bold pt-0.5">
+                    <span>ประจำวันที่ {dateParts.day} เดือน {dateParts.month} พ.ศ. {dateParts.year}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.print();
-                      onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบรายงานครูเวรเป็นไฟล์ PDF');
-                    }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
-                  >
-                    <Download className="w-4 h-4" />
-                    <Printer className="w-4 h-4" />
-                    <span>ดาวน์โหลด / พิมพ์รายงาน A4</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPreviewDutyLog(null)}
-                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+
+                {/* Student Statistics Table (3 Topics) */}
+                <div>
+                  <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px]">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-black">
+                        <th rowSpan={2} className="border-r border-black p-1 font-bold align-middle">ระดับชั้น</th>
+                        <th colSpan={3} className="border-r border-black p-1 font-bold">1. นักเรียนทั้งหมด</th>
+                        <th colSpan={3} className="border-r border-black p-1 font-bold">2. นักเรียนที่มา</th>
+                        <th colSpan={3} className="p-1 font-bold">3. นักเรียนที่ขาด</th>
+                      </tr>
+                      <tr className="border-b border-black text-[10px]">
+                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
+                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
+                        <th className="border-r border-black p-0.5 font-bold">รวม</th>
+                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
+                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
+                        <th className="border-r border-black p-0.5 font-bold">รวม</th>
+                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
+                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
+                        <th className="p-0.5 font-bold">รวม</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* อ.2 */}
+                      <tr className="border-b border-black">
+                        <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 2</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.maleTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femaleTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO2.total || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.malePresent || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femalePresent || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO2.presentTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.maleAbsent || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femaleAbsent || '-'}</td>
+                        <td className="p-1 font-mono font-bold">{stats.statsO2.absentTotal || '-'}</td>
+                      </tr>
+                      {/* อ.3 */}
+                      <tr className="border-b border-black">
+                        <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 3</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.maleTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femaleTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO3.total || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.malePresent || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femalePresent || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO3.presentTotal || '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.malePresent ? stats.statsO3.maleAbsent : '-'}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femaleAbsent || '-'}</td>
+                        <td className="p-1 font-mono font-bold">{stats.statsO3.absentTotal || '-'}</td>
+                      </tr>
+                      {/* รวม อ. */}
+                      <tr className="border-b-2 border-black bg-slate-50 font-bold">
+                        <td className="border-r border-black p-1 text-left pl-2">รวมอนุบาล</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.maleTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femaleTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.total}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.malePresent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femalePresent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.presentTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.maleAbsent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femaleAbsent}</td>
+                        <td className="p-1 font-mono">{stats.statsKindergarten.absentTotal}</td>
+                      </tr>
+                      {/* ป.1 - ป.6 */}
+                      {[
+                        { label: 'ประถมศึกษาปีที่ 1', st: stats.statsP1 },
+                        { label: 'ประถมศึกษาปีที่ 2', st: stats.statsP2 },
+                        { label: 'ประถมศึกษาปีที่ 3', st: stats.statsP3 },
+                        { label: 'ประถมศึกษาปีที่ 4', st: stats.statsP4 },
+                        { label: 'ประถมศึกษาปีที่ 5', st: stats.statsP5 },
+                        { label: 'ประถมศึกษาปีที่ 6', st: stats.statsP6 },
+                      ].map((item, idx) => (
+                        <tr key={idx} className="border-b border-black">
+                          <td className="border-r border-black p-1 text-left font-medium pl-2">{item.label}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.maleTotal || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.femaleTotal || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono font-bold">{item.st.total || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.malePresent || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.femalePresent || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono font-bold">{item.st.presentTotal || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.maleAbsent || '-'}</td>
+                          <td className="border-r border-black p-1 font-mono">{item.st.femaleAbsent || '-'}</td>
+                          <td className="p-1 font-mono font-bold">{item.st.absentTotal || '-'}</td>
+                        </tr>
+                      ))}
+                      {/* รวม ป. */}
+                      <tr className="border-b-2 border-black bg-slate-50 font-bold">
+                        <td className="border-r border-black p-1 text-left pl-2">รวมประถม</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.maleTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femaleTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.total}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.malePresent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femalePresent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.presentTotal}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.maleAbsent}</td>
+                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femaleAbsent}</td>
+                        <td className="p-1 font-mono">{stats.statsPrimary.absentTotal}</td>
+                      </tr>
+                      {/* รวมทั้งหมด */}
+                      <tr className="border-b-2 border-black bg-slate-100 font-extrabold">
+                        <td className="border-r border-black p-1.5 text-left pl-2">รวมทั้งหมด</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.maleTotal}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femaleTotal}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.total}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.malePresent}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femalePresent}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.presentTotal}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.maleAbsent}</td>
+                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femaleAbsent}</td>
+                        <td className="p-1.5 font-mono">{stats.statsAll.absentTotal}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Time Slots Table */}
+                <div className="mt-4">
+                  <h3 className="font-bold text-xs mb-1 text-slate-900">
+                    บันทึกการปฏิบัติหน้าที่ตามช่วงเวลา
+                  </h3>
+                  <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px]">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-black text-black">
+                        <th className="border-r border-black p-1.5 text-center w-12 font-bold">ลำดับ</th>
+                        <th className="border-r border-black p-1.5 text-center w-28 font-bold">ช่วงเวลา</th>
+                        <th className="p-1.5 font-bold">รายละเอียดการปฏิบัติหน้าที่</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {log.timeSlots.map((slot, idx) => (
+                        <tr key={slot.id || idx} className="border-b border-black">
+                          <td className="border-r border-black p-1.5 text-center font-mono align-middle">{idx + 1}</td>
+                          <td className="border-r border-black p-1.5 text-center font-bold font-mono whitespace-nowrap align-middle">{slot.time}</td>
+                          <td className="p-1.5 leading-relaxed align-middle">{slot.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Summary & Observations */}
+                <div className="border border-black p-2 text-[12px]">
+                  <div>
+                    <strong>สรุปภาพรวมการปฏิบัติหน้าที่:</strong> {log.overallStatus || 'การปฏิบัติหน้าที่เรียบร้อยดี'}
+                  </div>
+                  {log.incidentsNote && (
+                    <div className="mt-1">
+                      <strong>หมายเหตุ / เหตุการณ์พิเศษ:</strong> {log.incidentsNote}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              {/* Scrollable A4 Document View */}
-              <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
-                <div
-                  id="duty-official-a4-print"
-                  className="bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-slate-900 leading-tight text-[11px] sm:text-[12px] flex flex-col justify-between"
-                  style={{ fontFamily: "'Sarabun', 'TH Sarabun New', serif" }}
-                >
-                  <div className="space-y-3.5">
-                    {/* Header */}
-                    <div className="text-center space-y-0.5">
-                      <h1 className="font-bold text-base sm:text-lg text-black tracking-wide">
-                        รายงานการปฏิบัติหน้าที่ครูเวรประจำวัน
-                      </h1>
-                      <h2 className="font-medium text-xs sm:text-sm text-slate-700">
-                        {schoolInfo.schoolName || 'โรงเรียนศึกษาพัฒนา'}
-                      </h2>
-                      <p className="text-[11px] sm:text-xs text-slate-600 font-semibold pt-0.5">
-                        วันที่: {dateParts.day} {dateParts.month} พ.ศ. {dateParts.year}
-                      </p>
-                    </div>
+              {/* Signatures Section */}
+              <div className="grid grid-cols-2 gap-8 mt-auto pt-8 pb-6 text-center text-[12px]">
+                <div className="space-y-3">
+                  <p>ลงชื่อ ...........................................................</p>
+                  <p className="font-bold">( {log.dutyTeacherName.replace(/^ครู\s*/, '')} )</p>
+                  <p className="text-slate-600">ครูเวรผู้รายงาน</p>
+                </div>
 
-                    {/* Student Statistics Table (3 Topics) */}
-                    <div>
-                      <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px]">
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-black">
-                            <th rowSpan={2} className="border-r border-black p-1 font-bold align-middle">ระดับชั้น</th>
-                            <th colSpan={3} className="border-r border-black p-1 font-bold">1. นักเรียนทั้งหมด</th>
-                            <th colSpan={3} className="border-r border-black p-1 font-bold">2. นักเรียนที่มา</th>
-                            <th colSpan={3} className="p-1 font-bold">3. นักเรียนที่ขาด</th>
-                          </tr>
-                          <tr className="border-b border-black text-[10px]">
-                            <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                            <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                            <th className="border-r border-black p-0.5 font-bold">รวม</th>
-                            <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                            <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                            <th className="border-r border-black p-0.5 font-bold">รวม</th>
-                            <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                            <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                            <th className="p-0.5 font-bold">รวม</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* อ.2 */}
-                          <tr className="border-b border-black">
-                            <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 2</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.maleTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.femaleTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono font-bold">{statsO2.total || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.malePresent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.femalePresent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono font-bold">{statsO2.presentTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.maleAbsent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO2.femaleAbsent || '-'}</td>
-                            <td className="p-1 font-mono font-bold">{statsO2.absentTotal || '-'}</td>
-                          </tr>
-                          {/* อ.3 */}
-                          <tr className="border-b border-black">
-                            <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 3</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.maleTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.femaleTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono font-bold">{statsO3.total || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.malePresent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.femalePresent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono font-bold">{statsO3.presentTotal || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.maleAbsent || '-'}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsO3.femaleAbsent || '-'}</td>
-                            <td className="p-1 font-mono font-bold">{statsO3.absentTotal || '-'}</td>
-                          </tr>
-                          {/* รวม อ. */}
-                          <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                            <td className="border-r border-black p-1 text-left pl-2">รวมอนุบาล</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.maleTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.femaleTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.total}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.malePresent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.femalePresent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.presentTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.maleAbsent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsKindergarten.femaleAbsent}</td>
-                            <td className="p-1 font-mono">{statsKindergarten.absentTotal}</td>
-                          </tr>
-                          {/* ป.1 - ป.6 */}
-                          {[
-                            { label: 'ประถมศึกษาปีที่ 1', st: statsP1 },
-                            { label: 'ประถมศึกษาปีที่ 2', st: statsP2 },
-                            { label: 'ประถมศึกษาปีที่ 3', st: statsP3 },
-                            { label: 'ประถมศึกษาปีที่ 4', st: statsP4 },
-                            { label: 'ประถมศึกษาปีที่ 5', st: statsP5 },
-                            { label: 'ประถมศึกษาปีที่ 6', st: statsP6 },
-                          ].map((item, idx) => (
-                            <tr key={idx} className="border-b border-black">
-                              <td className="border-r border-black p-1 text-left font-medium pl-2">{item.label}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.maleTotal || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.femaleTotal || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono font-bold">{item.st.total || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.malePresent || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.femalePresent || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono font-bold">{item.st.presentTotal || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.maleAbsent || '-'}</td>
-                              <td className="border-r border-black p-1 font-mono">{item.st.femaleAbsent || '-'}</td>
-                              <td className="p-1 font-mono font-bold">{item.st.absentTotal || '-'}</td>
-                            </tr>
-                          ))}
-                          {/* รวม ป. */}
-                          <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                            <td className="border-r border-black p-1 text-left pl-2">รวมประถม</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.maleTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.femaleTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.total}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.malePresent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.femalePresent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.presentTotal}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.maleAbsent}</td>
-                            <td className="border-r border-black p-1 font-mono">{statsPrimary.femaleAbsent}</td>
-                            <td className="p-1 font-mono">{statsPrimary.absentTotal}</td>
-                          </tr>
-                          {/* รวมทั้งหมด */}
-                          <tr className="border-b-2 border-black bg-slate-100 font-extrabold">
-                            <td className="border-r border-black p-1.5 text-left pl-2">รวมทั้งหมด</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.maleTotal}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.femaleTotal}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.total}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.malePresent}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.femalePresent}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.presentTotal}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.maleAbsent}</td>
-                            <td className="border-r border-black p-1.5 font-mono">{statsAll.femaleAbsent}</td>
-                            <td className="p-1.5 font-mono">{statsAll.absentTotal}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Time Slots Table */}
-                    <div className="mt-4">
-                      <h3 className="font-bold text-xs mb-1 text-slate-900">
-                        บันทึกการปฏิบัติหน้าที่ตามช่วงเวลา
-                      </h3>
-                      <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px]">
-                        <thead>
-                          <tr className="bg-slate-100 border-b border-black text-black">
-                            <th className="border-r border-black p-1.5 text-center w-12 font-bold">ลำดับ</th>
-                            <th className="border-r border-black p-1.5 text-center w-28 font-bold">ช่วงเวลา</th>
-                            <th className="p-1.5 font-bold">รายละเอียดการปฏิบัติหน้าที่</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {previewDutyLog.timeSlots.map((slot, idx) => (
-                            <tr key={slot.id || idx} className="border-b border-black">
-                              <td className="border-r border-black p-1.5 text-center font-mono align-middle">{idx + 1}</td>
-                              <td className="border-r border-black p-1.5 text-center font-bold font-mono whitespace-nowrap align-middle">{slot.time}</td>
-                              <td className="p-1.5 leading-relaxed align-middle">{slot.description}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* Summary & Observations */}
-                    <div className="border border-black p-2 text-[12px]">
-                      <div>
-                        <strong>สรุปภาพรวมการปฏิบัติหน้าที่:</strong> {previewDutyLog.overallStatus || 'การปฏิบัติหน้าที่เรียบร้อยดี'}
-                      </div>
-                      {previewDutyLog.incidentsNote && (
-                        <div className="mt-1">
-                          <strong>หมายเหตุ / เหตุการณ์พิเศษ:</strong> {previewDutyLog.incidentsNote}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Signatures Section */}
-                  <div className="grid grid-cols-2 gap-8 mt-auto pt-8 pb-6 text-center text-[12px]">
-                    <div className="space-y-3">
-                      <p>ลงชื่อ ...........................................................</p>
-                      <p className="font-bold">( {previewDutyLog.dutyTeacherName.replace(/^ครู\s*/, '')} )</p>
-                      <p className="text-slate-600">ครูเวรผู้รายงาน</p>
-                    </div>
-
-                    <div className="space-y-4">
-                      <p>ลงชื่อ ...........................................................</p>
-                      <p className="font-bold">( {directorName} )</p>
-                      <p className="text-slate-600">ผู้อำนวยการโรงเรียน / ผู้ตรวจ</p>
-                    </div>
-                  </div>
+                <div className="space-y-4">
+                  <p>ลงชื่อ ...........................................................</p>
+                  <p className="font-bold">( {directorName} )</p>
+                  <p className="text-slate-600">ผู้อำนวยการโรงเรียน / ผู้ตรวจ</p>
                 </div>
               </div>
             </div>
-          </div>
+          );
+        };
+
+        return (
+          <>
+            {/* 1. SINGLE DUTY REPORT MODAL */}
+            {previewDutyLog && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+                <style dangerouslySetInnerHTML={{ __html: `
+                  @media print {
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #duty-official-a4-print, #duty-official-a4-print * {
+                      visibility: visible !important;
+                    }
+                    #duty-official-a4-print {
+                      position: fixed !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100vw !important;
+                      height: auto !important;
+                      margin: 0 !important;
+                      padding: 10mm 12mm !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      background: white !important;
+                      z-index: 999999 !important;
+                      font-family: 'Sarabun', 'TH Sarabun New', serif !important;
+                    }
+                    .no-print {
+                      display: none !important;
+                    }
+                  }
+                `}} />
+
+                <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
+                  {/* Top Action Bar */}
+                  <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800">ตัวอย่างแบบรายงานการปฏิบัติหน้าที่ครูเวร (ขนาด A4)</h3>
+                        <p className="text-xs text-slate-500">ตรวจสอบความถูกต้องก่อนสั่งพิมพ์ หรือดาวน์โหลดเป็นไฟล์ PDF</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.print();
+                          onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบรายงานครูเวรเป็นไฟล์ PDF');
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                      >
+                        <Download className="w-4 h-4" />
+                        <Printer className="w-4 h-4" />
+                        <span>ดาวน์โหลด / พิมพ์รายงาน A4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDutyLog(null)}
+                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable A4 Document View */}
+                  <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
+                    <div
+                      id="duty-official-a4-print"
+                      className="bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-slate-900 leading-tight text-[11px] sm:text-[12px] flex flex-col justify-between"
+                      style={{ fontFamily: "'Sarabun', 'TH Sarabun New', serif" }}
+                    >
+                      {renderDutyOfficialSheet(previewDutyLog)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 2. ALL DUTY REPORTS MODAL (ดาวน์โหลดทั้งหมด) */}
+            {previewAllDutyLogs && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+                <style dangerouslySetInnerHTML={{ __html: `
+                  @media print {
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #duty-all-official-a4-print, #duty-all-official-a4-print * {
+                      visibility: visible !important;
+                    }
+                    #duty-all-official-a4-print {
+                      position: static !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      background: white !important;
+                      z-index: 999999 !important;
+                      font-family: 'Sarabun', 'TH Sarabun New', serif !important;
+                    }
+                    .duty-a4-all-sheet {
+                      width: 210mm !important;
+                      min-height: 297mm !important;
+                      height: auto !important;
+                      margin: 0 auto !important;
+                      padding: 10mm 12mm !important;
+                      page-break-after: always !important;
+                      break-after: page !important;
+                      box-shadow: none !important;
+                      border: none !important;
+                      box-sizing: border-box !important;
+                      display: flex !important;
+                      flex-direction: column !important;
+                      justify-content: space-between !important;
+                    }
+                    .duty-a4-all-sheet:last-child {
+                      page-break-after: auto !important;
+                      break-after: auto !important;
+                    }
+                    .no-print {
+                      display: none !important;
+                    }
+                  }
+                `}} />
+
+                <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
+                  {/* Top Action Bar */}
+                  <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                        <Shield className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800">ตัวอย่างรายงานการปฏิบัติหน้าที่ครูเวรทั้งหมด ({dutyLogs.length} รายการ)</h3>
+                        <p className="text-xs text-slate-500">ตรวจสอบตัวอย่างก่อนดาวน์โหลดหรือพิมพ์เป็น PDF ทั้งหมด (รูปแบบ A4 สมบูรณ์ตรงกับแบบเดี่ยว)</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.print();
+                          onShowToast('success', 'ดาวน์โหลดทั้งหมดสำเร็จ', 'เตรียมพิมพ์/บันทึกรายงานครูเวรทั้งหมดเป็นไฟล์ PDF');
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                      >
+                        <Download className="w-4 h-4" />
+                        <Printer className="w-4 h-4" />
+                        <span>ดาวน์โหลด / พิมพ์รายงานทั้งหมด A4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewAllDutyLogs(false)}
+                        className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Scrollable A4 Document View */}
+                  <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
+                    <div
+                      id="duty-all-official-a4-print"
+                      className="w-full space-y-8 print:space-y-0"
+                    >
+                      {dutyLogs.map((log, index) => (
+                        <div
+                          key={log.id || index}
+                          className="duty-a4-all-sheet bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-slate-900 leading-tight text-[11px] sm:text-[12px] flex flex-col justify-between mx-auto print:border-none print:shadow-none"
+                          style={{ fontFamily: "'Sarabun', 'TH Sarabun New', serif" }}
+                        >
+                          {renderDutyOfficialSheet(log, index)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         );
       })()}
 

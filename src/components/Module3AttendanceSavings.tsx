@@ -1856,6 +1856,12 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
             </span>
           </button>
         </div>
+
+        {/* Display academic year and semester text */}
+        <div className="hidden sm:flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-emerald-200 text-xs font-bold text-slate-800 shadow-2xs">
+          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+          <span>ปีการศึกษา {activeAcademicYear} ภาค {activeSemester}</span>
+        </div>
       </div>
 
       {/* ======================================================== */}
@@ -2222,6 +2228,13 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                               <span className="font-mono font-bold text-slate-400 text-xs shrink-0 w-5">
                                 {student.rollNumber || idx + 1}.
                               </span>
+                              <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                {student.photoUrl ? (
+                                  <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <User className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                              </div>
                               <div className="flex flex-col">
                                 <div className="font-bold text-slate-800 text-[13px] flex items-center gap-1.5 flex-wrap">
                                   <span>{student.prefix}{student.firstName} {student.lastName}</span>
@@ -2298,14 +2311,23 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                             {student.rollNumber || idx + 1}
                           </td>
 
-                          {/* Student Info: Full name without avatar initials */}
+                          {/* Student Info: Full name with photo avatar */}
                           <td className="py-2.5 px-3">
-                            <div className="flex flex-col">
-                              <div className="font-bold text-slate-800 text-[13px] whitespace-nowrap">
-                                {student.prefix}{student.firstName} {student.lastName}
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                {student.photoUrl ? (
+                                  <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <User className="w-4 h-4 text-slate-400" />
+                                )}
                               </div>
-                              <div className="text-[10px] font-mono text-slate-400">
-                                #{student.studentCode}
+                              <div className="flex flex-col">
+                                <div className="font-bold text-slate-800 text-[13px] whitespace-nowrap">
+                                  {student.prefix}{student.firstName} {student.lastName}
+                                </div>
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  #{student.studentCode}
+                                </div>
                               </div>
                             </div>
                           </td>

@@ -8,7 +8,9 @@ import {
   SavingsRecord,
   AttendanceRecord,
   SchoolInfo,
-  CustomButton
+  CustomButton,
+  MemberAccount,
+  TaskSubmission
 } from '../types';
 import { 
   Calendar as CalendarIcon, 
@@ -31,7 +33,8 @@ import {
   Globe,
   Shield,
   Layers,
-  Sparkles
+  Sparkles,
+  Upload
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -41,6 +44,7 @@ interface DashboardViewProps {
   tasks: TaskItem[];
   students: Student[];
   personnel: Personnel[];
+  members?: MemberAccount[];
   savings: SavingsRecord[];
   attendance: AttendanceRecord[];
   customButtons?: CustomButton[];
@@ -62,6 +66,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   tasks,
   students,
   personnel,
+  members = [],
   savings,
   attendance,
   customButtons = [],
@@ -95,12 +100,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   
   // Specific event fields matching user prompt: เป็นวันอะไร / แจ้งอะไร / ให้ส่งงานอะไร (สอดคล้อง-เชื่อมกับ หน้ามอบหมาย)
-  const [newEventTitle, setNewEventTitle] = useState(''); // เป็นวันอะไร
-  const [newEventAnnouncement, setNewEventAnnouncement] = useState(''); // แจ้งอะไร
-  const [newEventSyncAnnouncement, setNewEventSyncAnnouncement] = useState(true); // เชื่อมโยงกับหน้ามอบหมาย (แท็บประชาสัมพันธ์)
-  const [newEventTaskDue, setNewEventTaskDue] = useState(''); // ให้ส่งงานอะไร
+  const [newEventTitle, setNewEventTitle] = useState('');
+  const [newEventAnnouncement, setNewEventAnnouncement] = useState('');
+  const [newEventSyncAnnouncement, setNewEventSyncAnnouncement] = useState(true);
+  const [newEventTaskDue, setNewEventTaskDue] = useState('');
   const [newEventTaskPriority, setNewEventTaskPriority] = useState<'urgent' | 'high' | 'normal'>('normal');
-  const [newEventSyncTask, setNewEventSyncTask] = useState(true); // เชื่อมโยงกับหน้ามอบหมาย (แท็บงานที่มอบหมาย)
+  const [newEventSyncTask, setNewEventSyncTask] = useState(true);
   const [newEventDesc, setNewEventDesc] = useState('');
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().split('T')[0]);
   const [newEventType, setNewEventType] = useState<'academic' | 'holiday' | 'exam' | 'activity' | 'meeting'>('activity');
@@ -123,7 +128,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ];
 
   // Days in month calculation
-  const firstDayOfWeek = new Date(year, month, 1).getDay(); // 0 is Sun
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const calendarDays = [];
@@ -134,8 +139,110 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     calendarDays.push(d);
   }
 
-  // Filter tasks: member only sees assigned to all or them
-  const visibleTasks = tasks.filter(t => !t.isCompleted && !t.isManualCompleted && t.type !== 'announcement');
+  // Submission Modal State for "งานที่ต้องส่ง"
+  const [taskToSubmit, setTaskToSubmit] = useState<TaskItem | null>(null);
+  const [submitFile, setSubmitFile] = useState<{ name: string; url: string; size: string } | null>(null);
+  const [isUploadingSubmit, setIsUploadingSubmit] = useState(false);
+
+  const handleFileChangeForSubmission = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
+    const sizeStr = sizeInMB + ' MB';
+
+    setIsUploadingSubmit(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setSubmitFile({ name: file.name, url: base64, size: sizeStr });
+      setIsUploadingSubmit(false);
+      if (onShowToast) {
+        onShowToast('info', 'เลือกไฟล์เรียบร้อย', `พร้อมส่งไฟล์ "${file.name}" (${sizeStr})`);
+      }
+    };
+    reader.onerror = () => {
+      setIsUploadingSubmit(false);
+      if (onShowToast) {
+        onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถอ่านไฟล์ได้ โปรดลองอีกครั้ง');
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmSubmitTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskToSubmit) return;
+
+    if (!submitFile) {
+      if (onShowToast) {
+        onShowToast('warning', 'โปรดแนบไฟล์งาน', 'กรุณาเลือกหรืออัปโหลดไฟล์งานก่อนกดยืนยันส่ง');
+      }
+      return;
+    }
+
+    const newSub: TaskSubmission = {
+      memberId: user.id,
+      memberName: user.fullName || user.username,
+      fileUrl: submitFile.url,
+      fileName: submitFile.name,
+      fileSize: submitFile.size,
+      submittedAt: new Date().toISOString()
+    };
+
+    const currentSubs = taskToSubmit.submissions || [];
+    const updatedSubs = [
+      ...currentSubs.filter(s => s.memberId !== user.id),
+      newSub
+    ];
+
+    const updatedTask: TaskItem = {
+      ...taskToSubmit,
+      submissions: updatedSubs,
+      submittedFileUrl: submitFile.url,
+      submittedFileName: submitFile.name,
+      submittedFileSize: submitFile.size,
+      submittedBy: user.id,
+      submittedByName: user.fullName || user.username,
+      submittedAt: new Date().toISOString()
+    };
+
+    if (onSaveTask) {
+      onSaveTask(updatedTask);
+    }
+
+    if (onShowToast) {
+      onShowToast(
+        'success',
+        'ส่งงานสำเร็จ 🎉',
+        `แนบไฟล์ "${submitFile.name}" เรียบร้อย รายการจะถูกนำออกจากวิดเจ็ตงานที่ต้องส่งทันที`
+      );
+    }
+
+    setTaskToSubmit(null);
+    setSubmitFile(null);
+  };
+
+  // Filter tasks:
+  // For Member: shows task ONLY IF member hasn't submitted yet (disappears immediately after submission)
+  // For Admin: shows task UNTIL all members have submitted work (disappears when all members completed)
+  const totalMembersCount = (members && members.length > 0)
+    ? members.length
+    : (personnel && personnel.length > 0 ? personnel.length : 1);
+
+  const visibleTasks = tasks.filter(t => {
+    if (t.type === 'announcement') return false;
+    if (t.isCompleted || t.isManualCompleted) return false;
+
+    if (user.role === 'member') {
+      const hasMemberSubmitted = (t.submissions && t.submissions.some(s => s.memberId === user.id)) || (t.submittedBy === user.id);
+      return !hasMemberSubmitted;
+    } else {
+      const submittedCount = t.submissions?.length || (t.submittedBy ? 1 : 0);
+      return submittedCount < totalMembersCount;
+    }
+  });
 
   const monthShortNamesThai = [
     'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
@@ -254,7 +361,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         dueDate: newEventDate,
         type: 'announcement',
         priority: 'normal',
-        createdBy: user.fullName || 'ผู้ดูแลระบบ',
+        createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),
         assignedTo: 'all'
       };
@@ -273,7 +380,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         dueDate: newEventDate,
         type: 'assignment',
         priority: newEventTaskPriority,
-        createdBy: user.fullName || 'ผู้ดูแลระบบ',
+        createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),
         assignedTo: 'all',
         isCompleted: false,
@@ -366,6 +473,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
+              {user.role === 'admin' && (
+                <button
+                  onClick={() => handleOpenAddForDate()}
+                  className="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+                  title="เพิ่มรายการปฏิทิน / แจ้งประกาศ / มอบหมายงาน (+)"
+                >
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                  <span className="hidden sm:inline">เพิ่มข้อมูล</span>
+                </button>
+              )}
               <button
                 onClick={prevMonth}
                 className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
@@ -581,6 +698,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               visibleTasks.map((task) => {
                 const isUrgent = task.priority === 'urgent';
                 const isHigh = task.priority === 'high';
+                const submittedCount = task.submissions?.length || (task.submittedBy ? 1 : 0);
 
                 return (
                   <div
@@ -608,6 +726,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             {isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ'}
                           </span>
                           <span className="text-[11px] text-slate-400">จาก: {task.createdBy}</span>
+                          {user.role === 'admin' && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                              ส่งแล้ว {submittedCount}/{totalMembersCount} คน
+                            </span>
+                          )}
                         </div>
 
                         <h4 className="text-sm font-bold text-slate-800 mt-1 leading-snug">
@@ -636,15 +759,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         </div>
                       </div>
 
-                      {/* 1-Click Complete / Submit Button: Tasks disappear immediately! */}
-                      <button
-                        onClick={() => onCompleteTask(task.id)}
-                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-semibold transition-all shadow-xs flex items-center gap-1 shrink-0"
-                        title="คลิกเพื่อส่งงานและนำออกจากรายการทันที"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>ส่งงาน</span>
-                      </button>
+                      {/* Action Button: Member triggers File Upload Pop-up Modal */}
+                      {user.role === 'member' ? (
+                        <button
+                          onClick={() => {
+                            setTaskToSubmit(task);
+                            setSubmitFile(null);
+                          }}
+                          className="px-3 py-2 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1 shrink-0 cursor-pointer"
+                          title="กดเพื่ออัปโหลดไฟล์ส่งงาน"
+                        >
+                          <Upload className="w-4 h-4" />
+                          <span>ส่งงาน</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onNavigateToTab('assignments')}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-900 border border-slate-200 rounded-xl text-xs font-semibold transition-all shrink-0 cursor-pointer"
+                          title="ดูตารางตรวจงานมอบหมาย"
+                        >
+                          ตรวจงาน →
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -674,17 +810,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => {
-                    const dStr = selectedDayEvents.dateStr;
-                    setSelectedDayEvents(null);
-                    handleOpenAddForDate(dStr);
-                  }}
-                  className="w-8 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center shadow-xs cursor-pointer active:scale-95"
-                  title="เพิ่มข้อมูล (มอบหมายงาน / ประกาศใหม่)"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                </button>
+                {user.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      const dStr = selectedDayEvents.dateStr;
+                      setSelectedDayEvents(null);
+                      handleOpenAddForDate(dStr);
+                    }}
+                    className="w-8 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center shadow-xs cursor-pointer active:scale-95"
+                    title="เพิ่มข้อมูล (มอบหมายงาน / ประกาศใหม่)"
+                  >
+                    <Plus className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedDayEvents(null)}
                   className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg text-sm"
@@ -1115,6 +1253,128 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>บันทึกปุ่มลง Google Sheets</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pop-up Modal: Upload File for Submitting Work (งานที่ต้องส่ง) */}
+      {taskToSubmit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold shrink-0">
+                  <Upload className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">อัปโหลดไฟล์ส่งงาน</h3>
+                  <p className="text-[11px] text-slate-500">แนบไฟล์รายงาน/การปฏิบัติงานเพื่อส่งมอบหมาย</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTaskToSubmit(null);
+                  setSubmitFile(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Task Info Summary */}
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-1 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-sm">{taskToSubmit.title}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                  กำหนดส่ง: {taskToSubmit.dueDate}
+                </span>
+              </div>
+              {taskToSubmit.description && (
+                <p className="text-slate-600 leading-relaxed text-[11px] whitespace-pre-wrap pt-1">
+                  {taskToSubmit.description}
+                </p>
+              )}
+            </div>
+
+            <form onSubmit={handleConfirmSubmitTask} className="space-y-4">
+              {/* File Upload Drop Area */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  แนบไฟล์ผลงาน / เอกสารรายงาน *
+                </label>
+                <div className="border-2 border-dashed border-purple-200 hover:border-purple-400 rounded-2xl p-5 text-center bg-purple-50/40 hover:bg-purple-50/80 transition-all">
+                  <input
+                    type="file"
+                    id="dashboard-task-file-input"
+                    className="hidden"
+                    onChange={handleFileChangeForSubmission}
+                  />
+                  
+                  {submitFile ? (
+                    <div className="space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <div className="text-xs font-bold text-slate-800 truncate max-w-xs mx-auto">
+                        {submitFile.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        ขนาดไฟล์: {submitFile.size}
+                      </div>
+                      <label
+                        htmlFor="dashboard-task-file-input"
+                        className="inline-block text-[11px] font-bold text-purple-700 hover:underline cursor-pointer pt-1"
+                      >
+                        เปลี่ยนไฟล์อื่น
+                      </label>
+                    </div>
+                  ) : (
+                    <label
+                      htmlFor="dashboard-task-file-input"
+                      className="cursor-pointer space-y-2 block"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div className="text-xs font-bold text-purple-900">
+                        {isUploadingSubmit ? 'กำลังโหลดไฟล์...' : 'กดเพื่อเลือกไฟล์จากอุปกรณ์'}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        รองรับไฟล์ PDF, Word, Excel, รูปภาพ หรือไฟล์อื่นๆ
+                      </div>
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaskToSubmit(null);
+                    setSubmitFile(null);
+                  }}
+                  className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl font-medium transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={!submitFile || isUploadingSubmit}
+                  className={`px-5 py-2 text-xs text-white font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95 ${
+                    submitFile && !isUploadingSubmit
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  <span>ยืนยันส่งงาน</span>
                 </button>
               </div>
             </form>

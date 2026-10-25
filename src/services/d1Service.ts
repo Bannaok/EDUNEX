@@ -48,6 +48,7 @@ export class D1Service {
   static async fetchAll(): Promise<{
     success: boolean;
     data?: {
+      developer?: { username: string; password: string };
       admins: SchoolAdminAccount[];
       members: MemberAccount[];
       academicYears: string[];
@@ -64,6 +65,22 @@ export class D1Service {
       return { success: false, message: json.message };
     } catch (e: any) {
       return { success: false, message: e.message };
+    }
+  }
+
+  /**
+   * Update Developer (Airfan) password in D1
+   */
+  static async updateDeveloperPassword(password: string): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.API_URL}?action=updateDevPassword`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      return res.ok;
+    } catch {
+      return false;
     }
   }
 

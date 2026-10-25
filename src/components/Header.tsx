@@ -13,7 +13,6 @@ import {
   Settings,
   Terminal
 } from 'lucide-react';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
   schoolInfo: SchoolInfo;
@@ -70,21 +69,19 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-white border border-white/30 p-1 flex items-center justify-center shrink-0 shadow-sm overflow-hidden">
             <img
-              src="/nexus-logo.png"
-              alt="NEXUS"
+              src={schoolInfo.logoUrl || '/nexus-logo.png'}
+              alt={schoolInfo.schoolName || 'School Logo'}
               className="w-full h-full object-contain"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = '/nexus-logo.png';
+              }}
             />
           </div>
 
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-black tracking-wider text-amber-300 uppercase bg-white/15 px-2 py-0.5 rounded-md border border-white/20 shadow-2xs">
-                NEXUS
-              </span>
-              <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight text-white leading-tight">
-                {schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
-              </h1>
-            </div>
+            <h1 className="text-sm sm:text-base md:text-lg font-bold tracking-tight text-white leading-tight">
+              {schoolInfo.schoolName ? (schoolInfo.schoolName.startsWith('โรงเรียน') ? schoolInfo.schoolName : `โรงเรียน${schoolInfo.schoolName}`) : 'โรงเรียนบ้านนาออก'}
+            </h1>
 
             {/* Small stats in blue header: Only นักเรียนทั้งหมด, ครูและบุคลากร, มาเรียนวันนี้ */}
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-indigo-200 mt-0.5 font-normal">
@@ -156,8 +153,6 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* PWA Install Button in Header */}
-          <PWAInstallButton variant="header" />
 
           {/* Settings icon button located at top right near logout (only for Admin and Member) */}
           {user.role !== 'developer' && (

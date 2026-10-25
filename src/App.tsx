@@ -44,7 +44,6 @@ import { LightboxModal } from './components/LightboxModal';
 import { DeveloperConsole } from './components/DeveloperConsole';
 import { Toast } from './components/Toast';
 import { MobileBottomNav } from './components/MobileBottomNav';
-import { PWAInstallButton } from './components/PWAInstallButton';
 
 export default function App() {
   // Global State
@@ -118,10 +117,24 @@ export default function App() {
     if (res.success && res.user) {
       setUser(res.user);
       setIsInspectingSchool(false);
-      // Reload admins and members
+      // Reload system & tenant-isolated school data for the authenticated schoolId
       setAdmins(StorageService.getAdmins());
       setMembers(StorageService.getMembers());
       setAcademicYears(StorageService.getAcademicYears());
+      setSchoolInfo(StorageService.getSchoolInfo());
+      setStudents(StorageService.getStudents());
+      setPersonnel(StorageService.getPersonnel());
+      setDailyTracking(StorageService.getDailyTracking());
+      setSubjects(StorageService.getSubjects());
+      setGrades(StorageService.getGrades());
+      setAttendance(StorageService.getAttendance());
+      setAttendanceConfig(StorageService.getAttendanceConfig());
+      setSavings(StorageService.getSavings());
+      setTasks(StorageService.getTasks());
+      setDocuments(StorageService.getDocuments());
+      setWebsites(StorageService.getWebsites());
+      setCalendarEvents(StorageService.getCalendarEvents());
+      setCustomButtons(StorageService.getCustomButtons());
       showToast('success', 'เข้าสู่ระบบสำเร็จ', res.message);
     }
     return res;
@@ -469,8 +482,8 @@ export default function App() {
     );
   }
 
-  // Level 1: Developer Console View (when not inspecting school)
-  if (user.role === 'developer' && !isInspectingSchool) {
+  // Level 1: Developer Console View (STRICT SECURITY CONSTRAINT: Developer can NEVER enter Admin/School workspace)
+  if (user.role === 'developer') {
     return (
       <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
         <DeveloperConsole
@@ -491,10 +504,6 @@ export default function App() {
           }}
           onLogout={handleLogout}
           onShowToast={showToast}
-          onInspectSchoolView={(admin) => {
-            setIsInspectingSchool(true);
-            showToast('info', 'เข้าสู่โหมดตรวจสอบโรงเรียน', `กำลังตรวจสอบระบบของ ${admin.schoolName} ในโหมดอ่านอย่างเดียว`);
-          }}
         />
 
         {/* Floating Action Toasts */}
@@ -503,28 +512,16 @@ export default function App() {
     );
   }
 
+  // Multi-Tenant Isolation: Filter members strictly belonging to the logged-in Admin/Member's school
+  const tenantMembers = user.schoolId
+    ? members.filter(m =>
+        m.schoolId === user.schoolId ||
+        (!m.schoolId && (user.schoolId === 'admin-school-01' || user.schoolId === 'admin-01'))
+      )
+    : members;
+
   return (
     <div className="min-h-screen bg-slate-50/60 flex flex-col text-slate-800">
-      {/* Developer Inspection Banner */}
-      {user.role === 'developer' && isInspectingSchool && (
-        <div className="bg-gradient-to-r from-purple-950 via-purple-900 to-indigo-950 text-white px-4 py-2.5 flex flex-wrap items-center justify-between text-xs border-b border-purple-700/60 shadow-inner gap-2 sticky top-0 z-50">
-          <div className="flex items-center gap-2.5">
-            <span className="bg-purple-600 text-white font-bold px-2.5 py-0.5 rounded-lg text-[10px] uppercase tracking-wider border border-purple-400/50 shadow-xs">
-              Developer Read-Only
-            </span>
-            <span>
-              กำลังตรวจสอบระบบของโรงเรียนในฐานะ <strong>Level 1 Developer (Airfan)</strong> — <em>โหมดอ่านอย่างเดียว (ไม่สามารถแก้ไขข้อมูลใดๆ ได้)</em>
-            </span>
-          </div>
-          <button
-            onClick={() => setIsInspectingSchool(false)}
-            className="px-3 py-1 bg-white hover:bg-purple-50 text-purple-950 font-bold rounded-xl transition-all cursor-pointer text-xs shadow-md active:scale-95"
-          >
-            ← กลับสู่ Developer Console
-          </button>
-        </div>
-      )}
-
       {/* Dynamic Header */}
       <Header
         schoolInfo={schoolInfo}
@@ -537,8 +534,8 @@ export default function App() {
         onLogout={handleLogout}
         onSyncAll={handleSyncAll}
         isSyncing={isSyncing}
-        isInspectingSchool={isInspectingSchool}
-        onReturnToDevConsole={() => setIsInspectingSchool(false)}
+        isInspectingSchool={false}
+        onReturnToDevConsole={() => {}}
       />
 
       {/* Top Navigation Bar: Always visible across all tabs */}
@@ -559,6 +556,7 @@ export default function App() {
             tasks={tasks}
             students={students}
             personnel={personnel}
+            members={tenantMembers}
             savings={savings}
             attendance={attendance}
             onCompleteTask={handleCompleteTask}
@@ -609,7 +607,7 @@ export default function App() {
             subjects={subjects}
             grades={grades}
             students={students}
-            members={members}
+            members={tenantMembers}
             academicYear={schoolInfo.academicYear}
             semester={schoolInfo.semester}
             attendance={attendance}
@@ -659,7 +657,7 @@ export default function App() {
           <Module4Assignments
             user={user}
             tasks={tasks}
-            members={members}
+            members={tenantMembers}
             onSaveTask={handleSaveTask}
             onDeleteTask={handleDeleteTask}
             onCompleteTask={handleCompleteTask}
@@ -713,7 +711,7 @@ export default function App() {
         <SettingsView
           user={user}
           schoolInfo={schoolInfo}
-          members={members}
+          members={tenantMembers}
           onClose={() => setActiveTab(previousTab || 'dashboard')}
           onSaveSchoolInfo={handleSaveSchoolInfo}
           onSaveMember={handleSaveMember}
@@ -749,8 +747,6 @@ export default function App() {
         onOpenSettings={() => handleSelectTab('settings')}
       />
 
-      {/* PWA Mobile Floating Install Banner */}
-      <PWAInstallButton variant="banner" />
 
       {/* Lightbox Modal */}
       <LightboxModal

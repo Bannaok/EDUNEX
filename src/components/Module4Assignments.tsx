@@ -229,8 +229,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
   const handleCreateTask = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (user.role !== 'admin') {
-      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถสร้างรายการได้');
+    if (user.role === 'developer') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'ระดับผู้พัฒนา (Developer) ไม่สามารถสร้างรายการได้');
       return;
     }
 
@@ -552,7 +552,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
         </div>
 
         {/* Action Button for Active Tab */}
-        {user.role === 'admin' ? (
+        {user.role !== 'developer' ? (
           <button
             type="button"
             onClick={() => handleOpenModal()}

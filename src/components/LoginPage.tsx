@@ -7,10 +7,8 @@ import {
   EyeOff, 
   LogIn, 
   AlertCircle,
-  ShieldCheck,
-  Smartphone
+  ShieldCheck
 } from 'lucide-react';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface LoginPageProps {
   onLogin: (username: string, password: string) => { success: boolean; user?: UserSession; message: string };
@@ -55,25 +53,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
     >
       {/* Central Login Card */}
       <div className="bg-white rounded-3xl shadow-2xl p-6 sm:p-9 max-w-[430px] w-full mx-auto animate-in fade-in zoom-in-95 duration-200 border border-slate-100">
-        {/* Brand Header with NEXUS Logo */}
+        {/* Brand Header */}
         <div className="text-center mb-6 space-y-2">
           <div className="w-20 h-20 mx-auto rounded-2xl bg-white border border-slate-200 p-2 shadow-sm flex items-center justify-center">
             <img 
               src="/nexus-logo.png" 
-              alt="NEXUS" 
+              alt="School Management System" 
               className="w-full h-full object-contain"
             />
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-900 tracking-tight">
-              NEXUS
-            </h2>
-            <p className="text-xs text-blue-700 font-bold">
+            <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight">
               ระบบบริหารจัดการงานวิชาการและธุรการ
-            </p>
+            </h2>
           </div>
           <p className="text-[11px] text-slate-500 font-medium">
-            กรุณากรอก ID และ Password เพื่อเข้าใช้งานแอปพลิเคชัน
+            กรุณากรอก ID และ Password เพื่อเข้าสู่ระบบ
           </p>
         </div>
 
@@ -178,10 +173,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
             )}
           </button>
 
-          {/* Quick Install Prompt on Mobile */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-center">
-            <PWAInstallButton variant="header" />
-          </div>
+
         </form>
       </div>
     </div>

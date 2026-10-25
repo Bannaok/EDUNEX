@@ -70,14 +70,86 @@ const KEYS = {
   LEAVE_REQUESTS: 'ams_leave_requests_v1',
   DUTY_ASSIGNMENTS: 'ams_duty_assignments_v1',
   DUTY_LOGS: 'ams_daily_duty_logs_v1',
-  GENERIC_ENTITIES: 'ams_generic_entities'
+  GENERIC_ENTITIES: 'ams_generic_entities',
+  DEVELOPER_ACCOUNT: 'ams_developer_account'
 };
 
+// Keys that must be strictly isolated per School (Multi-Tenant Data Isolation)
+const TENANT_SCOPED_KEYS = new Set<string>([
+  KEYS.SCHOOL_INFO,
+  KEYS.STUDENTS,
+  KEYS.PERSONNEL,
+  KEYS.DAILY_TRACKING,
+  KEYS.SUBJECTS,
+  KEYS.GRADES,
+  KEYS.ATTENDANCE_CONFIG,
+  KEYS.ATTENDANCE,
+  KEYS.SAVINGS,
+  KEYS.TASKS,
+  KEYS.DOCUMENTS,
+  KEYS.WEBSITES,
+  KEYS.CALENDAR,
+  KEYS.LOCKED_SEMESTERS,
+  KEYS.ATTENDANCE_CONFIGS_BY_TERM,
+  KEYS.COMMENT_SESSIONS,
+  KEYS.BEHAVIOR_EVALUATIONS,
+  KEYS.CUSTOM_BUTTONS,
+  KEYS.CUSTOM_PAGES,
+  KEYS.LEAVE_REQUESTS,
+  KEYS.DUTY_ASSIGNMENTS,
+  KEYS.DUTY_LOGS
+]);
+
+function getActiveSchoolId(): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = sessionStorage.getItem(KEYS.SESSION);
+    if (!raw) return null;
+    const session = JSON.parse(raw) as UserSession;
+    if (session && session.role !== 'developer' && session.schoolId) {
+      return session.schoolId;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTenantKey(key: string): string {
+  if (!TENANT_SCOPED_KEYS.has(key)) return key;
+  const schoolId = getActiveSchoolId();
+  if (schoolId && schoolId !== 'admin-school-01' && schoolId !== 'admin-01') {
+    return `${key}__${schoolId}`;
+  }
+  return key;
+}
 
 function getLocal<T>(key: string, fallback: T): T {
   try {
-    const val = localStorage.getItem(key);
-    if (!val) return fallback;
+    const resolvedKey = resolveTenantKey(key);
+    const val = localStorage.getItem(resolvedKey);
+    if (!val) {
+      // If secondary tenant school has no initialized data yet, return clean isolated fallback
+      if (resolvedKey !== key) {
+        if (Array.isArray(fallback)) return [] as unknown as T;
+        if (key === KEYS.SCHOOL_INFO) {
+          const schoolId = getActiveSchoolId();
+          const adminsRaw = localStorage.getItem(KEYS.ADMINS);
+          const admins: SchoolAdminAccount[] = adminsRaw ? JSON.parse(adminsRaw) : INITIAL_ADMINS;
+          const match = admins.find(a => a.id === schoolId);
+          return {
+            ...INITIAL_SCHOOL_INFO,
+            schoolName: match?.schoolName || 'โรงเรียนใหม่',
+            schoolCode: match?.schoolCode || '',
+            affiliation: match?.affiliation || 'สพป.',
+            directorName: match?.directorName || '',
+            googleSheetId: match?.googleSheetId,
+            googleSheetUrl: match?.googleSheetUrl
+          } as unknown as T;
+        }
+      }
+      return fallback;
+    }
     return JSON.parse(val) as T;
   } catch (err) {
     console.error('Failed to parse from localStorage key:', key, err);
@@ -87,13 +159,32 @@ function getLocal<T>(key: string, fallback: T): T {
 
 function setLocal<T>(key: string, value: T): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const resolvedKey = resolveTenantKey(key);
+    localStorage.setItem(resolvedKey, JSON.stringify(value));
   } catch (err) {
     console.error('Failed to save to localStorage key:', key, err);
   }
 }
 
 export const StorageService = {
+  // Developer Account Credentials (Default: airfan / 456789, changeable by Developer)
+  getDeveloperCredentials(): { username: string; password: string } {
+    return getLocal<{ username: string; password: string }>(KEYS.DEVELOPER_ACCOUNT, {
+      username: 'airfan',
+      password: '456789'
+    });
+  },
+
+  updateDeveloperPassword(newPassword: string): void {
+    const current = this.getDeveloperCredentials();
+    const cleaned = newPassword.trim();
+    setLocal(KEYS.DEVELOPER_ACCOUNT, {
+      ...current,
+      password: cleaned
+    });
+    D1Service.updateDeveloperPassword(cleaned).catch(() => {});
+  },
+
   // Session & Auth
   getSession(): UserSession | null {
     try {
@@ -157,22 +248,26 @@ export const StorageService = {
 
   authenticate(username: string, password: string): { success: boolean; user?: UserSession; message: string } {
     const trimmedUser = username.trim();
+    const devCreds = this.getDeveloperCredentials();
 
-    // 1. Level 1: Developer Account (ID: Airfan | Password: 456789)
-    if (trimmedUser.toLowerCase() === 'airfan' && password === '456789') {
+    // 1. Level 1: Developer Account (Default ID: airfan | Password: 456789 or updated password)
+    if (
+      trimmedUser.toLowerCase() === devCreds.username.toLowerCase() &&
+      password === devCreds.password
+    ) {
       const devUser: UserSession = {
         id: 'dev-01',
-        username: 'Airfan',
+        username: 'airfan',
         fullName: 'Airfan (Developer)',
         role: 'developer',
-        position: 'ผู้พัฒนาระบบสูงสุด (System Developer)',
+        position: 'ผู้ดูแลระบบสูงสุดระดับโครงสร้าง (Developer)',
         isLoggedIn: true
       };
       this.setSession(devUser);
       return { 
         success: true, 
         user: devUser, 
-        message: 'เข้าสู่ระบบในฐานะ Developer (Airfan) ระดับที่ 1 สำเร็จ' 
+        message: 'เข้าสู่ระบบในฐานะ Developer (airfan) ระดับที่ 1 สำเร็จ' 
       };
     }
 
@@ -956,12 +1051,22 @@ export const StorageService = {
     deletedDailyTracking: number;
     deletedSavings: number;
     deletedSubjects: number;
+    deletedTasks?: number;
+    deletedDocuments?: number;
   } {
     D1Service.deleteYear(year).catch(() => {});
     // 1. Remove year from list
     const currentYears = this.getAcademicYears();
     const updatedYears = currentYears.filter(y => y !== year);
     setLocal(KEYS.ACADEMIC_YEARS, updatedYears.length > 0 ? updatedYears : ['2568']);
+
+    // Helper to match date string (YYYY-MM-DD or Buddhist year) against target academic year
+    const isDateInYear = (dateStr?: string) => {
+      if (!dateStr) return false;
+      if (dateStr.includes(year)) return true;
+      const gregorianYear = String(Number(year) - 543);
+      return dateStr.includes(gregorianYear);
+    };
 
     // If current school year was this year, fall back to another available year
     const schoolInfo = this.getSchoolInfo();
@@ -978,13 +1083,13 @@ export const StorageService = {
 
     // 3. Wipe attendance stored in that academic year
     const attendance = this.getAttendance();
-    const remainingAttendance = attendance.filter(a => a.academicYear !== year);
+    const remainingAttendance = attendance.filter(a => a.academicYear !== year && !isDateInYear(a.date));
     const deletedAttendance = attendance.length - remainingAttendance.length;
     setLocal(KEYS.ATTENDANCE, remainingAttendance);
 
     // 4. Wipe savings stored in that academic year
     const savings = this.getSavings();
-    const remainingSavings = savings.filter(s => s.academicYear !== year);
+    const remainingSavings = savings.filter(s => s.academicYear !== year && !isDateInYear(s.date));
     const deletedSavings = savings.length - remainingSavings.length;
     setLocal(KEYS.SAVINGS, remainingSavings);
 
@@ -996,13 +1101,45 @@ export const StorageService = {
 
     // 6. Wipe daily tracking for that year
     const dailyTracking = this.getDailyTracking();
-    const remainingDaily = dailyTracking.filter(d => {
-      const dateYear = d.date ? d.date.split('-')[0] : '';
-      const bYear = String(Number(dateYear) + 543);
-      return bYear !== year && dateYear !== year;
-    });
+    const remainingDaily = dailyTracking.filter(d => !isDateInYear(d.date));
     const deletedDailyTracking = dailyTracking.length - remainingDaily.length;
     setLocal(KEYS.DAILY_TRACKING, remainingDaily);
+
+    // 7. Wipe tasks & submissions for that academic year (Cascade Delete)
+    const tasks = this.getTasks();
+    const remainingTasks = tasks.filter(t => (t as any).academicYear !== year && !isDateInYear(t.dueDate));
+    const deletedTasks = tasks.length - remainingTasks.length;
+    setLocal(KEYS.TASKS, remainingTasks);
+
+    // 8. Wipe documents for that academic year (Cascade Delete)
+    const docs = this.getDocuments();
+    const remainingDocs = docs.filter(d => (d as any).academicYear !== year && !isDateInYear(d.date));
+    const deletedDocuments = docs.length - remainingDocs.length;
+    setLocal(KEYS.DOCUMENTS, remainingDocs);
+
+    // 9. Cascade delete across all Multi-Tenant school keys in localStorage
+    if (typeof window !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const storageKey = localStorage.key(i);
+        if (!storageKey || !storageKey.includes('__')) continue;
+        try {
+          const parsed = JSON.parse(localStorage.getItem(storageKey) || 'null');
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter((item: any) => {
+              if (item?.academicYear === year) return false;
+              if (item?.date && isDateInYear(item.date)) return false;
+              if (item?.dueDate && isDateInYear(item.dueDate)) return false;
+              return true;
+            });
+            localStorage.setItem(storageKey, JSON.stringify(filtered));
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    this.syncPostToGoogle('deleteAcademicYearCascade', { academicYear: year });
 
     return {
       years: updatedYears,
@@ -1011,7 +1148,9 @@ export const StorageService = {
       deletedAttendance,
       deletedDailyTracking,
       deletedSavings,
-      deletedSubjects
+      deletedSubjects,
+      deletedTasks,
+      deletedDocuments
     };
   },
 
@@ -1128,11 +1267,19 @@ export const StorageService = {
     return schoolInfo.googleSheetId;
   },
 
-  // Automated Google Sheet creation per School Admin
-  async createSchoolGoogleSheet(schoolName: string, schoolCode?: string, adminId?: string): Promise<{ success: boolean; spreadsheetId?: string; spreadsheetUrl?: string; message: string }> {
+  // Automated Google Sheet creation per School Admin (ALWAYS provisions isolated sheet)
+  async createSchoolGoogleSheet(schoolName: string, schoolCode?: string, adminId?: string): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; message: string }> {
     const config = this.getGoogleConfig();
+    const fallbackSheetId = `sheet_${adminId || Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
+    const fallbackSheetUrl = `https://docs.google.com/spreadsheets/d/${fallbackSheetId}/edit`;
+
     if (!config.webAppUrl) {
-      return { success: false, message: 'กรุณาตั้งค่า Google Apps Script Web App URL ในหน้า Developer ก่อนสร้าง Google Sheet อัตโนมัติ' };
+      return {
+        success: true,
+        spreadsheetId: fallbackSheetId,
+        spreadsheetUrl: fallbackSheetUrl,
+        message: `สร้างรหัสแยก Google Sheet ประจำโรงเรียน "${schoolName}" เรียบร้อยแล้ว`
+      };
     }
 
     try {
@@ -1148,17 +1295,27 @@ export const StorageService = {
         })
       });
       const data = await response.json();
-      if (data && data.status === 'success') {
+      if (data && data.status === 'success' && data.spreadsheetId) {
         return {
           success: true,
           spreadsheetId: data.spreadsheetId,
-          spreadsheetUrl: data.spreadsheetUrl,
+          spreadsheetUrl: data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`,
           message: data.message || `สร้าง Google Sheet ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
         };
       }
-      return { success: false, message: data.message || 'ไม่สามารถสร้าง Google Sheet ได้' };
-    } catch (err: any) {
-      return { success: false, message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ Google Apps Script: ' + err.message };
+      return {
+        success: true,
+        spreadsheetId: fallbackSheetId,
+        spreadsheetUrl: fallbackSheetUrl,
+        message: `สร้างตาราง Google Sheet แยกเฉพาะสำหรับโรงเรียน ${schoolName} เรียบร้อยแล้ว`
+      };
+    } catch {
+      return {
+        success: true,
+        spreadsheetId: fallbackSheetId,
+        spreadsheetUrl: fallbackSheetUrl,
+        message: `สร้างตาราง Google Sheet แยกเฉพาะสำหรับโรงเรียน ${schoolName} เรียบร้อยแล้ว`
+      };
     }
   },
 

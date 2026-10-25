@@ -12,11 +12,9 @@ import {
   FileText,
   Globe,
   BarChart3,
-  Settings,
-  Smartphone
+  Settings
 } from 'lucide-react';
 import { UserSession } from '../types';
-import { PWAInstallButton } from './PWAInstallButton';
 
 interface MobileBottomNavProps {
   activeTab: NavTab;
@@ -142,7 +140,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-black text-slate-900">เมนูการทำงานทั้งหมด</h3>
-                  <p className="text-[10px] text-slate-500">NEXUS School Academic System</p>
+                  <p className="text-[10px] text-slate-500">ระบบบริหารจัดการงานวิชาการและธุรการ</p>
                 </div>
               </div>
               <button
@@ -154,19 +152,6 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               </button>
             </div>
 
-            {/* Quick Install Prompt in Drawer */}
-            <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0">
-                  <Smartphone className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-slate-900">แอปพลิเคชันมือถือ</p>
-                  <p className="text-[10px] text-slate-500">ติดตั้งลงหน้าจอมือถือเพื่อใช้งานเต็มจอ</p>
-                </div>
-              </div>
-              <PWAInstallButton variant="header" />
-            </div>
 
             {/* All Modules List */}
             <div className="grid grid-cols-1 gap-1.5">

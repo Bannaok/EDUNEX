@@ -48,11 +48,18 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
     }
 
     if (action === 'getAll') {
-      const [adminsRes, membersRes, yearsRes] = await Promise.all([
+      const [devsRes, adminsRes, membersRes, yearsRes] = await Promise.all([
+        db.prepare('SELECT * FROM developers WHERE username = ? LIMIT 1').bind('airfan').all(),
         db.prepare('SELECT * FROM school_admins ORDER BY created_at DESC').all(),
         db.prepare('SELECT * FROM members ORDER BY created_at DESC').all(),
         db.prepare('SELECT * FROM academic_years ORDER BY year_code DESC').all()
       ]);
+
+      const devRow: any = (devsRes.results || [])[0];
+      const developer = devRow ? {
+        username: devRow.username || 'airfan',
+        password: devRow.password || '456789'
+      } : { username: 'airfan', password: '456789' };
 
       const admins = (adminsRes.results || []).map((row: any) => ({
         id: row.id,
@@ -93,7 +100,7 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
         JSON.stringify({
           status: 'success',
           isD1Available: true,
-          data: { admins, members, academicYears }
+          data: { developer, admins, members, academicYears }
         }),
         { headers: corsHeaders }
       );
@@ -101,6 +108,16 @@ export const onRequest = async (context: { request: Request; env: Env }): Promis
 
     if (request.method === 'POST') {
       const body: any = await request.json();
+
+      if (action === 'updateDevPassword') {
+        const { password } = body;
+        await db.prepare(`
+          INSERT INTO developers (id, username, password, full_name)
+          VALUES ('dev-01', 'airfan', ?, 'System Developer (Airfan)')
+          ON CONFLICT(id) DO UPDATE SET password = excluded.password
+        `).bind(password || '456789').run();
+        return new Response(JSON.stringify({ status: 'success', message: 'Updated developer password in D1' }), { headers: corsHeaders });
+      }
 
       if (action === 'saveAdmin') {
         const { id, username, password, fullName, schoolName, schoolCode, affiliation, directorName, googleSheetId, googleSheetUrl, driveFolderId, isSuspended } = body;

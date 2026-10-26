@@ -41,6 +41,7 @@ var DEFAULT_DRIVE_FOLDER_ID = "11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9";
 // รายการชื่อแผ่นงานมาตรฐาน (Standard Sheets)
 var SHEETS = {
   SETTINGS: "Settings",
+  ADMINS: "Admins",
   MEMBERS: "Members",
   STUDENTS: "Students",
   PERSONNEL: "Personnel",
@@ -198,6 +199,30 @@ function doPost(e) {
         createdAt: new Date().toISOString()
       });
 
+      // บันทึกข้อมูล Admin โรงเรียนใหม่ลงในชีต Admins ของ Master Spreadsheet ด้วย
+      if (payload.masterSpreadsheetId) {
+        try {
+          var masterSs = SpreadsheetApp.openById(payload.masterSpreadsheetId.trim());
+          if (masterSs) {
+            upsertRow(masterSs, SHEETS.ADMINS, "id", {
+              id: adminId,
+              username: payload.username || "",
+              password: payload.password || "",
+              fullName: payload.fullName || ("ผู้ดูแลระบบ " + schoolName),
+              schoolName: schoolName,
+              schoolCode: schoolCode,
+              affiliation: payload.affiliation || "",
+              directorName: payload.directorName || "",
+              googleSheetId: newSs.getId(),
+              googleSheetUrl: newSs.getUrl(),
+              createdAt: new Date().toISOString().split("T")[0]
+            });
+          }
+        } catch (mErr) {
+          Logger.log("Master Admins sheet update warning: " + mErr);
+        }
+      }
+
       result = {
         status: "success",
         message: "สร้าง Google Sheet ประจำโรงเรียน " + schoolName + " สำเร็จแล้ว",
@@ -205,6 +230,65 @@ function doPost(e) {
         spreadsheetUrl: newSs.getUrl(),
         schoolName: schoolName,
         adminId: adminId
+      };
+
+      return ContentService.createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // -----------------------------------------------------------------------
+    // ACTION 1.5: ลบ ID Admin โรงเรียน และลบไฟล์ Google Sheet ประจำโรงเรียน
+    // -----------------------------------------------------------------------
+    if (action === "deleteSchoolSheet" || action === "deleteAdmin") {
+      var delAdminId = payload.adminId || payload.id || "";
+      var delSchoolName = payload.schoolName || "";
+      var schoolSheetId = payload.schoolSpreadsheetId || payload.googleSheetId || "";
+      var masterId = payload.masterSpreadsheetId || payload.spreadsheetId || "";
+      var trashedSheet = false;
+
+      if (schoolSheetId && schoolSheetId.trim() !== "" && schoolSheetId.indexOf("sheet_") !== 0 && schoolSheetId !== masterId) {
+        try {
+          DriveApp.getFileById(schoolSheetId.trim()).setTrashed(true);
+          trashedSheet = true;
+        } catch (trashErr) {
+          Logger.log("Could not trash spreadsheet by ID: " + trashErr);
+        }
+      }
+
+      if (!trashedSheet && delSchoolName) {
+        try {
+          var searchTitle = "[ระบบวิชาการ] " + delSchoolName;
+          var filesIter = DriveApp.getFilesByName(searchTitle);
+          while (filesIter.hasNext()) {
+            var f = filesIter.next();
+            if (f.getId() !== masterId) {
+              f.setTrashed(true);
+              trashedSheet = true;
+            }
+          }
+        } catch (searchErr) {
+          Logger.log("Search trash warning: " + searchErr);
+        }
+      }
+
+      var targetMaster = getTargetSpreadsheet(e, payload);
+      if (targetMaster && delAdminId) {
+        try {
+          deleteRow(targetMaster, SHEETS.ADMINS, "id", delAdminId);
+        } catch (e1) {}
+        try {
+          deleteRowsByColumnValue(targetMaster, SHEETS.MEMBERS, "schoolId", delAdminId);
+        } catch (e2) {}
+        try {
+          deleteTenantKeysFromCloudKV(targetMaster, delAdminId);
+        } catch (e3) {}
+      }
+
+      result = {
+        status: "success",
+        trashedSheet: trashedSheet,
+        adminId: delAdminId,
+        message: "ลบข้อมูล Admin โรงเรียนและลบไฟล์ Google Sheet ประจำโรงเรียนเรียบร้อยแล้ว"
       };
 
       return ContentService.createTextOutput(JSON.stringify(result))
@@ -366,6 +450,9 @@ function doPost(e) {
       result = upsertRow(ss, SHEETS.DUTY_LOGS, "id", payload.record);
     } else if (action === "deleteDutyLog") {
       result = deleteRow(ss, SHEETS.DUTY_LOGS, "id", payload.id);
+    }
+    else if (action === "saveAdmin") {
+      result = upsertRow(ss, SHEETS.ADMINS, "id", payload.admin || payload.data);
     }
     else if (action === "saveMember") {
       result = upsertRow(ss, SHEETS.MEMBERS, "id", payload.member);
@@ -632,6 +719,44 @@ function deleteRow(ss, sheetName, keyName, keyValue) {
   return { status: "warning", message: "ไม่พบข้อมูลที่ต้องการลบใน Google Sheets" };
 }
 
+function deleteRowsByColumnValue(ss, sheetName, colName, targetVal) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return 0;
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow <= 1 || lastCol === 0) return 0;
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var headers = values[0];
+  var colIdx = headers.indexOf(colName);
+  if (colIdx === -1) return 0;
+  var deletedCount = 0;
+  for (var i = values.length - 1; i >= 1; i--) {
+    if (String(values[i][colIdx]) === String(targetVal)) {
+      sheet.deleteRow(i + 1);
+      deletedCount++;
+    }
+  }
+  return deletedCount;
+}
+
+function deleteTenantKeysFromCloudKV(ss, adminId) {
+  var sheet = ss.getSheetByName("RealtimeCloudKV");
+  if (!sheet || !adminId) return 0;
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0;
+  var values = sheet.getRange(1, 1, lastRow, 1).getValues();
+  var suffix = "__" + String(adminId);
+  var deletedCount = 0;
+  for (var i = values.length - 1; i >= 1; i--) {
+    var keyStr = String(values[i][0] || "");
+    if (keyStr.indexOf(suffix) !== -1) {
+      sheet.deleteRow(i + 1);
+      deletedCount++;
+    }
+  }
+  return deletedCount;
+}
+
 /**
  * อัปเดตเฉพาะบางฟิลด์
  */
@@ -832,6 +957,7 @@ function handleSyncAll(ss, data) {
  */
 function initDatabaseSheets(ss) {
   var defs = [
+    { name: SHEETS.ADMINS, headers: ["id", "username", "password", "fullName", "schoolName", "schoolCode", "affiliation", "directorName", "googleSheetId", "googleSheetUrl", "createdAt"] },
     { name: SHEETS.MEMBERS, headers: ["id", "username", "password", "fullName", "role", "gradeLevel", "position", "schoolId"] },
     { name: SHEETS.STUDENTS, headers: ["id", "studentCode", "prefix", "firstName", "lastName", "nickname", "gender", "birthDate", "age", "gradeLevel", "room", "address", "fatherName", "motherName", "parentOccupation", "dailyAllowance", "chronicDisease", "photoUrl", "status"] },
     { name: SHEETS.PERSONNEL, headers: ["id", "prefix", "firstName", "lastName", "position", "advisorGrade", "department", "birthDate", "employmentDate", "retirementDate", "major", "degree", "phone", "email", "avatarUrl"] },

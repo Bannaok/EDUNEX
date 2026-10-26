@@ -162,10 +162,22 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return tType === activeSubTab;
   });
 
-  // Sort tasks such that fully completed/submitted tasks move to the bottom
+  const isTaskDoneForUser = (task: TaskItem) => {
+    const subCount = (task.submissions || []).length;
+    const isFull = subCount >= totalSchoolMembers || Boolean(task.isManualCompleted);
+    if (user.role === 'member') {
+      const hasMySub =
+        (task.submissions || []).some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)) ||
+        task.submittedBy === user.id;
+      return hasMySub || isFull;
+    }
+    return isFull;
+  };
+
+  // Sort tasks such that completed/submitted tasks for the current user move to the bottom
   const sortedTasks = [...filteredTasks].sort((a, b) => {
-    const aDone = (a.submissions || []).length >= totalSchoolMembers || a.isManualCompleted;
-    const bDone = (b.submissions || []).length >= totalSchoolMembers || b.isManualCompleted;
+    const aDone = isTaskDoneForUser(a);
+    const bDone = isTaskDoneForUser(b);
     if (aDone && !bDone) return 1;
     if (!aDone && bDone) return -1;
     return 0;
@@ -179,9 +191,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   };
 
   const handleToggleManualComplete = (task: TaskItem) => {
+    const nextManualCompleted = !task.isManualCompleted;
     const updated: TaskItem = {
       ...task,
-      isManualCompleted: !task.isManualCompleted
+      isManualCompleted: nextManualCompleted,
+      isCompleted: nextManualCompleted
     };
     onSaveTask(updated);
     onShowToast(
@@ -344,9 +358,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       newSub
     ];
 
+    const isAllMembersDone = updatedSubs.length >= totalSchoolMembers;
+
     const updatedTask: TaskItem = {
       ...task,
       submissions: updatedSubs,
+      isCompleted: isAllMembersDone,
       submittedFileUrl: submittedFile.url,
       submittedFileName: submittedFile.name,
       submittedFileSize: submittedFile.size,
@@ -356,10 +373,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     };
 
     onSaveTask(updatedTask);
-    onCompleteTask(taskId);
     setSubmittingTaskId(null);
     setSubmittedFile(null);
-    onShowToast('success', 'ส่งงานสำเร็จ 🎉', 'ส่งภาระงานและไฟล์แนบเรียบร้อยแล้ว');
+    onShowToast(
+      'success',
+      'ส่งงานสำเร็จ 🎉',
+      'ส่งภาระงานเรียบร้อยแล้ว รายการถูกย้ายไปแสดงด้านล่างสุด (สีเขียว)'
+    );
   };
 
   const handleDeleteMemberSubmission = (taskId: string, memberId: string) => {
@@ -368,7 +388,9 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const updatedSubs = (task.submissions || []).filter(s => s.memberId !== memberId);
     const updatedTask: TaskItem = {
       ...task,
-      submissions: updatedSubs
+      submissions: updatedSubs,
+      isCompleted: updatedSubs.length >= totalSchoolMembers,
+      isManualCompleted: false
     };
     onSaveTask(updatedTask);
     setStatusTaskModal(updatedTask);
@@ -592,8 +614,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             ) : (
               [...tasks.filter(t => (t.type || 'assignment') === 'assignment')]
                 .sort((a, b) => {
-                  const aDone = (a.submissions || []).length >= totalSchoolMembers || a.isManualCompleted;
-                  const bDone = (b.submissions || []).length >= totalSchoolMembers || b.isManualCompleted;
+                  const aDone = isTaskDoneForUser(a);
+                  const bDone = isTaskDoneForUser(b);
                   if (aDone && !bDone) return 1;
                   if (!aDone && bDone) return -1;
                   return 0;
@@ -604,7 +626,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   const isDragging = draggedId === task.id;
                   const isDragOver = dragOverId === task.id;
                   const submittedCount = (task.submissions || []).length;
-                  const isFullySubmitted = submittedCount >= totalSchoolMembers || task.isManualCompleted;
+                  const isFullySubmitted = submittedCount >= totalSchoolMembers || Boolean(task.isManualCompleted);
+                  const mySubmission = (task.submissions || []).find(
+                    s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)
+                  );
+                  const hasMemberSubmitted = Boolean(mySubmission) || task.submittedBy === user.id || isFullySubmitted;
+                  const isGreenCompleted = user.role === 'member' ? hasMemberSubmitted : isFullySubmitted;
                   const displayDesc = cleanDescription(task.description);
 
                   return (
@@ -616,8 +643,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                       onTouchEnd={handleTouchEnd}
                       onClick={() => setSelectedTaskDetailModal(task)}
                       className={`p-2.5 sm:py-3 sm:px-4 rounded-2xl border shadow-2xs transition-all flex items-center justify-between gap-2 sm:gap-3 cursor-pointer ${
-                        isFullySubmitted 
-                          ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950' 
+                        isGreenCompleted 
+                          ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950 shadow-xs' 
                           : 'bg-white border-slate-200/90 hover:border-slate-300 text-slate-800'
                       } ${isDragging ? 'opacity-50 scale-[1.01]' : ''} ${isDragOver ? 'border-2 border-purple-500' : ''}`}
                     >
@@ -635,42 +662,52 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         )}
 
                         {/* ลำดับรายการ */}
-                        <span className="w-5 sm:w-7 text-center text-xs sm:text-sm font-bold text-purple-800 font-mono shrink-0">
+                        <span className={`w-5 sm:w-7 text-center text-xs sm:text-sm font-bold font-mono shrink-0 ${
+                          isGreenCompleted ? 'text-emerald-800' : 'text-purple-800'
+                        }`}>
                           {index + 1}.
                         </span>
 
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto max-w-full no-scrollbar pb-0.5">
-                            <span className={`text-[10px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded-lg shrink-0 ${
-                              isFullySubmitted ? 'bg-emerald-200 text-emerald-800' :
+                            <span className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg shrink-0 flex items-center gap-1 ${
+                              isGreenCompleted ? 'bg-emerald-600 text-white shadow-2xs' :
                               isUrgent ? 'bg-rose-100 text-rose-700' :
                               isHigh ? 'bg-amber-100 text-amber-700' :
                               'bg-purple-50 text-purple-700 border border-purple-200'
                             }`}>
-                              {isFullySubmitted ? 'ส่งครบแล้ว' : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
+                              {isGreenCompleted
+                                ? (user.role === 'member'
+                                    ? (isFullySubmitted ? '✓ ส่งแล้ว (ส่งครบ)' : '✓ ส่งแล้ว')
+                                    : '✓ ส่งครบแล้ว')
+                                : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
                             </span>
 
                             {task.dueDate && (
                               <span className={`text-[10px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border flex items-center gap-1 whitespace-nowrap shrink-0 ${
-                                isFullySubmitted 
-                                  ? 'bg-emerald-100 text-emerald-900 border-emerald-300' 
+                                isGreenCompleted 
+                                  ? 'bg-emerald-100/90 text-emerald-900 border-emerald-300' 
                                   : 'text-purple-900 bg-purple-50 border-purple-200'
                               }`}>
-                                <Clock className={`w-3 h-3 shrink-0 ${isFullySubmitted ? 'text-emerald-700' : 'text-purple-600'}`} />
+                                <Clock className={`w-3 h-3 shrink-0 ${isGreenCompleted ? 'text-emerald-700' : 'text-purple-600'}`} />
                                 <span className="whitespace-nowrap">กำหนดส่ง: {formatThaiTaskDate(task.dueDate)}</span>
                               </span>
                             )}
                           </div>
 
                           <h4 
-                            className="text-xs sm:text-sm font-bold leading-tight text-slate-800 truncate mt-0.5 hover:text-purple-700 cursor-pointer" 
+                            className={`text-xs sm:text-sm font-bold leading-tight truncate mt-0.5 cursor-pointer ${
+                              isGreenCompleted ? 'text-emerald-950 hover:text-emerald-700' : 'text-slate-800 hover:text-purple-700'
+                            }`}
                             title="กดเพื่อดูรายละเอียดภาระงานเต็ม"
                           >
                             {task.title}
                           </h4>
                           {displayDesc && (
                             <p 
-                              className="text-[11px] text-slate-500 truncate mt-0.5 cursor-pointer hover:text-slate-700 hidden sm:block"
+                              className={`text-[11px] truncate mt-0.5 cursor-pointer hidden sm:block ${
+                                isGreenCompleted ? 'text-emerald-800/80 hover:text-emerald-900' : 'text-slate-500 hover:text-slate-700'
+                              }`}
                             >
                               {displayDesc}
                             </p>
@@ -702,24 +739,55 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             <button
                               type="button"
                               onClick={() => setStatusTaskModal(task)}
-                              className="h-7 px-1.5 sm:h-auto sm:px-2.5 sm:py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer border border-purple-200 shrink-0"
+                              className={`h-7 px-1.5 sm:h-auto sm:px-2.5 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer border shrink-0 ${
+                                isFullySubmitted
+                                  ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border-emerald-300'
+                                  : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
+                              }`}
                               title="สถานะการส่งงาน"
                             >
-                              <Users className="w-3.5 h-3.5 text-purple-600 shrink-0" />
-                              <span className="font-mono">({submittedCount}/{schoolMembers.length})</span>
+                              <Users className={`w-3.5 h-3.5 shrink-0 ${isFullySubmitted ? 'text-emerald-700' : 'text-purple-600'}`} />
+                              <span className="font-mono">({submittedCount}/{totalSchoolMembers})</span>
                             </button>
                           </>
                         )}
 
                         {user.role === 'member' && (
-                          <button
-                            type="button"
-                            onClick={() => setSubmittingTaskId(task.id)}
-                            className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] sm:text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 shrink-0"
-                          >
-                            <Upload className="w-3.5 h-3.5 shrink-0" />
-                            <span>ส่งงาน</span>
-                          </button>
+                          <>
+                            {mySubmission?.fileUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFileModal({ url: mySubmission.fileUrl, name: mySubmission.fileName })}
+                                className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
+                                title={`ดูไฟล์ที่ส่งแล้ว (${mySubmission.fileName})`}
+                              >
+                                <Eye className="w-3.5 h-3.5 shrink-0" />
+                                <span className="hidden sm:inline">ไฟล์ที่ส่ง</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setSubmittingTaskId(task.id)}
+                              className={`px-2.5 sm:px-3.5 py-1.5 text-white text-[11px] sm:text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 shrink-0 ${
+                                hasMemberSubmitted
+                                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                                  : 'bg-purple-600 hover:bg-purple-700'
+                              }`}
+                              title={hasMemberSubmitted ? 'ส่งงานแล้ว (คลิกหากต้องการอัปโหลดไฟล์ใหม่)' : 'คลิกเพื่อส่งงาน'}
+                            >
+                              {hasMemberSubmitted ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span>ส่งแล้ว</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                                  <span>ส่งงาน</span>
+                                </>
+                              )}
+                            </button>
+                          </>
                         )}
 
                         {user.role !== 'developer' && (
@@ -1412,14 +1480,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                       setSelectedTaskDetailModal(null);
                     }}
                     className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border transition-all ${
-                      selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                      selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= totalSchoolMembers
                         ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                     }`}
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>
-                      {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                      {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= totalSchoolMembers
                         ? 'ยกเลิกเครื่องหมายส่งครบ' 
                         : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
                     </span>
@@ -1435,7 +1503,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     className="w-full py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
                     <Users className="w-4 h-4 text-purple-600" />
-                    <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{members.length} คน)</span>
+                    <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{totalSchoolMembers} คน)</span>
                   </button>
                 </div>
               )}

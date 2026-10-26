@@ -134,6 +134,10 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   const [isChangeDevPassOpen, setIsChangeDevPassOpen] = useState(false);
   const [newDevPassword, setNewDevPassword] = useState('');
 
+  // Modal States: Confirm Delete Admin & Member
+  const [adminToDelete, setAdminToDelete] = useState<SchoolAdminAccount | null>(null);
+  const [memberToDelete, setMemberToDelete] = useState<MemberAccount | null>(null);
+
   const handleUpdateDevPassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDevPassword.trim() || newDevPassword.trim().length < 4) {
@@ -254,14 +258,9 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
 
   // Google Sheet Automation per School Admin
   const handleCreateSheetForAdmin = async (admin: SchoolAdminAccount) => {
-    if (!googleConfig?.webAppUrl) {
-      onShowToast('warning', 'ขาด Web App URL', 'กรุณาระบุ Google Apps Script Web App URL ในแท็บที่ 4 ก่อนสร้าง Sheet');
-      return;
-    }
-
     setIsCreatingSheetForAdmin(admin.id);
-    onShowToast('info', 'กำลังสร้าง Google Sheet', `กำลังสร้าง Google Sheet ประจำโรงเรียน "${admin.schoolName}"...`);
-    const res = await StorageService.createSchoolGoogleSheet(admin.schoolName, admin.schoolCode, admin.id);
+    onShowToast('info', 'กำลังสร้าง Google Sheet', `กำลังสร้าง Google Sheet ประจำโรงเรียน "${admin.schoolName}" ในพื้นหลัง...`);
+    const res = await StorageService.createSchoolGoogleSheet(admin.schoolName, admin.schoolCode, admin.id, admin);
     setIsCreatingSheetForAdmin(null);
 
     if (res.success && res.spreadsheetId) {
@@ -278,47 +277,48 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     }
   };
 
-  // Handler: Create Admin (School)
-  const handleCreateAdmin = async (e: React.FormEvent) => {
+  // Handler: Create Admin (School) — Instant 0ms UI + Background Google Sheet Provisioning
+  const handleCreateAdmin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminUsername.trim() || !adminSchoolName.trim()) {
+    const cleanUsername = adminUsername.trim();
+    const cleanSchoolName = adminSchoolName.trim();
+    const cleanSchoolCode = adminSchoolCode.trim();
+    const cleanPassword = adminPassword.trim() || '123456';
+    const cleanFullName = adminFullName.trim() || `ผู้ดูแลระบบ ${cleanSchoolName}`;
+    const cleanAffiliation = adminAffiliation.trim();
+    const cleanDirector = adminDirectorName.trim() || undefined;
+
+    if (!cleanUsername || !cleanSchoolName) {
       onShowToast('warning', 'กรอกข้อมูลไม่ครบ', 'กรุณาระบุชื่อผู้ใช้และชื่อโรงเรียน');
       return;
     }
 
     // Check duplicate
-    if (admins.some(a => a.username.toLowerCase() === adminUsername.trim().toLowerCase())) {
-      onShowToast('error', 'ชื่อผู้ใช้ซ้ำ', `ชื่อผู้ใช้ ${adminUsername.trim()} มีอยู่ในระบบแล้ว`);
+    if (admins.some(a => a.username.toLowerCase() === cleanUsername.toLowerCase())) {
+      onShowToast('error', 'ชื่อผู้ใช้ซ้ำ', `ชื่อผู้ใช้ ${cleanUsername} มีอยู่ในระบบแล้ว`);
       return;
     }
 
     const adminId = 'admin-' + Date.now().toString(36);
 
-    // MANDATORY: Every time an Admin is created, ALWAYS create an isolated Google Sheet for Multi-Tenant Isolation
-    onShowToast('info', 'กำลังสร้าง Google Sheet', `กำลังสร้าง Google Sheet แยกเฉพาะประจำโรงเรียน "${adminSchoolName.trim()}"...`);
-    const sheetRes = await StorageService.createSchoolGoogleSheet(adminSchoolName.trim(), adminSchoolCode.trim(), adminId);
-    const sheetId = sheetRes.spreadsheetId;
-    const sheetUrl = sheetRes.spreadsheetUrl;
-
     const newAdmin: SchoolAdminAccount = {
       id: adminId,
-      username: adminUsername.trim(),
-      password: adminPassword.trim() || '123456',
-      fullName: adminFullName.trim() || `ผู้ดูแลระบบ ${adminSchoolName.trim()}`,
-      schoolName: adminSchoolName.trim(),
-      schoolCode: adminSchoolCode.trim() || undefined,
-      affiliation: adminAffiliation.trim(),
-      directorName: adminDirectorName.trim() || undefined,
-      googleSheetId: sheetId,
-      googleSheetUrl: sheetUrl,
+      username: cleanUsername,
+      password: cleanPassword,
+      fullName: cleanFullName,
+      schoolName: cleanSchoolName,
+      schoolCode: cleanSchoolCode || undefined,
+      affiliation: cleanAffiliation,
+      directorName: cleanDirector,
       createdAt: new Date().toISOString().split('T')[0]
     };
 
+    // 1. Save Admin & close modal IMMEDIATELY (0ms wait time!)
     StorageService.saveAdmin(newAdmin);
     onRefreshData();
     setIsCreateAdminModalOpen(false);
 
-    // Reset fields
+    // Reset fields immediately
     setAdminUsername('');
     setAdminPassword('123456');
     setAdminFullName('');
@@ -326,16 +326,56 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     setAdminSchoolCode('');
     setAdminDirectorName('');
 
-    onShowToast('success', 'สร้าง ID Admin และ Google Sheet สำเร็จ', `สร้างผู้ดูแลระบบสำหรับ "${newAdmin.schoolName}" พร้อมแยก Google Sheets เฉพาะโรงเรียนเรียบร้อยแล้ว`);
+    onShowToast(
+      'success',
+      'สร้าง ID Admin สำเร็จทันที ⚡',
+      `สร้างบัญชี "${cleanUsername}" (${cleanSchoolName}) เรียบร้อยแล้ว กำลังสร้าง Google Sheet แยกเฉพาะโรงเรียนในพื้นหลัง...`
+    );
+
+    // 2. Provision isolated Google Sheet in the background without blocking UI
+    setIsCreatingSheetForAdmin(adminId);
+    StorageService.createSchoolGoogleSheet(cleanSchoolName, cleanSchoolCode, adminId, newAdmin)
+      .then(sheetRes => {
+        if (sheetRes.success && sheetRes.spreadsheetId) {
+          // Ensure the admin wasn't deleted while sheet was being created
+          const stillExists = StorageService.getAdmins().some(a => a.id === adminId);
+          if (stillExists) {
+            const updatedAdmin: SchoolAdminAccount = {
+              ...newAdmin,
+              googleSheetId: sheetRes.spreadsheetId,
+              googleSheetUrl: sheetRes.spreadsheetUrl
+            };
+            StorageService.saveAdmin(updatedAdmin);
+            onRefreshData();
+            onShowToast(
+              'success',
+              'สร้าง Google Sheet โรงเรียนสำเร็จ 🎉',
+              `ผูก Google Sheets แยกเฉพาะสำหรับ "${cleanSchoolName}" เรียบร้อยแล้ว`
+            );
+          }
+        }
+      })
+      .finally(() => {
+        setIsCreatingSheetForAdmin(prev => (prev === adminId ? null : prev));
+      });
   };
 
-  // Handler: Delete Admin
+  // Handler: Delete Admin (opens confirmation modal)
   const handleDeleteAdmin = (admin: SchoolAdminAccount) => {
-    if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบ ID Admin: ${admin.username} (${admin.schoolName})?`)) {
-      StorageService.deleteAdmin(admin.id);
-      onRefreshData();
-      onShowToast('info', 'ลบ Admin สำเร็จ', `ลบผู้ดูแลระบบ ${admin.username} ออกจากระบบแล้ว`);
-    }
+    setAdminToDelete(admin);
+  };
+
+  const confirmDeleteAdminNow = () => {
+    if (!adminToDelete) return;
+    const target = adminToDelete;
+    setAdminToDelete(null);
+    StorageService.deleteAdmin(target.id);
+    onRefreshData();
+    onShowToast(
+      'info',
+      'ลบ ID Admin และ Google Sheets สำเร็จ',
+      `ลบผู้ดูแลระบบ ${target.username} (${target.schoolName}) พร้อมลบข้อมูลและไฟล์ใน Google Sheets ออกจากระบบแล้ว`
+    );
   };
 
   // Handler: Create Member for specific Admin/School
@@ -384,11 +424,16 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
 
   // Handler: Delete Member
   const handleDeleteMember = (member: MemberAccount) => {
-    if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบสมาชิก: ${member.fullName} (${member.username})?`)) {
-      StorageService.deleteMember(member.id);
-      onRefreshData();
-      onShowToast('info', 'ลบสมาชิกแล้ว', `ลบบัญชี ${member.fullName} เรียบร้อยแล้ว`);
-    }
+    setMemberToDelete(member);
+  };
+
+  const confirmDeleteMemberNow = () => {
+    if (!memberToDelete) return;
+    const target = memberToDelete;
+    setMemberToDelete(null);
+    StorageService.deleteMember(target.id);
+    onRefreshData();
+    onShowToast('info', 'ลบสมาชิกแล้ว', `ลบบัญชี ${target.fullName} ออกจากระบบและ Google Sheets เรียบร้อยแล้ว`);
   };
 
   // Handler: Add Academic Year
@@ -704,7 +749,12 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
                               <span>Google Sheet:</span>
                             </span>
-                            {adm.googleSheetUrl ? (
+                            {isCreatingSheetForAdmin === adm.id ? (
+                              <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                                <RefreshCw className="w-3 h-3 animate-spin" />
+                                <span>กำลังสร้าง Sheet ในพื้นหลัง...</span>
+                              </span>
+                            ) : adm.googleSheetUrl ? (
                               <a
                                 href={adm.googleSheetUrl}
                                 target="_blank"
@@ -717,12 +767,11 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                disabled={isCreatingSheetForAdmin === adm.id}
                                 onClick={() => handleCreateSheetForAdmin(adm)}
-                                className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                                className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition-all cursor-pointer"
                               >
                                 <Plus className="w-3 h-3" />
-                                <span>{isCreatingSheetForAdmin === adm.id ? 'กำลังสร้าง...' : 'สร้าง Sheet โรงเรียน'}</span>
+                                <span>สร้าง Sheet โรงเรียน</span>
                               </button>
                             )}
                           </div>
@@ -2236,6 +2285,107 @@ pages_build_output_dir = "dist"`}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: Confirm Delete Admin (School) & Google Sheets */}
+      {adminToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-slate-900 border-2 border-rose-600/80 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center font-bold shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">ยืนยันการลบ ID Admin (โรงเรียน)</h3>
+                <p className="text-xs text-rose-400 font-medium">ลบทั้งในระบบและใน Google Sheets อัตโนมัติ</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ชื่อโรงเรียน:</span>
+                <strong className="text-white">{adminToDelete.schoolName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ID Admin:</span>
+                <strong className="text-indigo-300 font-mono">{adminToDelete.username}</strong>
+              </div>
+              {adminToDelete.googleSheetId && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Google Sheet ID:</span>
+                  <span className="text-emerald-400 font-mono truncate max-w-[180px]">{adminToDelete.googleSheetId}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 bg-rose-950/30 border border-rose-800/60 rounded-xl text-[11px] text-rose-200/90 space-y-1">
+              <p className="font-bold text-rose-300">รายการที่จะถูกลบพร้อมกันทันที:</p>
+              <ul className="list-disc list-inside space-y-0.5 text-slate-300">
+                <li>บัญชี ID Admin ของโรงเรียนนี้ในระบบและใน Google Sheets</li>
+                <li>ไฟล์ Google Sheet ประจำโรงเรียนนี้ใน Google Drive</li>
+                <li>ข้อมูลนักเรียน คะแนน เวลาเรียน และสมาชิกครูในสังกัดโรงเรียนนี้ทั้งหมด</li>
+              </ul>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAdminToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors cursor-pointer text-xs"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAdminNow}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 cursor-pointer flex items-center gap-1.5 text-xs"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>ยืนยันลบ Admin และ Google Sheets</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: Confirm Delete Member */}
+      {memberToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-rose-500/60 rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-9 h-9 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">ยืนยันการลบสมาชิกบุคลากร</h3>
+                <p className="text-[11px] text-slate-400">ลบออกจากระบบและ Google Sheets</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-1">
+              <p className="text-white font-bold">{memberToDelete.fullName}</p>
+              <p className="text-slate-400 font-mono">ID: {memberToDelete.username}</p>
+              <p className="text-indigo-300 text-[11px]">{memberToDelete.schoolName}</p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setMemberToDelete(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors cursor-pointer text-xs"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteMemberNow}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all shadow-md cursor-pointer text-xs"
+              >
+                ยืนยันลบสมาชิก
+              </button>
+            </div>
           </div>
         </div>
       )}

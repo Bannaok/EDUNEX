@@ -388,6 +388,20 @@ function applyIncomingUpdates(
       continue;
     }
 
+    if (value === null || value === undefined) {
+      if (memoryCache.has(resolvedKey) || (nativeGetItem && nativeGetItem(resolvedKey) !== null)) {
+        memoryCache.delete(resolvedKey);
+        keyTimestamps.set(resolvedKey, incomingTs);
+        try {
+          window.localStorage.removeItem(resolvedKey);
+        } catch {
+          // ignore
+        }
+        changedKeys.push(resolvedKey);
+      }
+      continue;
+    }
+
     const currentCached = memoryCache.get(resolvedKey);
     const serializedIncoming = JSON.stringify(value);
     const serializedCurrent =
@@ -968,22 +982,93 @@ export const StorageService = {
   saveAdmin(admin: SchoolAdminAccount): SchoolAdminAccount[] {
     const list = this.getAdmins();
     const idx = list.findIndex(a => a.id === admin.id || a.username.toLowerCase() === admin.username.toLowerCase());
+    let mergedAdmin = admin;
     let updated: SchoolAdminAccount[];
     if (idx >= 0) {
+      mergedAdmin = { ...list[idx], ...admin };
       updated = [...list];
-      updated[idx] = { ...list[idx], ...admin };
+      updated[idx] = mergedAdmin;
     } else {
       updated = [admin, ...list];
     }
     setLocal(KEYS.ADMINS, updated);
-    D1Service.saveAdmin(admin).catch(() => {});
+    D1Service.saveAdmin(mergedAdmin).catch(() => {});
+    this.syncAdminRecordToGoogleSheets(mergedAdmin);
     return updated;
   },
 
   deleteAdmin(id: string): SchoolAdminAccount[] {
-    const updated = this.getAdmins().filter(a => a.id !== id);
+    const currentAdmins = this.getAdmins();
+    const targetAdmin = currentAdmins.find(a => a.id === id);
+    const updated = currentAdmins.filter(a => a.id !== id);
     setLocal(KEYS.ADMINS, updated);
+
+    // 1. Cascade delete members belonging to this School Admin
+    const currentMembers = getLocal<MemberAccount[]>(KEYS.MEMBERS, INITIAL_MEMBERS);
+    const deletedMembers = currentMembers.filter(
+      m => m.schoolId === id || (targetAdmin && m.schoolName === targetAdmin.schoolName)
+    );
+    const remainingMembers = currentMembers.filter(
+      m => m.schoolId !== id && (!targetAdmin || m.schoolName !== targetAdmin.schoolName)
+    );
+    if (remainingMembers.length !== currentMembers.length) {
+      setLocal(KEYS.MEMBERS, remainingMembers);
+    }
+
+    // 2. Cascade delete all tenant-scoped keys (__<schoolId>) from localStorage, memoryCache, and real-time server
+    const deletedTenantKeys: string[] = [];
+    const suffix = `__${id}`;
+    TENANT_SCOPED_KEYS.forEach(baseKey => {
+      deletedTenantKeys.push(`${baseKey}${suffix}`);
+    });
+
+    if (typeof window !== 'undefined') {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.endsWith(suffix)) {
+          if (!deletedTenantKeys.includes(k)) {
+            deletedTenantKeys.push(k);
+          }
+        }
+      }
+      memoryCache.forEach((_val, k) => {
+        if (k.endsWith(suffix) && !deletedTenantKeys.includes(k)) {
+          deletedTenantKeys.push(k);
+        }
+      });
+
+      const now = Date.now();
+      const nullUpdates: Record<string, any> = {};
+      const nullTimestamps: Record<string, number> = {};
+
+      for (const tKey of deletedTenantKeys) {
+        memoryCache.delete(tKey);
+        keyTimestamps.set(tKey, now);
+        try {
+          window.localStorage.removeItem(tKey);
+        } catch {
+          // ignore
+        }
+        nullUpdates[tKey] = null;
+        nullTimestamps[tKey] = now;
+      }
+
+      if (Object.keys(nullUpdates).length > 0) {
+        fetch('/api/realtime/mutate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientId: CLIENT_ID,
+            updates: nullUpdates,
+            timestamps: nullTimestamps
+          })
+        }).catch(() => {});
+      }
+    }
+
+    // 3. Delete from Cloudflare D1 & Google Sheets (Trash school's Google Sheet + remove Admin row & tenant KV rows)
     D1Service.deleteAdmin(id).catch(() => {});
+    this.deleteAdminAndSchoolSheetFromGoogle(id, targetAdmin, deletedMembers, deletedTenantKeys);
     return updated;
   },
 
@@ -1196,15 +1281,39 @@ export const StorageService = {
     }
     setLocal(KEYS.MEMBERS, updated);
     D1Service.saveMember(normalizedMember).catch(() => {});
-    this.syncPostToGoogle('saveMember', { member: normalizedMember });
+    if (matchedAdmin?.googleSheetId && !matchedAdmin.googleSheetId.startsWith('sheet_')) {
+      this.syncPostToGoogle('saveMember', {
+        member: normalizedMember,
+        spreadsheetId: matchedAdmin.googleSheetId
+      });
+    }
+    this.syncPostToGoogle('saveMember', {
+      member: normalizedMember,
+      spreadsheetId: MASTER_SPREADSHEET_ID
+    });
     return updated;
   },
 
   deleteMember(id: string): MemberAccount[] {
-    const updated = this.getMembers().filter(m => m.id !== id);
+    const currentList = this.getMembers();
+    const targetMember = currentList.find(m => m.id === id);
+    const updated = currentList.filter(m => m.id !== id);
     setLocal(KEYS.MEMBERS, updated);
     D1Service.deleteMember(id).catch(() => {});
-    this.syncPostToGoogle('deleteMember', { id });
+    if (targetMember) {
+      const admins = this.getAdmins();
+      const matchedAdmin = admins.find(a => a.id === targetMember.schoolId);
+      if (matchedAdmin?.googleSheetId && !matchedAdmin.googleSheetId.startsWith('sheet_')) {
+        this.syncPostToGoogle('deleteMember', {
+          id,
+          spreadsheetId: matchedAdmin.googleSheetId
+        });
+      }
+    }
+    this.syncPostToGoogle('deleteMember', {
+      id,
+      spreadsheetId: MASTER_SPREADSHEET_ID
+    });
     return updated;
   },
 
@@ -1675,11 +1784,12 @@ export const StorageService = {
     return updated;
   },
 
-  // Immediately remove or mark completed task
+  // Mark task completed without deleting it so it stays at the bottom of Module4Assignments in green
   completeTask(id: string): TaskItem[] {
     const list = this.getTasks();
-    // Prompt states: "Tasks disappear immediately once completed/submitted."
-    const updated = list.filter(t => t.id !== id);
+    const updated = list.map(t =>
+      t.id === id ? { ...t, isCompleted: true, isManualCompleted: true } : t
+    );
     setLocal(KEYS.TASKS, updated);
     this.syncPostToGoogle('completeTask', { id });
     return updated;
@@ -2149,13 +2259,122 @@ export const StorageService = {
     return schoolInfo.googleSheetId;
   },
 
-  // Automated Google Sheet creation per School Admin (ALWAYS provisions isolated sheet)
-  async createSchoolGoogleSheet(schoolName: string, schoolCode?: string, adminId?: string): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; message: string }> {
+  // Sync Admin record to Master Google Spreadsheet's "Admins" sheet
+  syncAdminRecordToGoogleSheets(admin: SchoolAdminAccount): void {
+    if (typeof window === 'undefined') return;
     const config = this.getGoogleConfig();
+    const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+    if (!gasUrl) return;
+
+    const adminRow = {
+      id: admin.id,
+      username: admin.username,
+      password: admin.password || '123456',
+      fullName: admin.fullName,
+      schoolName: admin.schoolName,
+      schoolCode: admin.schoolCode || '',
+      affiliation: admin.affiliation || '',
+      directorName: admin.directorName || '',
+      googleSheetId: admin.googleSheetId || '',
+      googleSheetUrl: admin.googleSheetUrl || '',
+      createdAt: admin.createdAt || new Date().toISOString().split('T')[0]
+    };
+
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveEntity',
+        spreadsheetId: MASTER_SPREADSHEET_ID,
+        sheetName: 'Admins',
+        keyField: 'id',
+        data: adminRow
+      })
+    }).catch(() => {});
+  },
+
+  // Delete Admin row, cascade members, tenant Cloud KV keys, and trash dedicated School Google Sheet
+  deleteAdminAndSchoolSheetFromGoogle(
+    adminId: string,
+    targetAdmin?: SchoolAdminAccount,
+    deletedMembers: MemberAccount[] = [],
+    deletedTenantKeys: string[] = []
+  ): void {
+    if (typeof window === 'undefined') return;
+    const config = this.getGoogleConfig();
+    const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+    if (!gasUrl) return;
+
+    // 1. Call deleteSchoolSheet to trash the school's dedicated Google Spreadsheet in Drive & clean up Master Sheet
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'deleteSchoolSheet',
+        spreadsheetId: MASTER_SPREADSHEET_ID,
+        masterSpreadsheetId: MASTER_SPREADSHEET_ID,
+        schoolSpreadsheetId: targetAdmin?.googleSheetId || '',
+        googleSheetId: targetAdmin?.googleSheetId || '',
+        adminId,
+        schoolName: targetAdmin?.schoolName || ''
+      })
+    }).catch(() => {});
+
+    // 2. Also call deleteEntity on "Admins" sheet in Master Spreadsheet (works even on legacy deployed GAS scripts)
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'deleteEntity',
+        spreadsheetId: MASTER_SPREADSHEET_ID,
+        sheetName: 'Admins',
+        keyField: 'id',
+        id: adminId
+      })
+    }).catch(() => {});
+
+    // 3. Delete members belonging to this school from "Members" sheet in Master Spreadsheet
+    for (const mem of deletedMembers) {
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deleteMember',
+          spreadsheetId: MASTER_SPREADSHEET_ID,
+          id: mem.id
+        })
+      }).catch(() => {});
+    }
+
+    // 4. Delete tenant-scoped keys from "RealtimeCloudKV" sheet in Master Spreadsheet
+    for (const tKey of deletedTenantKeys) {
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deleteEntity',
+          spreadsheetId: MASTER_SPREADSHEET_ID,
+          sheetName: CLOUD_KV_SHEET,
+          keyField: 'id',
+          id: tKey
+        })
+      }).catch(() => {});
+    }
+  },
+
+  // Automated Google Sheet creation per School Admin (ALWAYS provisions isolated sheet)
+  async createSchoolGoogleSheet(
+    schoolName: string,
+    schoolCode?: string,
+    adminId?: string,
+    extraAdminInfo?: Partial<SchoolAdminAccount>
+  ): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; message: string }> {
+    const config = this.getGoogleConfig();
+    const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
     const fallbackSheetId = `sheet_${adminId || Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
     const fallbackSheetUrl = `https://docs.google.com/spreadsheets/d/${fallbackSheetId}/edit`;
 
-    if (!config.webAppUrl) {
+    if (!gasUrl) {
       return {
         success: true,
         spreadsheetId: fallbackSheetId,
@@ -2165,7 +2384,7 @@ export const StorageService = {
     }
 
     try {
-      const response = await fetch(config.webAppUrl, {
+      const response = await fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -2173,15 +2392,22 @@ export const StorageService = {
           schoolName,
           schoolCode: schoolCode || '',
           adminId: adminId || '',
+          username: extraAdminInfo?.username || '',
+          password: extraAdminInfo?.password || '',
+          fullName: extraAdminInfo?.fullName || '',
+          affiliation: extraAdminInfo?.affiliation || '',
+          directorName: extraAdminInfo?.directorName || '',
+          masterSpreadsheetId: MASTER_SPREADSHEET_ID,
           folderId: config.driveFolderId || ''
         })
       });
       const data = await response.json();
       if (data && data.status === 'success' && data.spreadsheetId) {
+        const finalUrl = data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`;
         return {
           success: true,
           spreadsheetId: data.spreadsheetId,
-          spreadsheetUrl: data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`,
+          spreadsheetUrl: finalUrl,
           message: data.message || `สร้าง Google Sheet ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
         };
       }

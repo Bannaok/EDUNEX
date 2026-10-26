@@ -205,9 +205,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       newSub
     ];
 
+    const schoolMembers = (members || []).filter(m => m.role !== 'admin');
+    const totalMembersCountForSubmit = schoolMembers.length > 0 ? schoolMembers.length : 1;
+    const isNowAllSubmitted = updatedSubs.length >= totalMembersCountForSubmit;
+
     const updatedTask: TaskItem = {
       ...taskToSubmit,
       submissions: updatedSubs,
+      isCompleted: isNowAllSubmitted,
       submittedFileUrl: submitFile.url,
       submittedFileName: submitFile.name,
       submittedFileSize: submitFile.size,
@@ -224,7 +229,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       onShowToast(
         'success',
         'ส่งงานสำเร็จ 🎉',
-        `แนบไฟล์ "${submitFile.name}" เรียบร้อย รายการจะถูกนำออกจากวิดเจ็ตงานที่ต้องส่งทันที`
+        `ส่งไฟล์ "${submitFile.name}" เรียบร้อยแล้ว รายการนี้ย้ายไปแสดงด้านล่างสุด (สีเขียว) ในหน้ามอบหมายแจ้งให้ทราบ`
       );
     }
 
@@ -232,22 +237,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setSubmitFile(null);
   };
 
-  // Filter tasks:
-  // For Member: shows task ONLY IF member hasn't submitted yet (disappears immediately after submission)
-  // For Admin: shows task UNTIL all members have submitted work (disappears when all members completed)
-  const totalMembersCount = (members && members.length > 0)
-    ? members.length
-    : (personnel && personnel.length > 0 ? personnel.length : 1);
+  // Filter tasks for Dashboard "งานที่ต้องส่ง":
+  // - For Member: shows task ONLY IF this member hasn't submitted yet (disappears immediately when submitted, moves to bottom of Assignments page in green)
+  // - For Admin: shows task UNTIL all school members have submitted (disappears immediately when all members have submitted, moves to bottom of Assignments page in green)
+  const schoolMembersList = (members || []).filter(m => m.role !== 'admin');
+  const totalMembersCount = schoolMembersList.length > 0 ? schoolMembersList.length : 1;
 
   const visibleTasks = tasks.filter(t => {
     if (t.type === 'announcement') return false;
-    if (t.isCompleted || t.isManualCompleted) return false;
+    if (t.isManualCompleted) return false;
 
     if (user.role === 'member') {
-      const hasMemberSubmitted = (t.submissions && t.submissions.some(s => s.memberId === user.id)) || (t.submittedBy === user.id);
+      const hasMemberSubmitted =
+        (t.submissions && t.submissions.some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName))) ||
+        t.submittedBy === user.id;
       return !hasMemberSubmitted;
     } else {
-      const submittedCount = t.submissions?.length || (t.submittedBy ? 1 : 0);
+      const submittedCount = (t.submissions || []).length;
       return submittedCount < totalMembersCount;
     }
   });

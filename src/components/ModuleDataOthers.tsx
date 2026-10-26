@@ -354,6 +354,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
   const [previewDutyLog, setPreviewDutyLog] = useState<DailyDutyLog | null>(null);
   const [previewAllDutyLogs, setPreviewAllDutyLogs] = useState(false);
+  const [confirmDeleteDutyLog, setConfirmDeleteDutyLog] = useState<DailyDutyLog | null>(null);
   const [isDutyCalendarModalOpen, setIsDutyCalendarModalOpen] = useState(false);
   const [editingSlotPopup, setEditingSlotPopup] = useState<{ index: number; time: string; description: string } | null>(null);
 
@@ -441,6 +442,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
   const [previewLeave, setPreviewLeave] = useState<LeaveRequest | null>(null);
+  const [confirmDeleteLeave, setConfirmDeleteLeave] = useState<LeaveRequest | null>(null);
   const [leaveForm, setLeaveForm] = useState<{
     teacherName: string;
     leaveType: string;
@@ -3870,6 +3872,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                                 <Edit className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            {/* Admin only: Delete leave record */}
+                            {user.role === 'admin' && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteLeave(req)}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                title="ลบรายการคำขอลา (เฉพาะ Admin)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -4274,19 +4287,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                               >
                                 <Edit className="w-4 h-4" />
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (confirm('คุณต้องการลบรายงานครูเวรนี้ใช่หรือไม่?')) {
-                                    setDutyLogs(prev => prev.filter(l => l.id !== log.id));
-                                    onShowToast('info', 'ลบสำเร็จ', 'ลบรายงานครูเวรเรียบร้อยแล้ว');
-                                  }
-                                }}
-                                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
-                                title="ลบ"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {/* Member does NOT have delete permission; Admin only */}
+                              {user.role !== 'member' && (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteDutyLog(log)}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                  title="ลบรายงานครูเวร (เฉพาะ Admin)"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -4715,20 +4726,39 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
         const currentLeaveFiscalYear = getThaiFiscalYear(previewLeave.startDate || previewLeave.createdAt);
 
-        // Filter leave records strictly in the SAME fiscal year
-        const teacherApprovedLeaves = leaveRequests.filter(r => {
-          if (r.teacherName !== previewLeave.teacherName) return false;
-          if (r.id === previewLeave.id) return false;
-          if (r.status !== 'อนุมัติ' && r.status !== 'รออนุมัติ') return false;
+        // Helper to normalize teacher name for accurate grouping
+        const cleanName = (str?: string) => 
+          (str || '')
+            .replace(/^(ครู|นาย|นาง|นางสาว|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี|ดร\.)\s*/, '')
+            .trim()
+            .toLowerCase();
+
+        const targetTeacherName = cleanName(previewLeave.teacherName);
+
+        // Get all leave records belonging to this teacher in the same fiscal year (excluding rejected)
+        const teacherLeavesInYear = leaveRequests.filter(r => {
+          if (r.status === 'ไม่อนุมัติ') return false;
+          if (cleanName(r.teacherName) !== targetTeacherName) return false;
           const rFiscalYear = getThaiFiscalYear(r.startDate || r.createdAt);
           return rFiscalYear === currentLeaveFiscalYear;
+        }).sort((a, b) => {
+          const dateA = a.startDate || a.createdAt || '';
+          const dateB = b.startDate || b.createdAt || '';
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+          return (a.createdAt || '').localeCompare(b.createdAt || '');
         });
+
+        // Determine prior leaves in this fiscal year up to this specific leave request
+        const currentLeaveIndex = teacherLeavesInYear.findIndex(r => r.id === previewLeave.id);
+        const priorLeavesThisYear = currentLeaveIndex !== -1
+          ? teacherLeavesInYear.slice(0, currentLeaveIndex)
+          : teacherLeavesInYear.filter(r => (r.startDate || r.createdAt || '') < (previewLeave.startDate || previewLeave.createdAt || ''));
 
         let priorSick = 0;
         let priorPersonal = 0;
         let priorMaternity = 0;
 
-        teacherApprovedLeaves.forEach(r => {
+        priorLeavesThisYear.forEach(r => {
           const days = calculateLeaveDaysCount(r.startDate, r.endDate);
           if (r.leaveType.includes('ป่วย')) priorSick += days;
           else if (r.leaveType.includes('กิจ')) priorPersonal += days;
@@ -4739,14 +4769,28 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const currPersonal = isPersonal ? leaveDays : 0;
         const currMaternity = isMaternity ? leaveDays : 0;
 
-        // Last approved leave
-        const lastLeave = teacherApprovedLeaves[teacherApprovedLeaves.length - 1];
+        // Last leave round taken by this teacher (prior to this current leave)
+        const allPriorLeavesEver = leaveRequests.filter(r => {
+          if (r.id === previewLeave.id) return false;
+          if (r.status === 'ไม่อนุมัติ') return false;
+          if (cleanName(r.teacherName) !== targetTeacherName) return false;
+          const rDate = r.startDate || r.createdAt || '';
+          const currDate = previewLeave.startDate || previewLeave.createdAt || '';
+          return rDate <= currDate;
+        }).sort((a, b) => {
+          const dateA = a.startDate || a.createdAt || '';
+          const dateB = b.startDate || b.createdAt || '';
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+          return (a.createdAt || '').localeCompare(b.createdAt || '');
+        });
+
+        const lastLeave = allPriorLeavesEver.length > 0 ? allPriorLeavesEver[allPriorLeavesEver.length - 1] : null;
         const lastLeaveSick = lastLeave ? lastLeave.leaveType.includes('ป่วย') : false;
         const lastLeavePersonal = lastLeave ? lastLeave.leaveType.includes('กิจ') : false;
         const lastLeaveMaternity = lastLeave ? lastLeave.leaveType.includes('คลอด') : false;
-        let lastLeaveStartStr = '';
-        let lastLeaveEndStr = '';
-        let lastLeaveDaysStr = '';
+        let lastLeaveStartStr = '-';
+        let lastLeaveEndStr = '-';
+        let lastLeaveDaysStr = '-';
         if (lastLeave) {
           const lStart = parseThaiDateParts(lastLeave.startDate);
           const lEnd = parseThaiDateParts(lastLeave.endDate);
@@ -4762,12 +4806,31 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const deputyPosition = deputyPerson?.position || 'รองผู้อำนวยการ';
 
         const officerName = previewLeave.personnelOfficer || 'เจ้าหน้าที่งานบุคลากร';
-        const directorName = previewLeave.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน';
 
         const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
         const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
           ? rawSchoolName
           : `โรงเรียน${rawSchoolName}`;
+
+        // ดึงข้อมูลผู้อำนวยการจากหน้าข้อมูลบุคลากร (Personnel) ตรงช่อง "ตำแหน่ง"
+        const directorPerson = personnel.find(p =>
+          (p.position || '').trim().includes('ผู้อำนวยการ') ||
+          p.personnelType === 'ผู้อำนวยการ'
+        );
+
+        const directorFullName = directorPerson
+          ? `${directorPerson.prefix || ''}${directorPerson.firstName} ${directorPerson.lastName}`.trim()
+          : (previewLeave.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน');
+
+        let directorPositionTitle = directorPerson?.position?.trim() || '';
+        if (!directorPositionTitle) {
+          directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+        } else if (
+          directorPositionTitle === 'ผู้อำนวยการ' ||
+          directorPositionTitle === 'ผู้อำนวยการโรงเรียน'
+        ) {
+          directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+        }
 
         const startDateThai = `${startDateParts.day} ${startDateParts.month} พ.ศ. ${startDateParts.year}`;
         const endDateThai = `${endDateParts.day} ${endDateParts.month} พ.ศ. ${endDateParts.year}`;
@@ -4819,7 +4882,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   min-height: 297mm !important;
                   max-height: 297mm !important;
                   margin: 0 !important;
-                  padding: 12mm 15mm 10mm 15mm !important;
+                  padding: 10mm 15mm 7mm 15mm !important;
                   border: none !important;
                   box-shadow: none !important;
                   background: white !important;
@@ -4827,7 +4890,6 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   box-sizing: border-box !important;
                   display: flex !important;
                   flex-direction: column !important;
-                  justify-content: space-between !important;
                   page-break-inside: avoid !important;
                   page-break-after: avoid !important;
                   break-inside: avoid !important;
@@ -4836,7 +4898,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 }
 
                 #leave-official-a4-print h1 {
-                  font-size: 18pt !important;
+                  font-size: 19.5pt !important;
                   font-weight: 700 !important;
                 }
 
@@ -4861,6 +4923,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {user.role === 'admin' && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteLeave(previewLeave)}
+                      className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shadow-2xs"
+                      title="ลบรายการคำขอลานี้ (เฉพาะ Admin)"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>ลบรายการนี้</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -4886,34 +4959,34 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               <div className="p-4 sm:p-8 overflow-auto bg-slate-300/80 flex justify-center flex-1">
                 <div
                   id="leave-official-a4-print"
-                  className="bg-white shadow-2xl border border-slate-300 text-black flex flex-col justify-between shrink-0 mx-auto box-border"
+                  className="bg-white shadow-2xl border border-slate-300 text-black flex flex-col shrink-0 mx-auto box-border"
                   style={{
                     fontFamily: "'TH Sarabun New', 'TH Sarabun PSK', 'Sarabun', sans-serif",
                     width: '210mm',
                     minHeight: '297mm',
                     height: '297mm',
-                    padding: '12mm 15mm 10mm 15mm',
-                    fontSize: '14.5pt',
-                    lineHeight: '1.25',
+                    padding: '10mm 15mm 7mm 15mm',
+                    fontSize: '15.5pt',
+                    lineHeight: '1.4',
                     boxSizing: 'border-box'
                   }}
                 >
                   {/* Top Portion: Official Leave Letter Body */}
-                  <div className="space-y-1">
+                  <div>
                     {/* Form Title */}
-                    <h1 className="text-center font-bold text-[18pt] text-black tracking-normal mb-1.5">
+                    <h1 className="text-center font-bold text-[19.5pt] text-black tracking-normal mb-2.5">
                       แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว
                     </h1>
 
                     {/* Date & Location (Right indented) */}
-                    <div className="mb-1.5 flex flex-col items-end pr-2 font-normal text-[14.5pt]">
-                      <div className="flex items-baseline gap-1 w-[310px]">
+                    <div className="mb-2.5 flex flex-col items-end pr-2 font-normal text-[15.5pt]">
+                      <div className="flex items-baseline gap-1 w-[320px]">
                         <span className="shrink-0">เขียนที่</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 text-center font-normal px-2 pb-0 leading-none">
                           {formattedSchoolName}
                         </span>
                       </div>
-                      <div className="flex items-baseline gap-1 w-[380px] mt-1 font-normal">
+                      <div className="flex items-baseline gap-1 w-[390px] mt-1 font-normal">
                         <span className="shrink-0">วันที่</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[38px] text-center font-normal px-1 pb-0 leading-none ml-1">
                           {createdDate.day || '\u00A0'}
@@ -4930,7 +5003,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Subject & Recipient */}
-                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
+                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
                       <div className="flex items-baseline">
                         <span className="font-bold w-14 shrink-0">เรื่อง</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
@@ -4940,13 +5013,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       <div className="flex items-baseline">
                         <span className="font-bold w-14 shrink-0">เรียน</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
-                          ผู้อำนวยการ{formattedSchoolName}
+                          {directorPositionTitle}
                         </span>
                       </div>
                     </div>
 
                     {/* Applicant Information */}
-                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
+                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
                       <div className="flex items-baseline">
                         <span className="inline-block w-12 shrink-0"></span>
                         <span className="shrink-0">ข้าพเจ้า</span>
@@ -4967,24 +5040,24 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Checkboxes with reasons */}
-                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
+                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
                       <div className="flex items-baseline">
                         <span className="shrink-0">ขอลา</span>
-                        <span className="font-mono text-[15pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
+                        <span className="font-mono text-[16pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
                         <span className="ml-1.5 shrink-0">ป่วย เนื่องจาก</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                           {isSick ? previewLeave.reason : '\u00A0'}
                         </span>
                       </div>
                       <div className="flex items-baseline pl-8">
-                        <span className="font-mono text-[15pt] shrink-0 font-normal">({isPersonal ? ' ✓ ' : '   '})</span>
+                        <span className="font-mono text-[16pt] shrink-0 font-normal">({isPersonal ? ' ✓ ' : '   '})</span>
                         <span className="ml-1.5 shrink-0">กิจส่วนตัว เนื่องจาก</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                           {isPersonal ? previewLeave.reason : '\u00A0'}
                         </span>
                       </div>
                       <div className="flex items-baseline pl-8">
-                        <span className="font-mono text-[15pt] shrink-0 font-normal">({isMaternity ? ' ✓ ' : '   '})</span>
+                        <span className="font-mono text-[16pt] shrink-0 font-normal">({isMaternity ? ' ✓ ' : '   '})</span>
                         <span className="ml-1.5 shrink-0">คลอดบุตร</span>
                         {isMaternity && previewLeave.reason ? (
                           <>
@@ -4999,7 +5072,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       </div>
                       {isOther && (
                         <div className="flex items-baseline pl-8">
-                          <span className="font-mono text-[15pt] shrink-0 font-normal">( ✓ )</span>
+                          <span className="font-mono text-[16pt] shrink-0 font-normal">( ✓ )</span>
                           <span className="ml-1.5 shrink-0">{previewLeave.leaveType} เนื่องจาก</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                             {previewLeave.reason}
@@ -5009,13 +5082,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Leave Dates & Duration */}
-                    <div className="mb-1.5 flex items-baseline font-normal text-[14.5pt]">
+                    <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
                       <span className="shrink-0">ตั้งแต่วันที่</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal ml-1 pb-0 leading-none">
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
                         {startDateThai}
                       </span>
                       <span className="shrink-0 ml-2">ถึงวันที่</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal ml-1 pb-0 leading-none">
+                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
                         {endDateThai}
                       </span>
                       <span className="shrink-0 ml-2">มีกำหนด</span>
@@ -5026,32 +5099,32 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Previous Leave History */}
-                    <div className="space-y-1 mb-1.5 font-normal text-[14.5pt]">
+                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
                       <div className="flex items-baseline gap-2 font-normal flex-wrap">
                         <span>ข้าพเจ้าได้ลา</span>
-                        <span className="font-mono text-[15pt] font-normal">({isSick || lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
-                        <span className="font-mono text-[15pt] font-normal">({isPersonal || lastLeavePersonal ? ' ✓ ' : '   '}) กิจส่วนตัว</span>
-                        <span className="font-mono text-[15pt] font-normal">({isMaternity || lastLeaveMaternity ? ' ✓ ' : '   '}) คลอดบุตร</span>
+                        <span className="font-mono text-[16pt] font-normal">({lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
+                        <span className="font-mono text-[16pt] font-normal">({lastLeavePersonal ? ' ✓ ' : '   '}) กิจส่วนตัว</span>
+                        <span className="font-mono text-[16pt] font-normal">({lastLeaveMaternity ? ' ✓ ' : '   '}) คลอดบุตร</span>
                         <span>ครั้งสุดท้ายตั้งแต่วันที่</span>
                       </div>
                       <div className="flex items-baseline font-normal">
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal pb-0 leading-none">
-                          {lastLeaveStartStr || '1 ตุลาคม พ.ศ. 2569'}
+                          {lastLeaveStartStr}
                         </span>
                         <span className="shrink-0 ml-2">ถึงวันที่</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal ml-1 pb-0 leading-none">
-                          {lastLeaveEndStr || '2 ตุลาคม พ.ศ. 2569'}
+                          {lastLeaveEndStr}
                         </span>
                         <span className="shrink-0 ml-2">มีกำหนด</span>
                         <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
-                          {lastLeaveDaysStr || '1'}
+                          {lastLeaveDaysStr}
                         </span>
                         <span className="shrink-0 ml-2">วัน</span>
                       </div>
                     </div>
 
                     {/* Contact Phone */}
-                    <div className="mb-1.5 flex items-baseline font-normal text-[14.5pt]">
+                    <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
                       <span className="shrink-0">ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่</span>
                       <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
                         {formattedSchoolName}
@@ -5063,10 +5136,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Signature of Applicant */}
-                    <div className="flex justify-end pr-8 mb-1.5 font-normal text-[14.5pt]">
+                    <div className="flex justify-end pr-8 mb-3 font-normal text-[15.5pt]">
                       <div className="w-72 text-center space-y-1 font-normal">
                         <p>ขอแสดงความนับถือ</p>
-                        <div className="flex items-baseline justify-center pt-1">
+                        <div className="flex items-baseline justify-center pt-1.5">
                           <span className="shrink-0">(ลงชื่อ)</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 mx-1.5 pb-0 leading-none"></span>
                         </div>
@@ -5076,45 +5149,45 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </div>
 
                   {/* Bottom Section (2 Columns: Fiscal Year Stats & Approvals) */}
-                  <div className="grid grid-cols-2 gap-3 pt-2 border-t border-black font-normal text-[14pt]">
+                  <div className="grid grid-cols-2 gap-5 mt-2 pt-1 font-normal text-[14pt]">
                     {/* Left Column: Fiscal Year Stats & Auditor */}
-                    <div className="space-y-1.5 font-normal">
+                    <div className="space-y-1 font-normal">
                       <div>
                         <h4 className="font-bold text-[14.5pt] mb-1 font-normal">สถิติการลาในปีงบประมาณนี้</h4>
-                        <table className="w-full text-center border-collapse border border-black text-[12.5pt] font-normal">
+                        <table className="w-full text-center border-collapse border border-black text-[13pt] font-normal">
                           <thead>
                             <tr className="border-b border-black">
-                              <th className="border-r border-black p-0.5 font-normal w-[24%]">ประเภทลา</th>
-                              <th className="border-r border-black p-0.5 font-normal w-[25%] leading-tight">ลามาแล้ว<br/>(วันทำการ)</th>
-                              <th className="border-r border-black p-0.5 font-normal w-[25%] leading-tight">ลาครั้งนี้<br/>(วันทำการ)</th>
-                              <th className="p-0.5 font-normal w-[26%] leading-tight">รวมเป็น<br/>(วันทำการ)</th>
+                              <th className="border-r border-black py-1 px-0.5 font-normal w-[24%]">ประเภทลา</th>
+                              <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลามาแล้ว<br/>(วันทำการ)</th>
+                              <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลาครั้งนี้<br/>(วันทำการ)</th>
+                              <th className="py-1 px-0.5 font-normal w-[26%] leading-tight">รวมเป็น<br/>(วันทำการ)</th>
                             </tr>
                           </thead>
                           <tbody>
                             <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black p-0.5 text-center font-normal">ป่วย</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorSick}</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{currSick}</td>
-                              <td className="p-0.5 font-mono font-normal">{priorSick + currSick}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">ป่วย</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorSick}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currSick}</td>
+                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorSick + currSick}</td>
                             </tr>
                             <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black p-0.5 text-center font-normal">กิจส่วนตัว</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorPersonal}</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{currPersonal}</td>
-                              <td className="p-0.5 font-mono font-normal">{priorPersonal + currPersonal}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">กิจส่วนตัว</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorPersonal}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currPersonal}</td>
+                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorPersonal + currPersonal}</td>
                             </tr>
                             <tr className="font-normal">
-                              <td className="border-r border-black p-0.5 text-center font-normal">คลอดบุตร</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{priorMaternity}</td>
-                              <td className="border-r border-black p-0.5 font-mono font-normal">{currMaternity}</td>
-                              <td className="p-0.5 font-mono font-normal">{priorMaternity + currMaternity}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">คลอดบุตร</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorMaternity}</td>
+                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currMaternity}</td>
+                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorMaternity + currMaternity}</td>
                             </tr>
                           </tbody>
                         </table>
                       </div>
 
                       {/* Auditor Signature */}
-                      <div className="space-y-0.5 text-center font-normal pt-1">
+                      <div className="space-y-0.5 text-center font-normal pt-1.5">
                         <div className="flex items-baseline justify-center">
                           <span className="shrink-0">(ลงชื่อ)</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black w-32 mx-1.5 pb-0 leading-none"></span>
@@ -5133,14 +5206,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     </div>
 
                     {/* Right Column: Supervisor Comment & Director Order */}
-                    <div className="space-y-1.5 pl-2 font-normal">
+                    <div className="space-y-1 pl-2 font-normal">
                       {/* Supervisor Comment */}
                       <div className="space-y-0.5 text-center font-normal">
                         <h4 className="font-bold text-[14.5pt] text-left mb-0.5">ความเห็นผู้บังคับบัญชา</h4>
                         <div className="text-left pl-2 font-normal flex items-baseline">
                           <span className="inline-block border-b-[1.5px] border-dotted border-black pr-6 pb-0 leading-none">เห็นควรอนุญาต</span>
                         </div>
-                        <div className="flex items-baseline justify-center pt-0.5">
+                        <div className="flex items-baseline justify-center pt-1">
                           <span className="shrink-0">(ลงชื่อ)</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
                         </div>
@@ -5162,14 +5235,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                           <span className="font-mono font-normal">({isApproved ? ' ✓ ' : '   '}) อนุญาต</span>
                           <span className="font-mono font-normal">({!isApproved ? ' ✓ ' : '   '}) ไม่อนุญาต</span>
                         </div>
-                        <div className="flex items-baseline justify-center pt-0.5">
+                        <div className="flex items-baseline justify-center pt-1">
                           <span className="shrink-0">(ลงชื่อ)</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
                         </div>
-                        <p className="font-normal pt-0.5">( {directorName} )</p>
+                        <p className="font-normal pt-0.5">( {directorFullName.replace(/^ครู\s*/, '')} )</p>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
                           <span className="shrink-0">ตำแหน่ง</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal pb-0 leading-none">ผู้อำนวยการ{formattedSchoolName}</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal pb-0 leading-none">{directorPositionTitle}</span>
                         </div>
                         <div className="flex items-baseline justify-center gap-1 font-normal">
                           <span className="shrink-0">วันที่</span>
@@ -5335,13 +5408,33 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
         const renderDutyOfficialSheet = (log: DailyDutyLog, index?: number) => {
           const dateParts = parseThaiDateParts(log.date);
-          const directorName = schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน';
           const stats = calculateDutyStudentStats(log.date);
 
-          const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
+          const rawSchoolName = (schoolInfo.schoolName || 'บ้านไสโป๊ะ').trim();
           const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
             ? rawSchoolName
             : `โรงเรียน${rawSchoolName}`;
+
+          // ดึงข้อมูลผู้อำนวยการจากหน้าข้อมูลบุคลากร (Personnel) ตรงช่อง "ตำแหน่ง"
+          const directorPerson = personnel.find(p =>
+            (p.position || '').trim().includes('ผู้อำนวยการ') ||
+            p.personnelType === 'ผู้อำนวยการ'
+          );
+
+          const directorFullName = directorPerson
+            ? `${directorPerson.prefix || ''}${directorPerson.firstName} ${directorPerson.lastName}`.trim()
+            : (schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน');
+
+          // ดึงข้อความตำแหน่งโดยตรงจากช่อง "ตำแหน่ง" ของบุคลากร (เช่น "ผู้อำนวยการโรงเรียนบ้านไสโป๊ะ")
+          let directorPositionTitle = directorPerson?.position?.trim() || '';
+          if (!directorPositionTitle) {
+            directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+          } else if (
+            directorPositionTitle === 'ผู้อำนวยการ' ||
+            directorPositionTitle === 'ผู้อำนวยการโรงเรียน'
+          ) {
+            directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+          }
 
           return (
             <div className="space-y-3.5 flex flex-col justify-between flex-1">
@@ -5541,8 +5634,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
                 <div className="space-y-4">
                   <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-bold">( {directorName} )</p>
-                  <p className="text-slate-600">ผู้อำนวยการโรงเรียน / ผู้ตรวจ</p>
+                  <p className="font-bold">( {directorFullName.replace(/^ครู\s*/, '')} )</p>
+                  <p className="text-slate-700 font-semibold">{directorPositionTitle}</p>
                 </div>
               </div>
             </div>
@@ -5739,7 +5832,112 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         );
       })()}
 
-      {/* MODAL: DUTY ASSIGNMENT */}
+      {/* MODAL: CONFIRM DELETE DUTY LOG (ถามยืนยันทุกครั้งเสมอ - Admin เท่านั้น) */}
+      {confirmDeleteDutyLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">
+                ยืนยันการลบรายงานครูเวร
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                คุณต้องการลบรายงานการปฏิบัติหน้าที่ครูเวรประจำวันที่{' '}
+                <span className="font-bold text-slate-900">{formatThaiDate(confirmDeleteDutyLog.date)}</span> ของ{' '}
+                <span className="font-bold text-slate-900">{confirmDeleteDutyLog.dutyTeacherName}</span> ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลได้
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteDutyLog(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = confirmDeleteDutyLog.id;
+                  const targetDate = confirmDeleteDutyLog.date;
+                  setDutyLogs(prev => {
+                    const updated = prev.filter(l => l.id !== targetId);
+                    StorageService.setDailyDutyLogs(updated);
+                    return updated;
+                  });
+                  StorageService.deleteDailyDutyLog(targetId);
+                  setConfirmDeleteDutyLog(null);
+                  onShowToast('info', 'ลบสำเร็จ', `ลบรายงานครูเวรประจำวันที่ ${targetDate} เรียบร้อยแล้ว`);
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Confirmation for Leave Deletion (Admin Only, asks confirmation every time) */}
+      {confirmDeleteLeave && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-center animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-800">
+                ยืนยันการลบรายการคำขอลา
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                คุณต้องการลบรายการ{confirmDeleteLeave.leaveType} ของ{' '}
+                <span className="font-bold text-slate-900">{confirmDeleteLeave.teacherName}</span>{' '}
+                (ตั้งแต่วันที่ {confirmDeleteLeave.startDate} ถึง {confirmDeleteLeave.endDate}) ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลได้
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteLeave(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetId = confirmDeleteLeave.id;
+                  const targetTeacher = confirmDeleteLeave.teacherName;
+                  setLeaveRequests(prev => {
+                    const next = prev.filter(r => r.id !== targetId);
+                    StorageService.setLeaveRequests(next);
+                    return next;
+                  });
+                  StorageService.deleteLeaveRequest(targetId);
+                  if (previewLeave && previewLeave.id === targetId) {
+                    setPreviewLeave(null);
+                  }
+                  setConfirmDeleteLeave(null);
+                  onShowToast('info', 'ลบสำเร็จ', `ลบรายการคำขอลาของ ${targetTeacher} เรียบร้อยแล้ว`);
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {isDutyModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in zoom-in-95 duration-150">

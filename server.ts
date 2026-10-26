@@ -750,22 +750,59 @@ async function startServer() {
 
       if (action === 'deleteAdmin') {
         const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+        const targetAdmin = admins.find(a => a.id === body.id);
         const members: any[] = Array.isArray(state.store['ams_members']) ? state.store['ams_members'] : [];
         const nextAdmins = admins.filter(a => a.id !== body.id);
-        const nextMembers = members.filter(m => m.schoolId !== body.id);
+        const nextMembers = members.filter(
+          m => m.schoolId !== body.id && (!targetAdmin || m.schoolName !== targetAdmin.schoolName)
+        );
         state.store['ams_school_admins'] = nextAdmins;
         state.store['ams_members'] = nextMembers;
         state.timestamps['ams_school_admins'] = now;
         state.timestamps['ams_members'] = now;
+
+        const deltaUpdates: Record<string, any> = {
+          ams_school_admins: nextAdmins,
+          ams_members: nextMembers
+        };
+        const deltaTimestamps: Record<string, number> = {
+          ams_school_admins: now,
+          ams_members: now
+        };
+
+        // Cascade delete tenant-scoped keys for this school
+        const suffix = `__${body.id}`;
+        for (const k of Object.keys(state.store)) {
+          if (k.endsWith(suffix)) {
+            delete state.store[k];
+            state.timestamps[k] = now;
+            deltaUpdates[k] = null;
+            deltaTimestamps[k] = now;
+          }
+        }
+
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta(
-          'server-d1',
-          { ams_school_admins: nextAdmins, ams_members: nextMembers },
-          { ams_school_admins: now, ams_members: now }
-        );
+        broadcastDelta('server-d1', deltaUpdates, deltaTimestamps);
         scheduleCloudKvPush(['ams_school_admins', 'ams_members']);
-        res.json({ status: 'success', message: 'Deleted admin and cascade members' });
+
+        // Also trigger Google Sheets cleanup from server
+        const gasUrl = getGasWebAppUrl();
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'deleteSchoolSheet',
+            spreadsheetId: MASTER_SPREADSHEET_ID,
+            masterSpreadsheetId: MASTER_SPREADSHEET_ID,
+            schoolSpreadsheetId: targetAdmin?.googleSheetId || '',
+            googleSheetId: targetAdmin?.googleSheetId || '',
+            adminId: body.id,
+            schoolName: targetAdmin?.schoolName || ''
+          })
+        }).catch(() => {});
+
+        res.json({ status: 'success', message: 'Deleted admin, school sheet, and cascade members' });
         return;
       }
 

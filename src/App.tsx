@@ -515,7 +515,25 @@ export default function App() {
     return await StorageService.testGoogleConnection(url, driveFolderId);
   };
 
-  const pendingTasksCount = tasks.filter(t => !t.isCompleted).length;
+  const currentUserSchoolIdForTasks = user ? StorageService.getNormalizedSchoolId(user.schoolId, user.schoolName) : '';
+  const schoolMembersForTasks = (currentUserSchoolIdForTasks
+    ? members.filter(m => StorageService.getNormalizedSchoolId(m.schoolId, m.schoolName) === currentUserSchoolIdForTasks)
+    : members
+  ).filter(m => m.role !== 'admin');
+  const totalSchoolMembersCount = schoolMembersForTasks.length > 0 ? schoolMembersForTasks.length : 1;
+
+  const pendingTasksCount = tasks.filter(t => {
+    if (t.type === 'announcement') return false;
+    if (t.isManualCompleted) return false;
+    if (user?.role === 'member') {
+      const hasSubmitted =
+        (t.submissions || []).some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)) ||
+        t.submittedBy === user.id;
+      return !hasSubmitted;
+    }
+    const submittedCount = (t.submissions || []).length;
+    return submittedCount < totalSchoolMembersCount;
+  }).length;
 
   // Header quick statistics
   const todayStr = new Date().toISOString().split('T')[0];

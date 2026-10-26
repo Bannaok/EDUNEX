@@ -361,6 +361,7 @@ export interface TaskSubmission {
   fileName: string;
   fileSize: string;
   submittedAt: string;
+  driveFileId?: string;
 }
 
 export interface TaskItem {
@@ -387,6 +388,7 @@ export interface TaskItem {
   isManualCompleted?: boolean;
   order?: number;
   calendarEventId?: string;
+  driveFileId?: string;
 }
 
 export interface DocumentItem {
@@ -404,6 +406,7 @@ export interface DocumentItem {
   fileData?: string;
   uploadedBy: string;
   order?: number;
+  driveFileId?: string;
 }
 
 export interface RecommendedWebsite {

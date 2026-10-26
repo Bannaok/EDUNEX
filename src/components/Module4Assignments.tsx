@@ -19,6 +19,7 @@ import {
   X,
   FileCheck
 } from 'lucide-react';
+import { downloadRealFile, isWordFile, isExcelFile } from '../services/fileDownloadHelper';
 
 interface Module4Props {
   user: UserSession;
@@ -162,19 +163,75 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return tType === activeSubTab;
   });
 
+  // Robust matcher for finding a member's submission in a task (handles ID, username, and fullName)
+  const findMemberSubmission = (task: TaskItem, member: MemberAccount): TaskSubmission | undefined => {
+    if (!task) return undefined;
+    const subs = task.submissions || [];
+    const found = subs.find(s => 
+      s.memberId === member.id || 
+      (member.username && s.memberId === member.username) ||
+      (member.fullName && s.memberName === member.fullName)
+    );
+    if (found) return found;
+
+    if (
+      task.submittedFileUrl &&
+      (task.submittedBy === member.id ||
+       task.submittedBy === member.username ||
+       (member.fullName && task.submittedByName === member.fullName))
+    ) {
+      return {
+        memberId: member.id,
+        memberName: member.fullName,
+        fileUrl: task.submittedFileUrl,
+        fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
+        fileSize: task.submittedFileSize || '1.0 MB',
+        driveFileId: task.driveFileId,
+        submittedAt: task.submittedAt || new Date().toISOString()
+      };
+    }
+    return undefined;
+  };
+
+  const getMySubmission = (task: TaskItem): TaskSubmission | undefined => {
+    if (!task) return undefined;
+    const subs = task.submissions || [];
+    const found = subs.find(s => 
+      s.memberId === user.id ||
+      (user.username && s.memberId === user.username) ||
+      (user.fullName && s.memberName === user.fullName)
+    );
+    if (found) return found;
+
+    if (
+      task.submittedFileUrl &&
+      (task.submittedBy === user.id ||
+       task.submittedBy === user.username ||
+       (user.fullName && task.submittedByName === user.fullName))
+    ) {
+      return {
+        memberId: user.id,
+        memberName: user.fullName,
+        fileUrl: task.submittedFileUrl,
+        fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
+        fileSize: task.submittedFileSize || '1.0 MB',
+        driveFileId: task.driveFileId,
+        submittedAt: task.submittedAt || new Date().toISOString()
+      };
+    }
+    return undefined;
+  };
+
   const isTaskDoneForUser = (task: TaskItem) => {
-    const subCount = (task.submissions || []).length;
+    const subsCount = schoolMembers.filter(m => !!findMemberSubmission(task, m)).length;
     const isFull =
-      (totalSchoolMembers > 0 && subCount >= totalSchoolMembers) ||
+      (totalSchoolMembers > 0 && subsCount >= totalSchoolMembers) ||
       Boolean(task.isManualCompleted) ||
       Boolean(task.isCompleted);
 
     if (user.role === 'member') {
-      const hasMySub =
-        (task.submissions || []).some(
-          s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)
-        ) || task.submittedBy === user.id;
-      return hasMySub || isFull;
+      const mySub = getMySubmission(task);
+      return Boolean(mySub) || isFull;
     }
     return isFull;
   };
@@ -364,7 +421,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
     const currentSubs = task.submissions || [];
     const updatedSubs = [
-      ...currentSubs.filter(s => s.memberId !== user.id),
+      ...currentSubs.filter(s => 
+        s.memberId !== user.id && 
+        s.memberId !== user.username && 
+        s.memberName !== user.fullName
+      ),
       newSub
     ];
 
@@ -392,15 +453,51 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     );
   };
 
+  // Member can remove their old submitted file to upload a new one
+  const handleMemberRemoveOldFile = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const updatedSubs = (task.submissions || []).filter(s => 
+      s.memberId !== user.id && 
+      s.memberId !== user.username && 
+      s.memberName !== user.fullName
+    );
+    const updatedTask: TaskItem = {
+      ...task,
+      submissions: updatedSubs,
+      isCompleted: false,
+      isManualCompleted: false,
+      submittedFileUrl: undefined,
+      submittedFileName: undefined,
+      submittedFileSize: undefined,
+      submittedBy: undefined,
+      submittedByName: undefined
+    };
+    onSaveTask(updatedTask);
+    setSubmittedFile(null);
+    onShowToast('info', 'ลบไฟล์เดิมแล้ว', 'กรุณาเลือกไฟล์ใหม่ที่ต้องการส่ง');
+  };
+
   const handleDeleteMemberSubmission = (taskId: string, memberId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
-    const updatedSubs = (task.submissions || []).filter(s => s.memberId !== memberId);
+    const mem = members.find(m => m.id === memberId || m.username === memberId);
+    const updatedSubs = (task.submissions || []).filter(s => 
+      s.memberId !== memberId && 
+      (!mem || (s.memberId !== mem.username && s.memberName !== mem.fullName))
+    );
+    const isStillSubmittedByThisMember = task.submittedBy === memberId || (mem && (task.submittedBy === mem.username || task.submittedByName === mem.fullName));
+
     const updatedTask: TaskItem = {
       ...task,
       submissions: updatedSubs,
       isCompleted: updatedSubs.length >= totalSchoolMembers,
-      isManualCompleted: false
+      isManualCompleted: false,
+      submittedFileUrl: isStillSubmittedByThisMember ? undefined : task.submittedFileUrl,
+      submittedFileName: isStillSubmittedByThisMember ? undefined : task.submittedFileName,
+      submittedFileSize: isStillSubmittedByThisMember ? undefined : task.submittedFileSize,
+      submittedBy: isStillSubmittedByThisMember ? undefined : task.submittedBy,
+      submittedByName: isStillSubmittedByThisMember ? undefined : task.submittedByName
     };
     onSaveTask(updatedTask);
     setStatusTaskModal(updatedTask);
@@ -408,13 +505,16 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   };
 
   const handleDownloadUrl = (url: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename || 'download';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    onShowToast('info', 'กำลังดาวน์โหลด', `กำลังดาวน์โหลดไฟล์ "${filename}"`);
+    if (!url || url === '#') {
+      onShowToast('info', 'ไม่มีไฟล์', 'รายการนี้ยังไม่มีไฟล์แนบ');
+      return;
+    }
+    const ok = downloadRealFile(url, filename);
+    if (ok) {
+      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${filename}" เรียบร้อยแล้ว`);
+    } else {
+      onShowToast('warning', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ได้');
+    }
   };
 
   // Render Centered Modal Popup Calendar
@@ -635,15 +735,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   const isHigh = task.priority === 'high';
                   const isDragging = draggedId === task.id;
                   const isDragOver = dragOverId === task.id;
-                  const submittedCount = (task.submissions || []).length;
+                  const submittedCount = schoolMembers.filter(m => !!findMemberSubmission(task, m)).length;
                   const isFullySubmitted =
                     (totalSchoolMembers > 0 && submittedCount >= totalSchoolMembers) ||
                     Boolean(task.isManualCompleted) ||
                     Boolean(task.isCompleted);
-                  const mySubmission = (task.submissions || []).find(
-                    s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)
-                  );
-                  const hasMemberSubmitted = Boolean(mySubmission) || task.submittedBy === user.id || isFullySubmitted;
+                  const mySubmission = getMySubmission(task);
+                  const hasMemberSubmitted = Boolean(mySubmission) || isFullySubmitted;
                   const isGreenCompleted = user.role === 'member' ? hasMemberSubmitted : isFullySubmitted;
                   const displayDesc = cleanDescription(task.description);
 
@@ -768,25 +866,44 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         {user.role === 'member' && (
                           <>
                             {mySubmission?.fileUrl && (
-                              <button
-                                type="button"
-                                onClick={() => setPreviewFileModal({ url: mySubmission.fileUrl, name: mySubmission.fileName })}
-                                className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0"
-                                title={`ดูไฟล์ที่ส่งแล้ว (${mySubmission.fileName})`}
-                              >
-                                <Eye className="w-3.5 h-3.5 shrink-0" />
-                                <span className="hidden sm:inline">ไฟล์ที่ส่ง</span>
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadUrl(mySubmission.fileUrl, mySubmission.fileName)}
+                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs"
+                                  title={`ดาวน์โหลดไฟล์ที่ส่งแล้ว (${mySubmission.fileName})`}
+                                >
+                                  <Download className="w-3.5 h-3.5 shrink-0" />
+                                  <span className="hidden md:inline">ดาวน์โหลด</span>
+                                </button>
+
+                                {/* ไอคอนแก้ไขสำหรับสมาชิก: แก้ไขโดยลบไฟล์เก่าและอัปโหลดไฟล์ใหม่ */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSubmittingTaskId(task.id);
+                                    setSubmittedFile(null);
+                                  }}
+                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs"
+                                  title="แก้ไขงานที่ส่ง (ลบไฟล์เก่าและอัปโหลดไฟล์ใหม่)"
+                                >
+                                  <Edit className="w-3.5 h-3.5 shrink-0" />
+                                  <span className="hidden sm:inline">แก้ไข</span>
+                                </button>
+                              </>
                             )}
                             <button
                               type="button"
-                              onClick={() => setSubmittingTaskId(task.id)}
+                              onClick={() => {
+                                setSubmittingTaskId(task.id);
+                                setSubmittedFile(null);
+                              }}
                               className={`px-2.5 sm:px-3.5 py-1.5 text-white text-[11px] sm:text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 shrink-0 ${
                                 hasMemberSubmitted
                                   ? 'bg-emerald-600 hover:bg-emerald-700'
                                   : 'bg-purple-600 hover:bg-purple-700'
                               }`}
-                              title={hasMemberSubmitted ? 'ส่งงานแล้ว (คลิกหากต้องการอัปโหลดไฟล์ใหม่)' : 'คลิกเพื่อส่งงาน'}
+                              title={hasMemberSubmitted ? 'ส่งงานแล้ว (คลิกหากต้องการแก้ไขหรืออัปโหลดไฟล์ใหม่)' : 'คลิกเพื่อส่งงาน'}
                             >
                               {hasMemberSubmitted ? (
                                 <>
@@ -994,7 +1111,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 <div className="py-8 text-center text-xs text-slate-400">ไม่มีสมาชิกในระบบ</div>
               ) : (
                 schoolMembers.map((mem, idx) => {
-                  const submission = (liveStatusTask.submissions || []).find(s => s.memberId === mem.id);
+                  const submission = findMemberSubmission(liveStatusTask, mem);
                   const hasSubmitted = !!submission;
                   const overdue = isOverdue(liveStatusTask.dueDate);
 
@@ -1111,17 +1228,29 @@ export const Module4Assignments: React.FC<Module4Props> = ({
               </button>
             </div>
 
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
+            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
               <FileText className="w-12 h-12 text-purple-600 mx-auto" />
-              <p className="text-xs font-semibold text-slate-700">{previewFileModal.name}</p>
+              <p className="text-xs font-bold text-slate-800 break-words">{previewFileModal.name}</p>
+              
+              {isWordFile(previewFileModal.name) && (
+                <div className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl max-w-sm mx-auto leading-relaxed">
+                  ไฟล์เอกสาร Microsoft Word (.docx / .doc) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์จริงไปเปิดและแก้ไขได้ทันที
+                </div>
+              )}
+              {isExcelFile(previewFileModal.name) && (
+                <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl max-w-sm mx-auto leading-relaxed">
+                  ไฟล์เอกสาร Microsoft Excel (.xlsx / .xls) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์จริงไปเปิดและแก้ไขได้ทันที
+                </div>
+              )}
+
               <div className="flex items-center justify-center gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => handleDownloadUrl(previewFileModal.url, previewFileModal.name)}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
                 >
                   <Download className="w-4 h-4" />
-                  <span>ดาวน์โหลดไฟล์</span>
+                  <span>ดาวน์โหลดไฟล์จริง</span>
                 </button>
               </div>
             </div>
@@ -1311,79 +1440,141 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       {/* Centered Popup Calendar Modal */}
       {isCalendarPopupOpen && renderPopupCalendar()}
 
-      {/* MODAL: Member Submit File Upload */}
-      {submittingTaskId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-800">
-                ส่งงาน / อัปโหลดไฟล์แนบ
-              </h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setSubmittingTaskId(null);
-                  setSubmittedFile(null);
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+      {/* MODAL: Member Submit / Edit File Upload */}
+      {submittingTaskId && (() => {
+        const currentTask = tasks.find(t => t.id === submittingTaskId);
+        const mySub = currentTask ? getMySubmission(currentTask) : undefined;
 
-            <div className="space-y-3">
-              <label className="border-2 border-dashed border-slate-300 hover:border-purple-400 rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer bg-slate-50 transition-colors">
-                <Upload className="w-8 h-8 text-purple-600 mb-2" />
-                <span className="text-xs font-bold text-slate-700">คลิกเพื่ออัปโหลดไฟล์งาน</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">รองรับทุกประเภทไฟล์ (PDF, Word, รูปภาพ ฯลฯ)</span>
-                <input
-                  type="file"
-                  onChange={handleFileSubmitUpload}
-                  className="hidden"
-                />
-              </label>
-
-              {submittedFile && (
-                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900">
-                  <div className="flex items-center gap-2 truncate">
-                    <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span className="font-semibold truncate">{submittedFile.name} ({submittedFile.size})</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSubmittedFile(null)}
-                    className="text-rose-600 hover:text-rose-800 font-bold text-xs p-1"
-                  >
-                    ลบ
-                  </button>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="min-w-0 pr-2">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-800">
+                    {mySub ? 'แก้ไขงานที่ส่ง / เปลี่ยนไฟล์ใหม่' : 'ส่งงาน / อัปโหลดไฟล์แนบ'}
+                  </h3>
+                  {currentTask && (
+                    <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                      ภาระงาน: {currentTask.title}
+                    </p>
+                  )}
                 </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => {
                     setSubmittingTaskId(null);
                     setSubmittedFile(null);
                   }}
-                  className="px-4 py-2 text-xs text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl cursor-pointer shrink-0"
                 >
-                  ยกเลิก
+                  ✕
                 </button>
-                <button
-                  type="button"
-                  disabled={!submittedFile}
-                  onClick={() => handleFinalSubmitTask(submittingTaskId)}
-                  className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>ยืนยันการส่งงาน</span>
-                </button>
+              </div>
+
+              {/* กรณีมีไฟล์เดิมที่ส่งไว้แล้ว: แสดงไฟล์เดิม พร้อมปุ่มดาวน์โหลด และปุ่มลบไฟล์เดิม */}
+              {mySub && !submittedFile && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-lg">
+                      ไฟล์เดิมที่ส่งไว้แล้ว
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadUrl(mySub.fileUrl, mySub.fileName)}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ดาวน์โหลดไฟล์เดิม</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 p-2.5 bg-white rounded-xl border border-emerald-200/80 text-xs">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-semibold text-slate-800 truncate" title={mySub.fileName}>
+                        {mySub.fileName}
+                      </span>
+                      <span className="text-[10px] text-slate-400 shrink-0">
+                        ({mySub.fileSize || '1.0 MB'})
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleMemberRemoveOldFile(currentTask!.id)}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold shrink-0 transition-colors cursor-pointer flex items-center gap-1"
+                      title="กดลบไฟล์เก่าเพื่อเลือกไฟล์ใหม่"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>ลบไฟล์เก่า</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    * ท่านสามารถกด "ลบไฟล์เก่า" เพื่อยกเลิกไฟล์เดิม หรือเลือกไฟล์ใหม่ด้านล่างเพื่อส่งแทนที่ไฟล์เดิมได้ทันที
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <label className="border-2 border-dashed border-purple-200 hover:border-purple-400 rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer bg-purple-50/40 hover:bg-purple-50/70 transition-colors">
+                  <Upload className="w-8 h-8 text-purple-600 mb-2" />
+                  <span className="text-xs font-bold text-slate-800">
+                    {mySub ? 'คลิกเพื่อเลือกไฟล์ใหม่ (ส่งแทนที่ไฟล์เดิม)' : 'คลิกเพื่ออัปโหลดไฟล์งาน'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">
+                    รองรับทุกประเภทไฟล์ (Word .docx, Excel .xlsx, PDF, รูปภาพ ฯลฯ)
+                  </span>
+                  <input
+                    type="file"
+                    onChange={handleFileSubmitUpload}
+                    className="hidden"
+                  />
+                </label>
+
+                {submittedFile && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-950">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div className="truncate">
+                        <div className="font-bold truncate">{submittedFile.name}</div>
+                        <div className="text-[10px] text-emerald-700">ขนาด: {submittedFile.size} • พร้อมส่งแทนที่</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSubmittedFile(null)}
+                      className="text-rose-600 hover:text-rose-800 font-bold text-xs px-2 py-1 bg-white border border-rose-200 rounded-lg shrink-0 cursor-pointer"
+                    >
+                      ยกเลิกไฟล์นี้
+                    </button>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubmittingTaskId(null);
+                      setSubmittedFile(null);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  >
+                    ปิด
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!submittedFile}
+                    onClick={() => handleFinalSubmitTask(submittingTaskId)}
+                    className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95 transition-transform"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{mySub ? 'บันทึกไฟล์ใหม่' : 'ยืนยันการส่งงาน'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Pop-up Modal: แสดงข้อมูลภาระงาน/ประกาศแบบเต็มๆ */}
       {selectedTaskDetailModal && (
@@ -1467,20 +1658,41 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
             {/* Action Buttons Footer */}
             <div className="pt-2 border-t border-slate-100 flex flex-col gap-2">
-              {/* Member Action: Send Submission */}
-              {user.role === 'member' && selectedTaskDetailModal.type !== 'announcement' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSubmittingTaskId(selectedTaskDetailModal.id);
-                    setSelectedTaskDetailModal(null);
-                  }}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-95"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>ส่งงานภาระงานนี้</span>
-                </button>
-              )}
+              {/* Member Action: Send / Edit Submission */}
+              {user.role === 'member' && selectedTaskDetailModal.type !== 'announcement' && (() => {
+                const mySubInModal = getMySubmission(selectedTaskDetailModal);
+                return (
+                  <div className="space-y-2">
+                    {mySubInModal && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span className="font-bold text-emerald-800 truncate">ส่งแล้ว: {mySubInModal.fileName}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadUrl(mySubInModal.fileUrl, mySubInModal.fileName)}
+                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 shrink-0 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>ดาวน์โหลด</span>
+                        </button>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubmittingTaskId(selectedTaskDetailModal.id);
+                        setSelectedTaskDetailModal(null);
+                      }}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-95"
+                    >
+                      {mySubInModal ? <Edit className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
+                      <span>{mySubInModal ? 'แก้ไขงานที่ส่ง (ลบไฟล์เก่า / อัปโหลดใหม่)' : 'ส่งงานภาระงานนี้'}</span>
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Admin Actions: Toggle Complete, Submission Status */}
               {user.role === 'admin' && selectedTaskDetailModal.type !== 'announcement' && (

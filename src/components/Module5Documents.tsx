@@ -8,14 +8,15 @@ import {
   Search, 
   Edit, 
   Clock, 
-  GripVertical,
-  X,
-  FileCheck,
-  File,
-  FileSpreadsheet,
-  Plus,
-  Eye
+  GripVertical, 
+  X, 
+  FileCheck, 
+  File, 
+  FileSpreadsheet, 
+  Plus, 
+  Eye 
 } from 'lucide-react';
+import { downloadRealFile, isWordFile, isPdfFile, isExcelFile, isImageFile, getFileExtension } from '../services/fileDownloadHelper';
 
 interface Module5Props {
   user: UserSession;
@@ -203,16 +204,17 @@ export const Module5Documents: React.FC<Module5Props> = ({
       docType: modalTargetType,
       category: modalTargetType === 'order' ? 'คำสั่งโรงเรียน' : 'เอกสารทั่วไป',
       date: docDate || new Date().toISOString().split('T')[0],
-      fileUrl: fileUrl || fileData || '#',
-      fileName: fileName.trim() || trimmedTitle,
-      fileSize: fileSize || '1.0 MB',
-      fileData: fileData || undefined,
-      uploadedBy: user.fullName
+      fileUrl: fileUrl || fileData || (editingDoc ? editingDoc.fileUrl : '#'),
+      fileName: fileName.trim() || (editingDoc ? editingDoc.fileName : trimmedTitle),
+      fileSize: fileSize || (editingDoc ? editingDoc.fileSize : '1.0 MB'),
+      fileData: fileData || (editingDoc ? editingDoc.fileData : undefined),
+      driveFileId: editingDoc?.driveFileId,
+      uploadedBy: editingDoc ? editingDoc.uploadedBy : user.fullName
     };
 
     onSaveDocument(newDoc);
     setIsUploadModalOpen(false);
-    onShowToast('success', 'บันทึกสำเร็จ', `บันทึก "${newDoc.title}" เรียบร้อยแล้ว`);
+    onShowToast('success', 'บันทึกสำเร็จ', `${editingDoc ? 'แก้ไข' : 'บันทึก'} "${newDoc.title}" เรียบร้อยแล้ว`);
   };
 
   // Reordering handler
@@ -267,46 +269,64 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
   // Preview document in new window
   const handlePreviewDoc = (doc: DocumentItem) => {
+    const fileSource = doc.fileData || doc.fileUrl;
+    if (!fileSource || fileSource === '#') {
+      onShowToast('info', 'ไม่มีไฟล์เอกสาร', 'เอกสารนี้ยังไม่ได้แนบไฟล์');
+      return;
+    }
+
+    // หากเป็นไฟล์ Word หรือ Excel เบราว์เซอร์ไม่รองรับ iframe ให้ดาวน์โหลดไฟล์จริงให้ทันที
+    if (isWordFile(doc.fileName) || isWordFile(doc.title)) {
+      onShowToast('info', 'กำลังดาวน์โหลดไฟล์ Word', 'ไฟล์ Word จะถูกดาวน์โหลดให้ท่านเปิดด้วย Microsoft Word ทันที');
+      downloadRealFile(fileSource, doc.fileName || doc.title, 'docx');
+      return;
+    }
+    if (isExcelFile(doc.fileName) || isExcelFile(doc.title)) {
+      onShowToast('info', 'กำลังดาวน์โหลดไฟล์ Excel', 'ไฟล์ Excel จะถูกดาวน์โหลดให้ท่านเปิดด้วย Microsoft Excel ทันที');
+      downloadRealFile(fileSource, doc.fileName || doc.title, 'xlsx');
+      return;
+    }
+
     if (doc.fileData) {
-      const win = window.open();
-      if (win) {
-        win.document.write(
-          `<html><head><title>ตัวอย่างไฟล์: ${doc.title}</title></head><body style="margin:0;padding:0;background:#1e293b;"><iframe src="${doc.fileData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100vh;" allowfullscreen></iframe></body></html>`
-        );
+      if (doc.fileData.startsWith('data:image/') || doc.fileData.startsWith('data:application/pdf')) {
+        const win = window.open();
+        if (win) {
+          win.document.write(
+            `<html><head><title>ตัวอย่างไฟล์: ${doc.title}</title></head><body style="margin:0;padding:0;background:#1e293b;"><iframe src="${doc.fileData}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100vh;" allowfullscreen></iframe></body></html>`
+          );
+          return;
+        }
       }
-    } else if (doc.fileUrl && doc.fileUrl !== '#') {
+      downloadRealFile(doc.fileData, doc.fileName || doc.title);
+      return;
+    }
+
+    if (doc.fileUrl && doc.fileUrl !== '#') {
       window.open(doc.fileUrl, '_blank', 'noopener,noreferrer');
     } else {
       onShowToast('info', 'ไม่มีไฟล์เอกสาร', 'เอกสารนี้ยังไม่ได้แนบไฟล์');
     }
   };
 
-  // Download document
+  // Download document (รับประกันได้ไฟล์จริงทุกประเภท โดยเฉพาะไฟล์ Word)
   const handleDownloadDoc = (doc: DocumentItem) => {
-    if (doc.fileData) {
-      const link = document.createElement('a');
-      link.href = doc.fileData;
-      link.download = doc.fileName || `${doc.title}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${doc.fileName || doc.title}" เรียบร้อย`);
-    } else if (doc.fileUrl && doc.fileUrl !== '#') {
-      const link = document.createElement('a');
-      link.href = doc.fileUrl;
-      link.download = doc.fileName || `${doc.title}.pdf`;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } else {
+    const fileSource = doc.fileData || doc.fileUrl;
+    if (!fileSource || fileSource === '#') {
       onShowToast('info', 'ไม่มีไฟล์เอกสาร', 'เอกสารนี้ยังไม่ได้แนบไฟล์');
+      return;
+    }
+    const defaultExt = isOrderDoc(doc) ? 'pdf' : undefined;
+    const ok = downloadRealFile(fileSource, doc.fileName || doc.title, defaultExt);
+    if (ok) {
+      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${doc.fileName || doc.title}" เรียบร้อยแล้ว`);
+    } else {
+      onShowToast('warning', 'ดาวน์โหลดไม่สำเร็จ', 'ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
     }
   };
 
   // Get file icon based on name
   const renderFileIcon = (fileName?: string) => {
-    const ext = fileName ? fileName.split('.').pop()?.toLowerCase() : '';
+    const ext = getFileExtension(fileName);
     if (ext === 'pdf') {
       return (
         <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 border border-rose-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
@@ -321,10 +341,24 @@ export const Module5Documents: React.FC<Module5Props> = ({
         </div>
       );
     }
-    if (ext === 'xls' || ext === 'xlsx') {
+    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') {
       return (
         <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
           XLS
+        </div>
+      );
+    }
+    if (ext === 'ppt' || ext === 'pptx') {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
+          PPT
+        </div>
+      );
+    }
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 border border-purple-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
+          IMG
         </div>
       );
     }

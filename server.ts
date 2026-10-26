@@ -156,6 +156,7 @@ function parseCloudKvRow(row: any): { key: string; value: any; updatedAt: number
 }
 
 const pendingCloudPushKeys = new Set<string>();
+const inFlightCloudPushKeys = new Set<string>();
 let cloudPushTimer: ReturnType<typeof setTimeout> | null = null;
 let isPushingToCloud = false;
 
@@ -177,6 +178,9 @@ async function flushCloudKvPush() {
 
   const keysBatch = Array.from(pendingCloudPushKeys);
   pendingCloudPushKeys.clear();
+  for (const k of keysBatch) {
+    inFlightCloudPushKeys.add(k);
+  }
 
   try {
     const records: Record<string, any>[] = [];
@@ -208,6 +212,9 @@ async function flushCloudKvPush() {
     // Re-queue on transient error
     for (const k of keysBatch) pendingCloudPushKeys.add(k);
   } finally {
+    for (const k of keysBatch) {
+      inFlightCloudPushKeys.delete(k);
+    }
     isPushingToCloud = false;
     if (pendingCloudPushKeys.size > 0) {
       scheduleCloudKvPush([]);
@@ -238,8 +245,8 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       const { key, value, updatedAt } = parsed;
       cloudTimestamps.set(key, updatedAt);
 
-      // Skip if this key is currently queued to be pushed from local server
-      if (pendingCloudPushKeys.has(key)) continue;
+      // Skip if this key is currently queued or in-flight to be pushed from local server
+      if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
 
       const localTs = Number(state.timestamps[key]) || 0;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
@@ -387,17 +394,18 @@ async function startServer() {
 
       const incomingTs = Number(timestamps[key]) || now;
       const existingTs = Number(state.timestamps[key]) || 0;
+      const effectiveTs = isInitialSeed ? incomingTs : Math.max(now, existingTs + 1, incomingTs);
 
-      // Apply update if newer or equal (or key doesn't exist yet)
-      if (incomingTs >= existingTs || !(key in state.store)) {
+      // Apply update if live mutation, or newer/equal, or key doesn't exist yet
+      if (!isInitialSeed || effectiveTs >= existingTs || !(key in state.store)) {
         if (value === null || value === undefined) {
           delete state.store[key];
         } else {
           state.store[key] = value;
         }
-        state.timestamps[key] = incomingTs;
+        state.timestamps[key] = effectiveTs;
         appliedUpdates[key] = value;
-        appliedTimestamps[key] = incomingTs;
+        appliedTimestamps[key] = effectiveTs;
       }
     }
 

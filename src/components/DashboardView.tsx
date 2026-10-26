@@ -98,6 +98,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     assignments: TaskItem[];
   } | null>(null);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
+
+  // Confirmation modal state when deleting an item from the Academic Calendar
+  const [confirmDeleteCalendarModal, setConfirmDeleteCalendarModal] = useState<{
+    mode: 'event' | 'task';
+    id: string;
+    title: string;
+    categoryLabel: string;
+  } | null>(null);
   
   // Specific event fields matching user prompt: เป็นวันอะไร / แจ้งอะไร / ให้ส่งงานอะไร (สอดคล้อง-เชื่อมกับ หน้ามอบหมาย)
   const [newEventTitle, setNewEventTitle] = useState('');
@@ -319,7 +327,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       
     if (!titleToSave && !newEventAnnouncement.trim() && !newEventTaskDue.trim()) {
       if (onShowToast) {
-        onShowToast('warning', 'กรุณาระบุข้อมูล', 'โปรดระบุเป็นวันอะไร หรือแจ้งอะไร หรือให้ส่งงานอะไร อย่างน้อย 1 รายการ');
+        onShowToast('warning', 'กรุณาระบุข้อมูล', 'โปรดระบุมอบหมายงาน หรือประกาศใหม่ อย่างน้อย 1 รายการ');
       }
       return;
     }
@@ -334,28 +342,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       meeting: '#D97706'
     };
 
-    // 1. บันทึกลงปฏิทินโรงเรียน (CalendarEvent)
-    const newEvent: CalendarEvent = {
-      id: 'cal-' + Date.now(),
-      title: finalTitle,
-      description: newEventAnnouncement.trim() || newEventTaskDue.trim() || '',
-      date: newEventDate,
-      type: newEventType,
-      color: colors[newEventType] || '#4F46E5',
-      announcement: newEventAnnouncement.trim() || undefined,
-      taskDue: newEventTaskDue.trim() || undefined,
-      taskPriority: newEventTaskDue.trim() ? newEventTaskPriority : undefined
-    };
-
-    onSaveCalendarEvent(newEvent);
-
+    const now = Date.now();
+    const eventId = 'cal-' + now;
+    const linkedTaskIds: string[] = [];
     let syncedCount = 0;
 
-    // 2. สอดคล้อง-เชื่อมกับ หน้ามอบหมาย: หมวด "แจ้งอะไร" -> บันทึกเป็น TaskItem (type: 'announcement') ในหน้ามอบหมาย
-    if (newEventAnnouncement.trim() && newEventSyncAnnouncement && onSaveTask) {
+    // 1. สอดคล้อง-เชื่อมกับ หน้ามอบหมาย: หมวด "2. ประกาศใหม่" -> บันทึกเป็น TaskItem (type: 'announcement') ในหน้ามอบหมายเสมอ
+    if (newEventAnnouncement.trim() && onSaveTask) {
       const annTitle = newEventTitle.trim() || newEventAnnouncement.trim().slice(0, 60);
       const annTask: TaskItem = {
-        id: 'task-ann-' + Date.now(),
+        id: 'task-ann-' + now,
         title: annTitle,
         description: newEventAnnouncement.trim(),
         dueDate: newEventDate,
@@ -363,20 +359,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         priority: 'normal',
         createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),
-        assignedTo: 'all'
+        assignedTo: 'all',
+        calendarEventId: eventId
       };
+      linkedTaskIds.push(annTask.id);
       onSaveTask(annTask);
       syncedCount++;
     }
 
-    // 3. สอดคล้อง-เชื่อมกับ หน้ามอบหมาย: หมวด "ให้ส่งงานอะไร" -> บันทึกเป็น TaskItem (type: 'assignment') ในหน้ามอบหมาย
-    if (newEventTaskDue.trim() && newEventSyncTask && onSaveTask) {
+    // 2. สอดคล้อง-เชื่อมกับ หน้ามอบหมาย: หมวด "1. มอบหมายงาน" -> บันทึกเป็น TaskItem (type: 'assignment') ในหน้ามอบหมายเสมอ
+    if (newEventTaskDue.trim() && onSaveTask) {
       const assignTask: TaskItem = {
-        id: 'task-assn-' + (Date.now() + 1),
+        id: 'task-assn-' + (now + 1),
         title: newEventTaskDue.trim(),
-        description: newEventAnnouncement.trim() 
+        description: newEventAnnouncement.trim()
           ? `เนื่องใน: ${finalTitle} - ${newEventAnnouncement.trim()}`
-          : `ภาระงานเนื่องใน: ${finalTitle}`,
+          : '',
         dueDate: newEventDate,
         type: 'assignment',
         priority: newEventTaskPriority,
@@ -384,17 +382,56 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         createdAt: new Date().toISOString(),
         assignedTo: 'all',
         isCompleted: false,
-        submissions: []
+        submissions: [],
+        calendarEventId: eventId
       };
+      linkedTaskIds.push(assignTask.id);
       onSaveTask(assignTask);
       syncedCount++;
     }
 
+    // กรณีระบุเฉพาะหัวข้อกิจกรรมอย่างเดียว ให้เชื่อมไปหน้ามอบหมายด้วยเช่นกัน
+    if (!newEventAnnouncement.trim() && !newEventTaskDue.trim() && finalTitle && onSaveTask) {
+      const fallbackTask: TaskItem = {
+        id: 'task-cal-' + now,
+        title: finalTitle,
+        description: newEventDesc.trim() || '',
+        dueDate: newEventDate,
+        type: 'assignment',
+        priority: newEventTaskPriority,
+        createdBy: user.fullName || user.username || 'สมาชิก',
+        createdAt: new Date().toISOString(),
+        assignedTo: 'all',
+        isCompleted: false,
+        submissions: [],
+        calendarEventId: eventId
+      };
+      linkedTaskIds.push(fallbackTask.id);
+      onSaveTask(fallbackTask);
+      syncedCount++;
+    }
+
+    // 3. บันทึกลงปฏิทินวิชาการ (CalendarEvent) พร้อมผูก linkedTaskIds
+    const newEvent: CalendarEvent = {
+      id: eventId,
+      title: finalTitle,
+      description: newEventAnnouncement.trim() || newEventTaskDue.trim() || '',
+      date: newEventDate,
+      type: newEventType,
+      color: colors[newEventType] || '#4F46E5',
+      announcement: newEventAnnouncement.trim() || undefined,
+      taskDue: newEventTaskDue.trim() || undefined,
+      taskPriority: newEventTaskDue.trim() ? newEventTaskPriority : undefined,
+      linkedTaskIds
+    };
+
+    onSaveCalendarEvent(newEvent);
+
     if (onShowToast) {
       onShowToast(
         'success', 
-        'บันทึกข้อมูลเรียบร้อย', 
-        `บันทึกข้อมูลวันที่ ${formatThaiDate(newEventDate)} ${syncedCount > 0 ? 'และเชื่อมต่อกับหน้ามอบหมายแล้ว' : ''}`
+        'บันทึกและเชื่อมลิงก์เรียบร้อย', 
+        `บันทึกรายการวันที่ ${formatThaiDate(newEventDate)} และเชื่อมลิงก์ไปยังหน้ามอบหมาย (${syncedCount} รายการ) แล้ว`
       );
     }
 
@@ -580,53 +617,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Micro event & task pills */}
-                  <div className="space-y-0.5 overflow-hidden">
-                    {/* Events */}
-                    {dayEvents.slice(0, 1).map((ev) => (
-                      <div
-                        key={ev.id}
-                        style={{ borderLeftColor: ev.color || '#2563EB' }}
-                        className="text-[9px] truncate px-1 py-0.5 rounded bg-slate-100 text-slate-800 border-l-2 leading-tight flex items-center gap-0.5"
-                        title={`${ev.title}${ev.announcement ? ` | แจ้ง: ${ev.announcement}` : ''}${ev.taskDue ? ` | ส่งงาน: ${ev.taskDue}` : ''}`}
-                      >
-                        <span className="truncate">{ev.title}</span>
-                      </div>
-                    ))}
+                  {(() => {
+                    const unlinkedEvents = dayEvents.filter(ev => {
+                      const inAssignments = dayAssignments.some(
+                        t =>
+                          t.calendarEventId === ev.id ||
+                          (ev.linkedTaskIds && ev.linkedTaskIds.includes(t.id)) ||
+                          t.title === ev.taskDue ||
+                          t.title === ev.title ||
+                          ev.title === `กำหนดส่ง: ${t.title}`
+                      );
+                      const inAnnouncements = dayAnnouncements.some(
+                        a =>
+                          a.calendarEventId === ev.id ||
+                          (ev.linkedTaskIds && ev.linkedTaskIds.includes(a.id)) ||
+                          a.description === ev.announcement ||
+                          a.title === ev.announcement
+                      );
+                      return !inAssignments && !inAnnouncements;
+                    });
+                    const totalItemsCount = unlinkedEvents.length + dayAnnouncements.length + dayAssignments.length;
 
-                    {/* Announcement from Module4Assignments */}
-                    {dayAnnouncements.slice(0, 1).map((ann) => (
-                      <div
-                        key={ann.id}
-                        className="text-[9px] truncate px-1 py-0.5 rounded bg-blue-50 text-blue-800 border-l-2 border-blue-500 leading-tight flex items-center gap-0.5 font-medium"
-                        title={`แจ้งประกาศ: ${ann.title}`}
-                      >
-                        <Megaphone className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                        <span className="truncate">{ann.title}</span>
-                      </div>
-                    ))}
+                    return (
+                      <div className="space-y-0.5 overflow-hidden">
+                        {/* Assignment from Module4Assignments / Calendar */}
+                        {dayAssignments.slice(0, 1).map((t) => (
+                          <div
+                            key={t.id}
+                            className={`text-[9px] truncate px-1 py-0.5 rounded border-l-2 leading-tight flex items-center gap-0.5 font-medium ${
+                              t.isCompleted || t.isManualCompleted
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-500'
+                                : 'bg-amber-50 text-amber-800 border-amber-500'
+                            }`}
+                            title={`${t.isCompleted || t.isManualCompleted ? 'ส่งแล้ว' : 'ต้องส่ง'}: ${t.title}`}
+                          >
+                            <ClipboardList className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                            <span className="truncate">{t.isCompleted || t.isManualCompleted ? '✓ ' : 'ส่ง: '}{t.title}</span>
+                          </div>
+                        ))}
 
-                    {/* Assignment from Module4Assignments */}
-                    {dayAssignments.filter(t => !dayEvents.some(e => e.taskDue === t.title)).slice(0, 1).map((t) => (
-                      <div
-                        key={t.id}
-                        className={`text-[9px] truncate px-1 py-0.5 rounded border-l-2 leading-tight flex items-center gap-0.5 font-medium ${
-                          t.isCompleted || t.isManualCompleted
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-500'
-                            : 'bg-amber-50 text-amber-800 border-amber-500'
-                        }`}
-                        title={`${t.isCompleted || t.isManualCompleted ? 'ส่งแล้ว' : 'ต้องส่ง'}: ${t.title}`}
-                      >
-                        <ClipboardList className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                        <span className="truncate">{t.isCompleted || t.isManualCompleted ? '✓ ' : 'ส่ง: '}{t.title}</span>
-                      </div>
-                    ))}
+                        {/* Announcement from Module4Assignments / Calendar */}
+                        {dayAnnouncements.slice(0, 1).map((ann) => (
+                          <div
+                            key={ann.id}
+                            className="text-[9px] truncate px-1 py-0.5 rounded bg-blue-50 text-blue-800 border-l-2 border-blue-500 leading-tight flex items-center gap-0.5 font-medium"
+                            title={`แจ้งประกาศ: ${ann.title}`}
+                          >
+                            <Megaphone className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                            <span className="truncate">{ann.title}</span>
+                          </div>
+                        ))}
 
-                    {(dayEvents.length + dayAnnouncements.length + dayAssignments.length) > 2 && (
-                      <span className="text-[8px] text-slate-400 font-medium leading-none">
-                        +{(dayEvents.length + dayAnnouncements.length + dayAssignments.length) - 2} เพิ่มเติม
-                      </span>
-                    )}
-                  </div>
+                        {/* Standalone Events */}
+                        {unlinkedEvents.slice(0, 1).map((ev) => (
+                          <div
+                            key={ev.id}
+                            style={{ borderLeftColor: ev.color || '#2563EB' }}
+                            className="text-[9px] truncate px-1 py-0.5 rounded bg-slate-100 text-slate-800 border-l-2 leading-tight flex items-center gap-0.5"
+                            title={`${ev.title}${ev.announcement ? ` | แจ้ง: ${ev.announcement}` : ''}${ev.taskDue ? ` | ส่งงาน: ${ev.taskDue}` : ''}`}
+                          >
+                            <span className="truncate">{ev.title}</span>
+                          </div>
+                        ))}
+
+                        {totalItemsCount > 2 && (
+                          <span className="text-[8px] text-slate-400 font-medium leading-none">
+                            +{totalItemsCount - 2} เพิ่มเติม
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -794,185 +855,344 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
 
       {/* Modal: View Selected Day Events & Tasks */}
-      {selectedDayEvents && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
-                  <CalendarIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">
-                    {formatThaiDateShort(selectedDayEvents.dateStr)}
-                  </h3>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-1.5">
-                {user.role === 'admin' && (
-                  <button
-                    onClick={() => {
-                      const dStr = selectedDayEvents.dateStr;
-                      setSelectedDayEvents(null);
-                      handleOpenAddForDate(dStr);
-                    }}
-                    className="w-8 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center shadow-xs cursor-pointer active:scale-95"
-                    title="เพิ่มข้อมูล (มอบหมายงาน / ประกาศใหม่)"
-                  >
-                    <Plus className="w-4 h-4 stroke-[2.5]" />
-                  </button>
-                )}
-                <button
-                  onClick={() => setSelectedDayEvents(null)}
-                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg text-sm"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
+      {selectedDayEvents && (() => {
+        const activeDateStr = selectedDayEvents.dateStr;
+        const liveDayEvents = calendarEvents.filter(ev => {
+          if (ev.date === activeDateStr) return true;
+          if (ev.endDate && activeDateStr >= ev.date && activeDateStr <= ev.endDate) return true;
+          return false;
+        });
+        const liveDayAnnouncements = tasks.filter(t => t.type === 'announcement' && isTaskOnDate(t, activeDateStr));
+        const liveDayAssignments = tasks.filter(t => t.type !== 'announcement' && isTaskOnDate(t, activeDateStr));
 
-            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-              {selectedDayEvents.events.length === 0 && 
-               selectedDayEvents.announcements.length === 0 && 
-               selectedDayEvents.assignments.length === 0 ? (
-                <div className="text-center py-10 text-slate-400 text-xs space-y-2">
-                  <CalendarIcon className="w-10 h-10 mx-auto text-slate-300" />
-                  <p className="text-sm font-semibold text-slate-600">ยังไม่มีบันทึกข้อมูลในวันนี้</p>
+        const unlinkedAssignmentEvents = liveDayEvents.filter(ev => {
+          const isPureAnnouncement = Boolean(ev.announcement && !ev.taskDue && ev.title.startsWith('แจ้ง:'));
+          if (isPureAnnouncement) return false;
+          const alreadyInAssignments = liveDayAssignments.some(
+            t =>
+              t.calendarEventId === ev.id ||
+              (ev.linkedTaskIds && ev.linkedTaskIds.includes(t.id)) ||
+              t.title === ev.taskDue ||
+              t.title === ev.title ||
+              ev.title === `กำหนดส่ง: ${t.title}`
+          );
+          return !alreadyInAssignments;
+        });
+
+        const unlinkedAnnouncementEvents = liveDayEvents.filter(ev => {
+          const annText = ev.announcement;
+          if (!annText) return false;
+          const alreadyInAnnouncements = liveDayAnnouncements.some(
+            a =>
+              a.calendarEventId === ev.id ||
+              (ev.linkedTaskIds && ev.linkedTaskIds.includes(a.id)) ||
+              a.description === annText ||
+              a.title === annText ||
+              a.title === annText.slice(0, 60)
+          );
+          return !alreadyInAnnouncements;
+        });
+
+        const hasSection1 = liveDayAssignments.length > 0 || unlinkedAssignmentEvents.length > 0;
+        const hasSection2 = liveDayAnnouncements.length > 0 || unlinkedAnnouncementEvents.length > 0;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-700 flex items-center justify-center">
+                    <CalendarIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-800">
+                      {formatThaiDateShort(activeDateStr)}
+                    </h3>
+                    <p className="text-[11px] text-slate-500">เชื่อมลิงก์ข้อมูลกับหน้ามอบหมายอัตโนมัติ</p>
+                  </div>
                 </div>
-              ) : (
-                <>
-                  {/* ส่วนที่ 1: มอบหมายงาน (Admin) / ส่งงาน (สมาชิก) */}
-                  {selectedDayEvents.events.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                        <Tag className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>{user.role === 'admin' ? '1. มอบหมายงาน' : '1. ส่งงาน'}</span>
-                      </div>
+                
+                <div className="flex items-center gap-1.5">
+                  {user.role === 'admin' && (
+                    <button
+                      onClick={() => {
+                        setSelectedDayEvents(null);
+                        handleOpenAddForDate(activeDateStr);
+                      }}
+                      className="w-8 h-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center shadow-xs cursor-pointer active:scale-95"
+                      title="เพิ่มข้อมูล (มอบหมายงาน / ประกาศใหม่)"
+                    >
+                      <Plus className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setSelectedDayEvents(null)}
+                    className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg text-sm"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+                {!hasSection1 && !hasSection2 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs space-y-2">
+                    <CalendarIcon className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="text-sm font-semibold text-slate-600">ยังไม่มีบันทึกข้อมูลในวันนี้</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* ส่วนที่ 1: มอบหมายงาน (Admin) / ส่งงาน (สมาชิก) */}
+                    {hasSection1 && (
                       <div className="space-y-2">
-                        {selectedDayEvents.events.map((ev) => (
-                          <div
-                            key={ev.id}
-                            style={{ borderLeftColor: ev.color || '#2563EB' }}
-                            className="p-3 rounded-xl bg-slate-50/90 border border-slate-200/80 border-l-4 space-y-1 shadow-2xs"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="text-sm font-bold text-slate-800">{ev.title}</h4>
-                              {user.role === 'admin' && (
-                                <button
-                                  onClick={() => {
-                                    onDeleteCalendarEvent(ev.id);
-                                    setSelectedDayEvents(prev => prev ? {
-                                      ...prev,
-                                      events: prev.events.filter(e => e.id !== ev.id)
-                                    } : null);
-                                  }}
-                                  className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
-                                  title="ลบรายการนี้"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                          <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>{user.role === 'admin' ? '1. มอบหมายงาน' : '1. ส่งงาน'}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {liveDayAssignments.map((task) => (
+                            <div
+                              key={task.id}
+                              className="p-3 rounded-xl bg-purple-50/60 border border-purple-200/80 border-l-4 border-l-purple-600 space-y-1 shadow-2xs"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-0.5">
+                                  <h4 className="text-sm font-bold text-slate-800">{task.title}</h4>
+                                  <span className="inline-block text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
+                                    เชื่อมลิงก์กับหน้ามอบหมาย
+                                  </span>
+                                </div>
+                                {user.role === 'admin' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmDeleteCalendarModal({
+                                        mode: 'task',
+                                        id: task.id,
+                                        title: task.title,
+                                        categoryLabel: 'งานมอบหมาย'
+                                      });
+                                    }}
+                                    className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-lg shrink-0 transition-colors cursor-pointer"
+                                    title="ลบรายการนี้"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                              {task.description && (
+                                <p className="text-xs text-slate-600 pl-0.5 leading-relaxed">
+                                  {task.description}
+                                </p>
                               )}
                             </div>
-                            {ev.description && ev.description !== ev.announcement && (
-                              <p className="text-xs text-slate-600 pl-0.5 leading-relaxed">
-                                {ev.description}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                          ))}
 
-                  {/* ส่วนที่ 2: ประกาศใหม่ */}
-                  {(selectedDayEvents.announcements.length > 0 || selectedDayEvents.events.some(e => e.announcement)) && (
-                    <div className="space-y-2 pt-1 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
-                          <Bell className="w-3.5 h-3.5 text-amber-600" />
-                          <span>2. ประกาศใหม่</span>
+                          {unlinkedAssignmentEvents.map((ev) => (
+                            <div
+                              key={ev.id}
+                              style={{ borderLeftColor: ev.color || '#2563EB' }}
+                              className="p-3 rounded-xl bg-slate-50/90 border border-slate-200/80 border-l-4 space-y-1 shadow-2xs"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="text-sm font-bold text-slate-800">{ev.title}</h4>
+                                {user.role === 'admin' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmDeleteCalendarModal({
+                                        mode: 'event',
+                                        id: ev.id,
+                                        title: ev.title,
+                                        categoryLabel: 'รายการปฏิทิน'
+                                      });
+                                    }}
+                                    className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-lg shrink-0 transition-colors cursor-pointer"
+                                    title="ลบรายการนี้"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                              {ev.description && ev.description !== ev.announcement && (
+                                <p className="text-xs text-slate-600 pl-0.5 leading-relaxed">
+                                  {ev.description}
+                                </p>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
+                    )}
 
-                      <div className="space-y-2">
-                        {/* Announcements from Module4Assignments */}
-                        {selectedDayEvents.announcements.map((ann) => {
-                          let displayTitle = ann.title || '';
-                          if (displayTitle.startsWith('[ประกาศแจ้ง] ')) {
-                            displayTitle = displayTitle.replace('[ประกาศแจ้ง] ', '');
-                          }
-                          if (displayTitle.startsWith('ประกาศแจ้งประจำวันที่')) {
-                            displayTitle = ann.description || displayTitle;
-                          }
+                    {/* ส่วนที่ 2: ประกาศใหม่ */}
+                    {hasSection2 && (
+                      <div className="space-y-2 pt-1 border-t border-slate-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+                            <Bell className="w-3.5 h-3.5 text-amber-600" />
+                            <span>2. ประกาศใหม่</span>
+                          </div>
+                        </div>
 
-                          return (
+                        <div className="space-y-2">
+                          {/* Announcements from Module4Assignments / Calendar */}
+                          {liveDayAnnouncements.map((ann) => {
+                            let displayTitle = ann.title || '';
+                            if (displayTitle.startsWith('[ประกาศแจ้ง] ')) {
+                              displayTitle = displayTitle.replace('[ประกาศแจ้ง] ', '');
+                            }
+                            if (displayTitle.startsWith('ประกาศแจ้งประจำวันที่')) {
+                              displayTitle = ann.description || displayTitle;
+                            }
+
+                            return (
+                              <div
+                                key={ann.id}
+                                className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/90 border-l-4 border-l-amber-500 space-y-1 shadow-2xs"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="space-y-0.5">
+                                    <h4 className="text-sm font-bold text-slate-800">
+                                      {displayTitle}
+                                    </h4>
+                                    <span className="inline-block text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                                      เชื่อมลิงก์กับหน้ามอบหมาย
+                                    </span>
+                                  </div>
+                                  {user.role === 'admin' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setConfirmDeleteCalendarModal({
+                                          mode: 'task',
+                                          id: ann.id,
+                                          title: displayTitle,
+                                          categoryLabel: 'ประกาศใหม่'
+                                        });
+                                      }}
+                                      className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-lg shrink-0 transition-colors cursor-pointer"
+                                      title="ลบประกาศนี้"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                                {ann.description && ann.description !== displayTitle && (
+                                  <p className="text-xs text-slate-600 pl-0.5 leading-relaxed whitespace-pre-wrap">
+                                    {ann.description}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {/* Calendar event inline announcements */}
+                          {unlinkedAnnouncementEvents.map((ev) => (
                             <div
-                              key={ann.id}
+                              key={'ev-ann-' + ev.id}
                               className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/90 border-l-4 border-l-amber-500 space-y-1 shadow-2xs"
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <h4 className="text-sm font-bold text-slate-800">
-                                  {displayTitle}
+                                  {ev.announcement}
                                 </h4>
-                                {user.role === 'admin' && onDeleteTask && (
+                                {user.role === 'admin' && (
                                   <button
+                                    type="button"
                                     onClick={() => {
-                                      onDeleteTask(ann.id);
-                                      setSelectedDayEvents(prev => prev ? {
-                                        ...prev,
-                                        announcements: prev.announcements.filter(a => a.id !== ann.id)
-                                      } : null);
+                                      setConfirmDeleteCalendarModal({
+                                        mode: 'event',
+                                        id: ev.id,
+                                        title: ev.announcement || ev.title,
+                                        categoryLabel: 'ประกาศใหม่'
+                                      });
                                     }}
-                                    className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
+                                    className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-lg shrink-0 transition-colors cursor-pointer"
                                     title="ลบประกาศนี้"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 )}
                               </div>
-                              {ann.description && ann.description !== displayTitle && (
-                                <p className="text-xs text-slate-600 pl-0.5 leading-relaxed whitespace-pre-wrap">
-                                  {ann.description}
+                              {ev.title && (
+                                <p className="text-xs text-slate-600 pl-0.5 leading-relaxed">
+                                  เนื่องจาก: {ev.title}
                                 </p>
                               )}
                             </div>
-                          );
-                        })}
-
-                        {/* Calendar event inline announcements */}
-                        {selectedDayEvents.events.filter(e => e.announcement && !selectedDayEvents.announcements.some(a => a.description === e.announcement)).map((ev) => (
-                          <div
-                            key={'ev-ann-' + ev.id}
-                            className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/90 border-l-4 border-l-amber-500 space-y-1 shadow-2xs"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <h4 className="text-sm font-bold text-slate-800">
-                                {ev.announcement}
-                              </h4>
-                            </div>
-                            {ev.title && (
-                              <p className="text-xs text-slate-600 pl-0.5 leading-relaxed">
-                                เนื่องจาก: {ev.title}
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </>
+                )}
+              </div>
 
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setSelectedDayEvents(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl transition-colors"
+                >
+                  ปิด
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
-                </>
-              )}
+      {/* Modal: ยืนยันการลบรายการในปฏิทินวิชาการ */}
+      {confirmDeleteCalendarModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5">
+            <div className="flex items-start gap-3.5">
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  ยืนยันการลบรายการในปฏิทินวิชาการ
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  คุณต้องการลบ{confirmDeleteCalendarModal.categoryLabel}{' '}
+                  <span className="font-bold text-slate-900">"{confirmDeleteCalendarModal.title}"</span> ใช่หรือไม่?
+                </p>
+                <p className="text-[11px] text-rose-600 font-semibold pt-1">
+                  * รายการนี้และรายการที่เชื่อมลิงก์อยู่ใน "หน้ามอบหมาย" จะถูกลบออกพร้อมกันทันที และไม่สามารถกู้คืนได้
+                </p>
+              </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
               <button
-                onClick={() => setSelectedDayEvents(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-xl transition-colors"
+                type="button"
+                onClick={() => setConfirmDeleteCalendarModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                ปิด
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmDeleteCalendarModal.mode === 'task' && onDeleteTask) {
+                    onDeleteTask(confirmDeleteCalendarModal.id);
+                    if (onShowToast) {
+                      onShowToast(
+                        'info',
+                        'ลบรายการเรียบร้อย',
+                        `ลบ "${confirmDeleteCalendarModal.title}" ในปฏิทินและหน้ามอบหมายเรียบร้อยแล้ว`
+                      );
+                    }
+                  } else {
+                    onDeleteCalendarEvent(confirmDeleteCalendarModal.id);
+                  }
+                  setConfirmDeleteCalendarModal(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
               </button>
             </div>
           </div>
@@ -990,8 +1210,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-800">
-                    กำหนดปฏิทิน
+                    กำหนดปฏิทินวิชาการ
                   </h3>
+                  <p className="text-[11px] text-indigo-600 font-medium">
+                    ทุกรายการที่สร้างจะเชื่อมลิงก์ไปแสดงใน "หน้ามอบหมาย" อัตโนมัติ
+                  </p>
                 </div>
               </div>
               <button
@@ -1025,7 +1248,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <ClipboardList className="w-3.5 h-3.5 text-purple-600" />
                     <span>1. มอบหมายงาน</span>
                   </label>
-                  <span className="text-[10px] text-purple-700 font-medium">📋 งานที่มอบหมาย</span>
+                  <span className="text-[10px] text-purple-700 font-medium">📋 เชื่อมลิงก์ไปแท็บงานมอบหมายอัตโนมัติ</span>
                 </div>
                 <input
                   type="text"
@@ -1036,7 +1259,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
 
                 {newEventTaskDue.trim() && (
-                  <div className="pt-1 space-y-2.5 animate-in fade-in">
+                  <div className="pt-1 space-y-2 animate-in fade-in">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[11px] font-semibold text-purple-900">ระดับความเร่งด่วน:</span>
                       <div className="flex items-center gap-3">
@@ -1057,18 +1280,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         ))}
                       </div>
                     </div>
-
-                    <label className="flex items-center gap-2 cursor-pointer pt-1">
-                      <input
-                        type="checkbox"
-                        checked={newEventSyncTask}
-                        onChange={(e) => setNewEventSyncTask(e.target.checked)}
-                        className="rounded border-purple-300 text-purple-600 focus:ring-purple-500"
-                      />
-                      <span className="text-[11px] text-purple-950 font-medium">
-                        เชื่อมโยงบันทึกลงใน "หน้ามอบหมาย" (แท็บงานมอบหมาย) และวิดเจ็ตงานค้างส่งทันที
-                      </span>
-                    </label>
                   </div>
                 )}
               </div>
@@ -1080,7 +1291,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <Bell className="w-3.5 h-3.5 text-amber-600" />
                     <span>2. ประกาศใหม่</span>
                   </label>
-                  <span className="text-[10px] text-amber-800 font-medium">📢 ประชาสัมพันธ์</span>
+                  <span className="text-[10px] text-amber-800 font-medium">📢 เชื่อมลิงก์ไปแท็บประกาศใหม่อัตโนมัติ</span>
                 </div>
                 <textarea
                   rows={2}
@@ -1089,20 +1300,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   placeholder="เช่น แจ้งคุณครูทุกท่านแต่งกายด้วยชุดผ้าไทย, แจ้งนัดหมายประชุมเวลา 09.00 น. ณ ห้องประชุม 1"
                   className="w-full text-xs px-3 py-2 rounded-xl border border-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white shadow-2xs"
                 />
-
-                {newEventAnnouncement.trim() && (
-                  <label className="flex items-center gap-2 cursor-pointer pt-1 animate-in fade-in">
-                    <input
-                      type="checkbox"
-                      checked={newEventSyncAnnouncement}
-                      onChange={(e) => setNewEventSyncAnnouncement(e.target.checked)}
-                      className="rounded border-amber-300 text-amber-600 focus:ring-amber-500"
-                    />
-                    <span className="text-[11px] text-amber-950 font-medium">
-                      เชื่อมโยงบันทึกลงใน "หน้ามอบหมาย" (แท็บประกาศใหม่) อัตโนมัติ
-                    </span>
-                  </label>
-                )}
               </div>
 
               {/* Submit Buttons */}

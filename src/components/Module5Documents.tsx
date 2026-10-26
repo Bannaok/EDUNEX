@@ -44,6 +44,9 @@ export const Module5Documents: React.FC<Module5Props> = ({
   // Pop-up modal state for viewing full document title on mobile
   const [selectedDocDetailModal, setSelectedDocDetailModal] = useState<DocumentItem | null>(null);
 
+  // Confirmation modal state for deleting documents
+  const [confirmDeleteDoc, setConfirmDeleteDoc] = useState<DocumentItem | null>(null);
+
   // Modal form states
   const [modalTargetType, setModalTargetType] = useState<'document' | 'order'>('document');
   const [docNumber, setDocNumber] = useState('');
@@ -529,24 +532,21 @@ export const Module5Documents: React.FC<Module5Props> = ({
                     <Download className="w-4 h-4" />
                   </button>
 
-                  {user.role === 'admin' && (
+                  {user.role !== 'developer' && (
                     <>
+                      {user.role === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => handleOpenModal(doc)}
+                          className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                          title="แก้ไขเอกสาร"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => handleOpenModal(doc)}
-                        className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                        title="แก้ไขเอกสาร"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm(`คุณต้องการลบ "${doc.title}" หรือไม่?`)) {
-                            onDeleteDocument(doc.id);
-                            onShowToast('info', 'ลบสำเร็จ', 'ลบเอกสารออกจากระบบเรียบร้อยแล้ว');
-                          }
-                        }}
+                        onClick={() => setConfirmDeleteDoc(doc)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                         title="ลบเอกสาร"
                       >
@@ -818,12 +818,93 @@ export const Module5Documents: React.FC<Module5Props> = ({
                 </button>
               </div>
 
+              {user.role !== 'developer' && (
+                <div className={`grid ${user.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+                  {user.role === 'admin' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenModal(selectedDocDetailModal);
+                        setSelectedDocDetailModal(null);
+                      }}
+                      className="py-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Edit className="w-4 h-4 text-emerald-600" />
+                      <span>แก้ไขเอกสาร</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteDoc(selectedDocDetailModal);
+                    }}
+                    className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                    <span>ลบเอกสาร</span>
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={() => setSelectedDocDetailModal(null)}
                 className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
                 ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการลบเอกสาร (ถามยืนยันทุกครั้งเมื่อกดลบ) */}
+      {confirmDeleteDoc && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm p-6 space-y-4 animate-in zoom-in-95 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">
+                {isOrderDoc(confirmDeleteDoc) ? 'ยืนยันการลบหนังสือคำสั่ง' : 'ยืนยันการลบเอกสาร'}
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed break-words">
+                คุณต้องการลบ <span className="font-bold text-slate-800">"{confirmDeleteDoc.title}"</span> ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนเอกสารนี้ได้
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteDoc(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteDocument(confirmDeleteDoc.id);
+                  if (selectedDocDetailModal?.id === confirmDeleteDoc.id) {
+                    setSelectedDocDetailModal(null);
+                  }
+                  onShowToast(
+                    'info',
+                    'ลบสำเร็จ',
+                    `ลบ "${confirmDeleteDoc.title}" ออกจากระบบเรียบร้อยแล้ว`
+                  );
+                  setConfirmDeleteDoc(null);
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
               </button>
             </div>
           </div>

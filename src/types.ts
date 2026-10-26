@@ -384,6 +384,7 @@ export interface TaskItem {
   submissions?: TaskSubmission[];
   isManualCompleted?: boolean;
   order?: number;
+  calendarEventId?: string;
 }
 
 export interface DocumentItem {
@@ -424,6 +425,7 @@ export interface CalendarEvent {
   announcement?: string; // แจ้งอะไร
   taskDue?: string; // ให้ส่งงานอะไร
   taskPriority?: 'urgent' | 'high' | 'normal';
+  linkedTaskIds?: string[];
 }
 
 export interface MemberAccount {

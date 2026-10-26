@@ -297,6 +297,12 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
       if (data && typeof data.rev === 'number' && data.rev > lastKnownRev) {
         lastKnownRev = data.rev;
       }
+      if (data && typeof data.serverTime === 'number') {
+        const currentTs = keyTimestamps.get(resolvedKey) || 0;
+        if (data.serverTime > currentTs) {
+          keyTimestamps.set(resolvedKey, data.serverTime);
+        }
+      }
     })
     .catch(() => {
       pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
@@ -1529,9 +1535,70 @@ export const StorageService = {
   },
 
   deleteTask(id: string): TaskItem[] {
-    const updated = this.getTasks().filter(t => t.id !== id);
+    const allTasks = this.getTasks();
+    const targetTask = allTasks.find(t => t.id === id);
+    const updated = allTasks.filter(t => t.id !== id);
     setLocal(KEYS.TASKS, updated);
     this.syncPostToGoogle('deleteTask', { id });
+
+    // Cascade delete or clean up linked CalendarEvent
+    if (targetTask) {
+      const allEvents = this.getCalendarEvents();
+      let eventsChanged = false;
+      const updatedEvents: CalendarEvent[] = [];
+
+      for (const ev of allEvents) {
+        const isLinkedById =
+          (targetTask.calendarEventId && ev.id === targetTask.calendarEventId) ||
+          (ev.linkedTaskIds && ev.linkedTaskIds.includes(id));
+
+        const isLegacyLinked =
+          ev.date === targetTask.dueDate &&
+          ((ev.taskDue && ev.taskDue === targetTask.title) ||
+            (ev.announcement &&
+              (ev.announcement === targetTask.description ||
+                ev.announcement === targetTask.title)) ||
+            ev.title === targetTask.title ||
+            ev.title === `กำหนดส่ง: ${targetTask.title}` ||
+            (targetTask.description &&
+              ev.title === `แจ้ง: ${targetTask.description.slice(0, 30)}`));
+
+        if (isLinkedById || isLegacyLinked) {
+          eventsChanged = true;
+          const remainingLinkedIds = (ev.linkedTaskIds || []).filter(tid => tid !== id);
+          const isAnnouncementTask = targetTask.type === 'announcement';
+
+          if (isAnnouncementTask && ev.taskDue && ev.taskDue !== targetTask.title) {
+            updatedEvents.push({
+              ...ev,
+              announcement: undefined,
+              linkedTaskIds: remainingLinkedIds,
+              title: ev.title.startsWith('แจ้ง:') ? `กำหนดส่ง: ${ev.taskDue}` : ev.title,
+              description: ev.taskDue
+            });
+          } else if (!isAnnouncementTask && ev.announcement && ev.announcement !== targetTask.description) {
+            updatedEvents.push({
+              ...ev,
+              taskDue: undefined,
+              taskPriority: undefined,
+              linkedTaskIds: remainingLinkedIds,
+              title: ev.title.startsWith('กำหนดส่ง:') ? `แจ้ง: ${ev.announcement.slice(0, 30)}` : ev.title,
+              description: ev.announcement
+            });
+          } else {
+            // Remove the calendar event completely
+            this.syncPostToGoogle('deleteCalendarEvent', { id: ev.id });
+          }
+        } else {
+          updatedEvents.push(ev);
+        }
+      }
+
+      if (eventsChanged) {
+        setLocal(KEYS.CALENDAR, updatedEvents);
+      }
+    }
+
     return updated;
   },
 
@@ -1628,9 +1695,43 @@ export const StorageService = {
   },
 
   deleteCalendarEvent(id: string): CalendarEvent[] {
-    const updated = this.getCalendarEvents().filter(c => c.id !== id);
+    const allEvents = this.getCalendarEvents();
+    const targetEvent = allEvents.find(c => c.id === id);
+    const updated = allEvents.filter(c => c.id !== id);
     setLocal(KEYS.CALENDAR, updated);
     this.syncPostToGoogle('deleteCalendarEvent', { id });
+
+    // Cascade delete linked TaskItems in หน้ามอบหมาย
+    if (targetEvent) {
+      const allTasks = this.getTasks();
+      const remainingTasks = allTasks.filter(t => {
+        const isLinkedById =
+          t.calendarEventId === id ||
+          (targetEvent.linkedTaskIds && targetEvent.linkedTaskIds.includes(t.id));
+
+        const isLegacyLinked =
+          t.dueDate === targetEvent.date &&
+          ((targetEvent.taskDue && t.title === targetEvent.taskDue) ||
+            (targetEvent.announcement &&
+              (t.description === targetEvent.announcement ||
+                t.title === targetEvent.announcement ||
+                t.title === targetEvent.announcement.slice(0, 60))) ||
+            t.title === targetEvent.title ||
+            targetEvent.title === `กำหนดส่ง: ${t.title}` ||
+            (t.description && targetEvent.title === `แจ้ง: ${t.description.slice(0, 30)}`));
+
+        if (isLinkedById || isLegacyLinked) {
+          this.syncPostToGoogle('deleteTask', { id: t.id });
+          return false;
+        }
+        return true;
+      });
+
+      if (remainingTasks.length !== allTasks.length) {
+        setLocal(KEYS.TASKS, remainingTasks);
+      }
+    }
+
     return updated;
   },
 

@@ -49,6 +49,15 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   // Pop-up modal state for viewing full assignment / announcement title on mobile
   const [selectedTaskDetailModal, setSelectedTaskDetailModal] = useState<TaskItem | null>(null);
 
+  // Confirmation modal state for deleting tasks/announcements/submissions
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
+    type: 'task' | 'submission';
+    id: string;
+    title: string;
+    isAnnouncement?: boolean;
+    memberId?: string;
+  } | null>(null);
+
   // Form states for creating & editing tasks/announcements
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
@@ -669,15 +678,10 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         </div>
                       </div>
 
-                      {/* ไอคอนบอกสถานะกดดูสำหรับ Mobile */}
-                      <div className="sm:hidden text-slate-300 hover:text-purple-600 shrink-0 pl-1">
-                        <Eye className="w-4 h-4" />
-                      </div>
-
-                      {/* ฝั่งขวา (เฉพาะ Desktop): ปุ่มการกระทำแสดงบน Desktop ส่วน Mobile ซ่อนไว้และไปแสดงใน Pop-up */}
+                      {/* ฝั่งขวา: ปุ่มการกระทำ (แสดงทั้งบน Mobile และ Desktop) */}
                       <div 
                         onClick={(e) => e.stopPropagation()} 
-                        className="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
+                        className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
                       >
                         {user.role === 'admin' && (
                           <>
@@ -704,29 +708,6 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                               <Users className="w-3.5 h-3.5 text-purple-600 shrink-0" />
                               <span className="font-mono">({submittedCount}/{schoolMembers.length})</span>
                             </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenModal(task)}
-                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors shrink-0"
-                              title="แก้ไขงานมอบหมาย"
-                            >
-                              <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (confirm(`ลบรายการ "${task.title}" หรือไม่?`)) {
-                                  onDeleteTask(task.id);
-                                  onShowToast('info', 'ลบรายการ', 'ลบรายการเรียบร้อยแล้ว');
-                                }
-                              }}
-                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors shrink-0"
-                              title="ลบรายการ"
-                            >
-                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-                            </button>
                           </>
                         )}
 
@@ -739,6 +720,35 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             <Upload className="w-3.5 h-3.5 shrink-0" />
                             <span>ส่งงาน</span>
                           </button>
+                        )}
+
+                        {user.role !== 'developer' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenModal(task)}
+                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                              title="แก้ไขงานมอบหมาย"
+                            >
+                              <Edit className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmDeleteModal({
+                                  type: 'task',
+                                  id: task.id,
+                                  title: task.title,
+                                  isAnnouncement: false
+                                });
+                              }}
+                              className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors shrink-0"
+                              title="ลบรายการ"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -820,15 +830,10 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                       </div>
                     </div>
 
-                    {/* ไอคอนบอกสถานะกดดูสำหรับ Mobile */}
-                    <div className="sm:hidden text-slate-300 hover:text-amber-600 shrink-0 pl-1">
-                      <Eye className="w-4 h-4" />
-                    </div>
-
-                    {/* ฝั่งขวา (เฉพาะ Desktop): ปุ่มดาวน์โหลด/แก้ไข/ลบ */}
+                    {/* ฝั่งขวา: ปุ่มดาวน์โหลด/แก้ไข/ลบ (แสดงทั้งบน Mobile และ Desktop) */}
                     <div 
                       onClick={(e) => e.stopPropagation()} 
-                      className="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
+                      className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap"
                     >
                       {task.attachmentUrl && (
                         <button
@@ -842,7 +847,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         </button>
                       )}
 
-                      {user.role === 'admin' && (
+                      {user.role !== 'developer' && (
                         <>
                           <button
                             type="button"
@@ -856,10 +861,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (confirm(`ลบประกาศ "${task.title}" หรือไม่?`)) {
-                                onDeleteTask(task.id);
-                                onShowToast('info', 'ลบประกาศ', 'ลบประกาศเรียบร้อยแล้ว');
-                              }
+                              setConfirmDeleteModal({
+                                type: 'task',
+                                id: task.id,
+                                title: task.title,
+                                isAnnouncement: true
+                              });
                             }}
                             className="w-7 h-7 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors shrink-0"
                             title="ลบประกาศ"
@@ -972,9 +979,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              if (confirm(`ลบงานที่ส่งของ ${mem.fullName} หรือไม่?`)) {
-                                handleDeleteMemberSubmission(statusTaskModal.id, mem.id);
-                              }
+                              setConfirmDeleteModal({
+                                type: 'submission',
+                                id: liveStatusTask.id,
+                                memberId: mem.id,
+                                title: `งานที่ส่งของ ${mem.fullName}`
+                              });
                             }}
                             className="p-2 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
                             title="ลบงานที่ส่ง"
@@ -1391,76 +1401,75 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 </button>
               )}
 
-              {/* Admin Actions: Toggle Complete, Submission Status, Edit, Delete */}
-              {user.role === 'admin' && (
+              {/* Admin Actions: Toggle Complete, Submission Status */}
+              {user.role === 'admin' && selectedTaskDetailModal.type !== 'announcement' && (
                 <div className="space-y-2">
                   {/* Complete Checkmark Toggle */}
-                  {selectedTaskDetailModal.type !== 'announcement' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleToggleManualComplete(selectedTaskDetailModal);
-                        setSelectedTaskDetailModal(null);
-                      }}
-                      className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border transition-all ${
-                        selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
-                          ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>
-                        {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
-                          ? 'ยกเลิกเครื่องหมายส่งครบ' 
-                          : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
-                      </span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleToggleManualComplete(selectedTaskDetailModal);
+                      setSelectedTaskDetailModal(null);
+                    }}
+                    className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border transition-all ${
+                      selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                        ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= members.length
+                        ? 'ยกเลิกเครื่องหมายส่งครบ' 
+                        : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
+                    </span>
+                  </button>
 
                   {/* View Status */}
-                  {selectedTaskDetailModal.type !== 'announcement' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStatusTaskModal(selectedTaskDetailModal);
-                        setSelectedTaskDetailModal(null);
-                      }}
-                      className="w-full py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                    >
-                      <Users className="w-4 h-4 text-purple-600" />
-                      <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{members.length} คน)</span>
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusTaskModal(selectedTaskDetailModal);
+                      setSelectedTaskDetailModal(null);
+                    }}
+                    className="w-full py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Users className="w-4 h-4 text-purple-600" />
+                    <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{members.length} คน)</span>
+                  </button>
+                </div>
+              )}
 
-                  {/* Edit & Delete in 2 columns */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleOpenModal(selectedTaskDetailModal);
-                        setSelectedTaskDetailModal(null);
-                      }}
-                      className="py-2.5 bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Edit className="w-4 h-4 text-purple-600" />
-                      <span>แก้ไข</span>
-                    </button>
+              {/* Edit & Delete in 2 columns */}
+              {user.role !== 'developer' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenModal(selectedTaskDetailModal);
+                      setSelectedTaskDetailModal(null);
+                    }}
+                    className="py-2.5 bg-slate-100 hover:bg-purple-50 text-slate-700 hover:text-purple-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4 text-purple-600" />
+                    <span>แก้ไข</span>
+                  </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm(`ลบรายการ "${selectedTaskDetailModal.title}" หรือไม่?`)) {
-                          onDeleteTask(selectedTaskDetailModal.id);
-                          setSelectedTaskDetailModal(null);
-                          onShowToast('info', 'ลบรายการ', 'ลบรายการเรียบร้อยแล้ว');
-                        }
-                      }}
-                      className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4 text-rose-600" />
-                      <span>ลบรายการ</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmDeleteModal({
+                        type: 'task',
+                        id: selectedTaskDetailModal.id,
+                        title: selectedTaskDetailModal.title,
+                        isAnnouncement: selectedTaskDetailModal.type === 'announcement'
+                      });
+                    }}
+                    className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                    <span>ลบรายการ</span>
+                  </button>
                 </div>
               )}
 
@@ -1470,6 +1479,66 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer mt-1"
               >
                 ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ยืนยันการลบ (ถามยืนยันทุกครั้งเมื่อกดลบ) */}
+      {confirmDeleteModal && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm p-6 space-y-4 animate-in zoom-in-95 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">
+                {confirmDeleteModal.type === 'submission'
+                  ? 'ยืนยันการลบงานที่ส่ง'
+                  : confirmDeleteModal.isAnnouncement
+                  ? 'ยืนยันการลบประกาศ'
+                  : 'ยืนยันการลบงานมอบหมาย'}
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed break-words">
+                คุณต้องการลบ <span className="font-bold text-slate-800">"{confirmDeleteModal.title}"</span> ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลได้
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteModal(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmDeleteModal.type === 'submission' && confirmDeleteModal.memberId) {
+                    handleDeleteMemberSubmission(confirmDeleteModal.id, confirmDeleteModal.memberId);
+                  } else {
+                    onDeleteTask(confirmDeleteModal.id);
+                    if (selectedTaskDetailModal?.id === confirmDeleteModal.id) {
+                      setSelectedTaskDetailModal(null);
+                    }
+                    onShowToast(
+                      'info',
+                      confirmDeleteModal.isAnnouncement ? 'ลบประกาศสำเร็จ' : 'ลบรายการสำเร็จ',
+                      `ลบ "${confirmDeleteModal.title}" เรียบร้อยแล้ว`
+                    );
+                  }
+                  setConfirmDeleteModal(null);
+                }}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
               </button>
             </div>
           </div>

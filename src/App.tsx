@@ -370,6 +370,7 @@ export default function App() {
     if (!verifyCanEdit()) return;
     const updated = StorageService.deleteTask(id);
     setTasks(updated);
+    setCalendarEvents(StorageService.getCalendarEvents());
   };
 
   const handleReorderTasks = (newTasks: TaskItem[]) => {
@@ -421,14 +422,15 @@ export default function App() {
     if (!verifyCanEdit()) return;
     const updated = StorageService.saveCalendarEvent(event);
     setCalendarEvents(updated);
-    showToast('success', 'ปฏิทิน', `บันทึกกิจกรรม "${event.title}" สำเร็จ`);
+    showToast('success', 'ปฏิทินวิชาการ', `บันทึก "${event.title}" และเชื่อมโยงข้อมูลเรียบร้อยแล้ว`);
   };
 
   const handleDeleteCalendarEvent = (id: string) => {
     if (!verifyCanEdit()) return;
     const updated = StorageService.deleteCalendarEvent(id);
     setCalendarEvents(updated);
-    showToast('info', 'ปฏิทิน', 'ลบกิจกรรมเรียบร้อยแล้ว');
+    setTasks(StorageService.getTasks());
+    showToast('info', 'ปฏิทินวิชาการ', 'ลบรายการในปฏิทินและรายการที่เชื่อมโยงในหน้ามอบหมายเรียบร้อยแล้ว');
   };
 
   // Custom Buttons Handlers (Admin & Member future-ready dynamic buttons)

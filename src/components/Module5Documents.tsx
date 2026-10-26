@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { DocumentItem, UserSession, GoogleConfig } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   FileText, 
   Upload, 
@@ -168,7 +169,8 @@ export const Module5Documents: React.FC<Module5Props> = ({
       const base64 = event.target?.result as string;
       setFileData(base64);
       setFileUrl(base64);
-      onShowToast('success', 'เลือกไฟล์แล้ว', `เขียนชื่อเรื่องอัตโนมัติ: "${autoTitle}"`);
+      StorageService.uploadFileToGoogleDrive(base64, file.name, 'document').catch(() => {});
+      onShowToast('success', 'เลือกไฟล์แล้ว', `เขียนชื่อเรื่องอัตโนมัติ: "${autoTitle}" และเตรียมจัดเก็บลง Google Drive`);
     };
     reader.readAsDataURL(file);
   };

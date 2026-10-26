@@ -360,6 +360,25 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
       });
   };
 
+  // Handler: Toggle Temporary Suspension of Admin (blocks Admin + all Members of that school)
+  const handleToggleSuspendAdmin = (admin: SchoolAdminAccount) => {
+    const res = StorageService.toggleSuspendAdmin(admin.id);
+    onRefreshData();
+    if (res.targetAdmin?.isSuspended) {
+      onShowToast(
+        'warning',
+        'ระงับการใช้งานชั่วคราวแล้ว 🚫',
+        `ระงับสิทธิ์ "${admin.schoolName}" (${admin.username}) ชั่วคราวแล้ว ทั้ง Admin และสมาชิกในสังกัดทั้งหมดจะไม่สามารถเข้าใช้งานได้ในขณะนี้`
+      );
+    } else {
+      onShowToast(
+        'success',
+        'ยกเลิกการระงับแล้ว ✓',
+        `เปิดสิทธิ์การใช้งานให้ "${admin.schoolName}" (${admin.username}) และสมาชิกในสังกัดกลับมาใช้งานได้ตามปกติแล้ว`
+      );
+    }
+  };
+
   // Handler: Delete Admin (opens confirmation modal)
   const handleDeleteAdmin = (admin: SchoolAdminAccount) => {
     setAdminToDelete(admin);
@@ -681,17 +700,24 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                 {admins.map((adm) => {
                   const isPassVisible = passwordsMap[adm.id] || false;
                   const adminMembersCount = members.filter(m => m.schoolId === adm.id || m.schoolName === adm.schoolName).length;
+                  const isSuspended = Boolean(adm.isSuspended);
 
                   return (
                     <div 
                       key={adm.id}
-                      className="bg-slate-800/60 border border-slate-700/80 rounded-2xl p-5 space-y-3.5 hover:border-indigo-500/50 transition-all flex flex-col justify-between"
+                      className={`rounded-2xl p-5 space-y-3.5 transition-all flex flex-col justify-between border ${
+                        isSuspended
+                          ? 'bg-rose-950/25 border-rose-500/60 hover:border-rose-400'
+                          : 'bg-slate-800/60 border-slate-700/80 hover:border-indigo-500/50'
+                      }`}
                     >
                       <div className="space-y-2.5">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold shrink-0">
-                              <School className="w-5 h-5" />
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 ${
+                              isSuspended ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-500/20 text-indigo-400'
+                            }`}>
+                              {isSuspended ? <Ban className="w-5 h-5" /> : <School className="w-5 h-5" />}
                             </div>
                             <div>
                               <h4 className="text-sm font-bold text-white line-clamp-1" title={adm.schoolName}>
@@ -703,10 +729,24 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                             </div>
                           </div>
 
-                          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                            ระดับ 2 Admin
-                          </span>
+                          {isSuspended ? (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 shrink-0 flex items-center gap-1">
+                              <Ban className="w-3 h-3" />
+                              <span>ระงับชั่วคราว</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                              ระดับ 2 Admin
+                            </span>
+                          )}
                         </div>
+
+                        {isSuspended && (
+                          <div className="p-2 bg-rose-500/15 border border-rose-500/30 rounded-xl text-[11px] text-rose-200 flex items-center gap-1.5 font-medium">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <span>ระงับใช้งานชั่วคราว: ทั้ง Admin และสมาชิก ({adminMembersCount} คน) ไม่มีสิทธิ์เข้าใช้งานในขณะนี้</span>
+                          </div>
+                        )}
 
                         <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-700/60 space-y-1.5 text-xs font-mono">
                           <div className="flex items-center justify-between">
@@ -783,11 +823,33 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between gap-2">
-                        <span className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium">
-                          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                          <span>แยกสิทธิ์เด็ดขาด (ห้าม Developer เข้าถึงเนื้อหาภายใน)</span>
-                        </span>
+                      <div className="pt-2.5 border-t border-slate-700/60 flex items-center justify-between gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSuspendAdmin(adm)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                            isSuspended
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-xs'
+                              : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                          }`}
+                          title={
+                            isSuspended
+                              ? 'คลิกเพื่อยกเลิกการระงับ ให้ Admin และสมาชิกในสังกัดกลับมาใช้งานได้'
+                              : 'คลิกเพื่อระงับการใช้งานชั่วคราว (Admin และสมาชิกของโรงเรียนนี้จะเข้าใช้งานไม่ได้ชั่วคราว)'
+                          }
+                        >
+                          {isSuspended ? (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                              <span>ยกเลิกการระงับ</span>
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="w-3.5 h-3.5 shrink-0" />
+                              <span>ระงับใช้งานชั่วคราว</span>
+                            </>
+                          )}
+                        </button>
 
                         <button
                           type="button"
@@ -873,19 +935,29 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                       ) : (
                         filteredMembers.map((mem, idx) => {
                           const isPassVisible = passwordsMap[mem.id] || false;
-                          const schoolName = mem.schoolName || admins.find(a => a.id === mem.schoolId)?.schoolName || 'โรงเรียนหลัก';
+                          const matchedSchoolAdmin = admins.find(
+                            a => a.id === mem.schoolId || a.schoolName === mem.schoolName
+                          );
+                          const schoolName = matchedSchoolAdmin?.schoolName || mem.schoolName || 'โรงเรียนหลัก';
+                          const isSchoolSuspended = Boolean(matchedSchoolAdmin?.isSuspended);
 
                           return (
-                            <tr key={mem.id} className="hover:bg-slate-800/40 transition-colors">
+                            <tr key={mem.id} className={`hover:bg-slate-800/40 transition-colors ${isSchoolSuspended ? 'bg-rose-950/15' : ''}`}>
                               <td className="py-3 px-3 text-center font-mono text-slate-500">
                                 {idx + 1}
                               </td>
                               <td className="py-3 px-4 font-semibold text-white">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <span>{mem.fullName}</span>
                                   {mem.role === 'admin' && (
                                     <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
                                       Admin
+                                    </span>
+                                  )}
+                                  {isSchoolSuspended && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1">
+                                      <Ban className="w-3 h-3" />
+                                      <span>ถูกระงับตาม Admin โรงเรียน</span>
                                     </span>
                                   )}
                                 </div>

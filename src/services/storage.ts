@@ -317,11 +317,79 @@ function pushToGoogleCloudKVDirect(resolvedKey: string, value: any, timestamp: n
   }).catch(() => {});
 }
 
+const tenantGoogleSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function scheduleTenantKeySyncToSchoolSheet(resolvedKey: string, value: any, timestamp: number) {
+  if (typeof window === 'undefined' || GLOBAL_KEYS.has(resolvedKey) || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
+
+  let baseKey = resolvedKey;
+  let explicitSchoolId = '';
+  if (resolvedKey.includes('__')) {
+    const parts = resolvedKey.split('__');
+    baseKey = parts[0];
+    explicitSchoolId = parts.slice(1).join('__');
+  }
+
+  const isTenantData =
+    TENANT_SCOPED_KEYS.has(baseKey) ||
+    baseKey.startsWith('ams_') ||
+    baseKey.startsWith('pp6_') ||
+    baseKey.startsWith('school_');
+  if (!isTenantData) return;
+
+  const existingTimer = tenantGoogleSyncTimers.get(resolvedKey);
+  if (existingTimer) clearTimeout(existingTimer);
+
+  const timer = setTimeout(() => {
+    tenantGoogleSyncTimers.delete(resolvedKey);
+    try {
+      const targetSchoolId = explicitSchoolId || getActiveSchoolId() || 'admin-school-01';
+      const adminsCached = memoryCache.get(KEYS.ADMINS);
+      const adminsRaw = nativeGetItem ? nativeGetItem(KEYS.ADMINS) : localStorage.getItem(KEYS.ADMINS);
+      const admins: SchoolAdminAccount[] = Array.isArray(adminsCached)
+        ? adminsCached
+        : adminsRaw
+        ? JSON.parse(adminsRaw)
+        : INITIAL_ADMINS;
+      const matchedAdmin = admins.find(a => a.id === targetSchoolId);
+
+      const cfgCached = memoryCache.get(KEYS.GOOGLE_CONFIG);
+      const cfgRaw = nativeGetItem ? nativeGetItem(KEYS.GOOGLE_CONFIG) : localStorage.getItem(KEYS.GOOGLE_CONFIG);
+      const cfg: GoogleConfig = cfgCached || (cfgRaw ? JSON.parse(cfgRaw) : { webAppUrl: DEFAULT_GAS_WEBAPP_URL, driveFolderId: '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9' });
+      const gasUrl = cfg?.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+      if (!gasUrl) return;
+
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'syncTenantKey',
+          spreadsheetId: matchedAdmin?.googleSheetId || '',
+          schoolId: targetSchoolId,
+          schoolName: matchedAdmin?.schoolName || '',
+          driveFolderId: cfg?.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
+          baseKey,
+          key: resolvedKey,
+          value,
+          updatedAt: timestamp
+        })
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }, 600);
+
+  tenantGoogleSyncTimers.set(resolvedKey, timer);
+}
+
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
   // 1. Primary Cloud Database: Firebase Firestore (syncs across all devices, browsers, emails, ais-dev & ais-pre in real time)
   saveKeyToFirestore(resolvedKey, value, timestamp, CLIENT_ID).catch(() => {});
+
+  // 2. Automatic Per-School Google Sheets Sync for every piece of data filled by Member or Admin
+  scheduleTenantKeySyncToSchoolSheet(resolvedKey, value, timestamp);
 
   const payload = {
     clientId: CLIENT_ID,
@@ -329,7 +397,7 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
     timestamps: { [resolvedKey]: timestamp }
   };
 
-  // 2. Real-Time Express Server Mutation (triggers instant SSE broadcast + .data disk persistence)
+  // 3. Real-Time Express Server Mutation (triggers instant SSE broadcast + .data disk persistence)
   fetch('/api/realtime/mutate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -357,7 +425,7 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
       pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
     });
 
-  // 3. Cloudflare Pages D1 Real-Time State Mirror
+  // 4. Cloudflare Pages D1 Real-Time State Mirror
   fetch('/api/d1?action=saveRealtimeState', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1072,6 +1140,48 @@ export const StorageService = {
     return updated;
   },
 
+  toggleSuspendAdmin(id: string): { updated: SchoolAdminAccount[]; targetAdmin?: SchoolAdminAccount } {
+    const list = this.getAdmins();
+    let targetAdmin: SchoolAdminAccount | undefined;
+    const updated = list.map(a => {
+      if (a.id === id) {
+        targetAdmin = { ...a, isSuspended: !a.isSuspended };
+        return targetAdmin;
+      }
+      return a;
+    });
+    if (targetAdmin) {
+      setLocal(KEYS.ADMINS, updated);
+      D1Service.saveAdmin(targetAdmin).catch(() => {});
+      this.syncAdminRecordToGoogleSheets(targetAdmin);
+      const config = this.getGoogleConfig();
+      const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+      if (gasUrl) {
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'toggleSuspendAdmin',
+            spreadsheetId: MASTER_SPREADSHEET_ID,
+            adminId: targetAdmin.id,
+            isSuspended: Boolean(targetAdmin.isSuspended),
+            admin: targetAdmin
+          })
+        }).catch(() => {});
+      }
+    }
+    return { updated, targetAdmin };
+  },
+
+  isSchoolSuspended(schoolId?: string, schoolName?: string): boolean {
+    const admins = this.getAdmins();
+    const normId = normalizeSchoolId(schoolId, schoolName, admins);
+    const matchedAdmin = admins.find(
+      a => a.id === normId || (schoolName && cleanSchoolNameForMatch(a.schoolName) === cleanSchoolNameForMatch(schoolName))
+    );
+    return Boolean(matchedAdmin?.isSuspended);
+  },
+
   authenticate(username: string, password: string): { success: boolean; user?: UserSession; message: string } {
     const trimmedUser = username.trim();
     const devCreds = this.getDeveloperCredentials();
@@ -1105,7 +1215,10 @@ export const StorageService = {
     );
     if (foundAdmin) {
       if (foundAdmin.isSuspended) {
-        return { success: false, message: 'บัญชีผู้ดูแลโรงเรียนนี้ถูกระงับการใช้งาน กรุณาติดต่อ Developer' };
+        return {
+          success: false,
+          message: `บัญชีผู้ดูแลระบบของ "${foundAdmin.schoolName}" ถูกระงับการใช้งานชั่วคราวโดยผู้พัฒนาระบบ (Developer) ไม่สามารถเข้าใช้งานได้ในขณะนี้`
+        };
       }
       const normAdminSchoolId = normalizeSchoolId(foundAdmin.id, foundAdmin.schoolName, admins);
       const adminUser: UserSession = {
@@ -1128,6 +1241,13 @@ export const StorageService = {
 
     // Default legacy Admin fallback
     if (trimmedUser.toLowerCase() === 'admin' && password === '123456') {
+      const defaultAdm = admins.find(a => a.id === 'admin-school-01');
+      if (defaultAdm?.isSuspended) {
+        return {
+          success: false,
+          message: `บัญชีผู้ดูแลระบบของ "${defaultAdm.schoolName}" ถูกระงับการใช้งานชั่วคราวโดยผู้พัฒนาระบบ (Developer) ไม่สามารถเข้าใช้งานได้ในขณะนี้`
+        };
+      }
       const adminUser: UserSession = {
         id: 'admin-school-01',
         username: 'Admin',
@@ -1135,7 +1255,7 @@ export const StorageService = {
         role: 'admin',
         position: 'ผู้ดูแลระบบโรงเรียน',
         schoolId: 'admin-school-01',
-        schoolName: 'โรงเรียนอนุบาลเทศบาลดอนวิทยา',
+        schoolName: defaultAdm?.schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา',
         isLoggedIn: true
       };
       this.setSession(adminUser);
@@ -1149,11 +1269,19 @@ export const StorageService = {
       (m.password === password || !m.password)
     );
     if (found) {
-      if (found.isSuspended) {
-        return { success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ (Admin) หรือ Developer' };
-      }
       const memberSchoolId = normalizeSchoolId(found.schoolId, found.schoolName, admins);
-      const matchedAdmin = admins.find(a => a.id === memberSchoolId);
+      const matchedAdmin = admins.find(
+        a => a.id === memberSchoolId || (found.schoolName && cleanSchoolNameForMatch(a.schoolName) === cleanSchoolNameForMatch(found.schoolName))
+      );
+      if (matchedAdmin?.isSuspended) {
+        return {
+          success: false,
+          message: `โรงเรียนต้นสังกัด (${matchedAdmin.schoolName}) ถูกระงับการใช้งานชั่วคราว สมาชิกในสังกัดไม่มีสิทธิ์เข้าใช้งานในขณะนี้`
+        };
+      }
+      if (found.isSuspended) {
+        return { success: false, message: 'บัญชีสมาชิกนี้ถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ (Admin) หรือ Developer' };
+      }
       const memberUser: UserSession = {
         id: found.id,
         username: found.username,
@@ -2259,6 +2387,51 @@ export const StorageService = {
     return schoolInfo.googleSheetId;
   },
 
+  // Upload any file or image (Base64 Data URL) to Google Drive inside the school's dedicated category folder
+  async uploadFileToGoogleDrive(
+    fileDataUrl: string,
+    fileName: string,
+    category: 'assignment' | 'document' | 'school_logo' | 'website_logo' | 'student_photo' | 'personnel_photo' | string
+  ): Promise<string> {
+    if (!fileDataUrl || !fileDataUrl.startsWith('data:')) {
+      return fileDataUrl;
+    }
+    const config = this.getGoogleConfig();
+    const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+    if (!gasUrl) return fileDataUrl;
+
+    const session = this.getSession();
+    const schoolInfo = this.getSchoolInfo();
+    const admins = this.getAdmins();
+    const activeSchoolId = session?.schoolId ? normalizeSchoolId(session.schoolId, session.schoolName, admins) : 'admin-school-01';
+    const matchedAdmin = admins.find(a => a.id === activeSchoolId);
+
+    try {
+      const res = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'uploadDriveFile',
+          spreadsheetId: matchedAdmin?.googleSheetId || schoolInfo.googleSheetId || '',
+          schoolId: activeSchoolId,
+          schoolName: matchedAdmin?.schoolName || schoolInfo.schoolName || session?.schoolName || 'โรงเรียนทั่วไป',
+          driveFolderId: config.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
+          category,
+          fileName,
+          fileBase64: fileDataUrl,
+          uploadedBy: session?.fullName || session?.username || ''
+        })
+      });
+      const data = await res.json();
+      if (data && data.status === 'success' && data.fileUrl) {
+        return data.fileUrl;
+      }
+    } catch {
+      // Keep local dataUrl if offline or unreachable
+    }
+    return fileDataUrl;
+  },
+
   // Sync Admin record to Master Google Spreadsheet's "Admins" sheet
   syncAdminRecordToGoogleSheets(admin: SchoolAdminAccount): void {
     if (typeof window === 'undefined') return;
@@ -2277,6 +2450,7 @@ export const StorageService = {
       directorName: admin.directorName || '',
       googleSheetId: admin.googleSheetId || '',
       googleSheetUrl: admin.googleSheetUrl || '',
+      isSuspended: Boolean(admin.isSuspended),
       createdAt: admin.createdAt || new Date().toISOString().split('T')[0]
     };
 
@@ -2434,13 +2608,26 @@ export const StorageService = {
       return null;
     }
 
-    const spreadsheetId = payload.spreadsheetId || this.getCurrentSchoolSpreadsheetId();
+    const session = this.getSession();
+    const schoolInfo = this.getSchoolInfo();
+    const admins = this.getAdmins();
+    const activeSchoolId = session?.schoolId ? normalizeSchoolId(session.schoolId, session.schoolName, admins) : 'admin-school-01';
+    const matchedAdmin = admins.find(a => a.id === activeSchoolId);
+    const spreadsheetId = payload.spreadsheetId || matchedAdmin?.googleSheetId || this.getCurrentSchoolSpreadsheetId();
+    const schoolName = payload.schoolName || matchedAdmin?.schoolName || schoolInfo.schoolName || session?.schoolName || '';
 
     try {
       const response = await fetch(config.webAppUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids preflight issues in Google Apps Script
-        body: JSON.stringify({ action, driveFolderId: config.driveFolderId, spreadsheetId, ...payload })
+        body: JSON.stringify({
+          action,
+          driveFolderId: config.driveFolderId,
+          spreadsheetId,
+          schoolId: activeSchoolId,
+          schoolName,
+          ...payload
+        })
       });
       return await response.json();
     } catch (err) {
@@ -2673,11 +2860,26 @@ export const StorageService = {
       dailyDutyLogs: this.getDailyDutyLogs()
     };
 
+    const session = this.getSession();
+    const schoolInfo = this.getSchoolInfo();
+    const admins = this.getAdmins();
+    const activeSchoolId = session?.schoolId ? normalizeSchoolId(session.schoolId, session.schoolName, admins) : 'admin-school-01';
+    const matchedAdmin = admins.find(a => a.id === activeSchoolId);
+    const spreadsheetId = matchedAdmin?.googleSheetId || this.getCurrentSchoolSpreadsheetId();
+    const schoolName = matchedAdmin?.schoolName || schoolInfo.schoolName || session?.schoolName || '';
+
     try {
       const response = await fetch(config.webAppUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'syncAll', driveFolderId: config.driveFolderId, data: allData })
+        body: JSON.stringify({
+          action: 'syncAll',
+          driveFolderId: config.driveFolderId,
+          spreadsheetId,
+          schoolId: activeSchoolId,
+          schoolName,
+          data: allData
+        })
       });
       const resJson = await response.json();
       if (resJson.status === 'success') {
@@ -2686,7 +2888,7 @@ export const StorageService = {
           isConnected: true,
           lastSynced: new Date().toISOString()
         });
-        return { success: true, message: 'ซิงค์ข้อมูลทั้งหมดลง Google Sheets สำเร็จเรียบร้อยแล้ว' };
+        return { success: true, message: 'ซิงค์ข้อมูลทั้งหมดลง Google Sheets ประจำโรงเรียนสำเร็จเรียบร้อยแล้ว' };
       }
       return { success: false, message: resJson.message || 'ซิงค์ไม่สำเร็จ' };
     } catch (err: any) {

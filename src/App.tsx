@@ -138,6 +138,26 @@ export default function App() {
         }
       }
       const matchedSchool = latestAdmins.find(a => a.id === resolvedSchoolId);
+      const matchedMemberObj =
+        currentSession.role === 'member'
+          ? latestMembers.find(m => m.id === currentSession.id || m.username.toLowerCase() === currentSession.username.toLowerCase())
+          : undefined;
+
+      // Enforce temporary suspension: if the school's Admin is suspended, block both the Admin and all Members of that school immediately
+      if (matchedSchool?.isSuspended || matchedMemberObj?.isSuspended) {
+        StorageService.setSession(null);
+        setUser(null);
+        setIsInspectingSchool(false);
+        showToast(
+          'error',
+          'ระงับการใช้งานชั่วคราว',
+          matchedSchool?.isSuspended
+            ? `โรงเรียน "${matchedSchool.schoolName}" ถูกระงับการใช้งานชั่วคราวโดยผู้พัฒนาระบบ ทั้ง Admin และสมาชิกในสังกัดไม่สามารถเข้าใช้งานได้ในขณะนี้`
+            : 'บัญชีของคุณถูกระงับการใช้งานชั่วคราว ไม่สามารถเข้าใช้งานได้ในขณะนี้'
+        );
+        return;
+      }
+
       if (
         resolvedSchoolId !== currentSession.schoolId ||
         (matchedSchool?.schoolName && matchedSchool.schoolName !== currentSession.schoolName)

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { TaskItem, UserSession, MemberAccount, TaskSubmission } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   ClipboardList, 
   Plus,
@@ -329,7 +330,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       setSubmittedFile({ name: file.name, url: base64, size: sizeStr });
-      onShowToast('success', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr})`);
+      onShowToast('success', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) ระบบจะจัดเก็บลง Google Drive อัตโนมัติ`);
+      StorageService.uploadFileToGoogleDrive(base64, `${user.fullName || user.username}_${file.name}`, 'assignment').catch(() => {});
     };
     reader.readAsDataURL(file);
     e.target.value = '';

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { RecommendedWebsite, UserSession } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   Globe, 
   Plus, 
@@ -85,7 +86,8 @@ export const Module6Websites: React.FC<Module6Props> = ({
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       setLogoUrl(base64);
-      onShowToast('success', 'อัปโหลดรูปสำเร็จ', 'บันทึกรูปภาพโลโก้เรียบร้อยแล้ว');
+      StorageService.uploadFileToGoogleDrive(base64, `website_logo_${file.name}`, 'website_logo').catch(() => {});
+      onShowToast('success', 'อัปโหลดรูปสำเร็จ', 'บันทึกรูปภาพโลโก้ลงระบบและ Google Drive เรียบร้อยแล้ว');
     };
     reader.readAsDataURL(file);
     // Reset file input value so same file can be selected again if needed

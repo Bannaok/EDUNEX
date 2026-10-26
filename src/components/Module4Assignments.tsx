@@ -165,11 +165,16 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
   const isTaskDoneForUser = (task: TaskItem) => {
     const subCount = (task.submissions || []).length;
-    const isFull = subCount >= totalSchoolMembers || Boolean(task.isManualCompleted);
+    const isFull =
+      (totalSchoolMembers > 0 && subCount >= totalSchoolMembers) ||
+      Boolean(task.isManualCompleted) ||
+      Boolean(task.isCompleted);
+
     if (user.role === 'member') {
       const hasMySub =
-        (task.submissions || []).some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)) ||
-        task.submittedBy === user.id;
+        (task.submissions || []).some(
+          s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)
+        ) || task.submittedBy === user.id;
       return hasMySub || isFull;
     }
     return isFull;
@@ -192,7 +197,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   };
 
   const handleToggleManualComplete = (task: TaskItem) => {
-    const nextManualCompleted = !task.isManualCompleted;
+    const subCount = (task.submissions || []).length;
+    const isCurrentlyDone =
+      (totalSchoolMembers > 0 && subCount >= totalSchoolMembers) ||
+      Boolean(task.isManualCompleted) ||
+      Boolean(task.isCompleted);
+    const nextManualCompleted = !isCurrentlyDone;
     const updated: TaskItem = {
       ...task,
       isManualCompleted: nextManualCompleted,
@@ -201,8 +211,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     onSaveTask(updated);
     onShowToast(
       'success', 
-      updated.isManualCompleted ? 'ทำเครื่องหมายว่าส่งครบแล้ว' : 'ยกเลิกเครื่องหมายส่งครบ', 
-      `อัปเดตสถานะงาน "${task.title}" เรียบร้อย`
+      nextManualCompleted ? 'ทำเครื่องหมายว่าส่งครบแล้ว' : 'ยกเลิกเครื่องหมายส่งครบ', 
+      `อัปเดตสถานะงาน "${task.title}" ${nextManualCompleted ? 'ย้ายไปอยู่ด้านล่างสุด (สีเขียว)' : 'กลับสู่รายการรอดำเนินการ'} เรียบร้อย`
     );
   };
 
@@ -588,7 +598,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
         </div>
 
         {/* Action Button for Active Tab */}
-        {user.role !== 'developer' ? (
+        {user.role === 'admin' ? (
           <button
             type="button"
             onClick={() => handleOpenModal()}
@@ -628,7 +638,10 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   const isDragging = draggedId === task.id;
                   const isDragOver = dragOverId === task.id;
                   const submittedCount = (task.submissions || []).length;
-                  const isFullySubmitted = submittedCount >= totalSchoolMembers || Boolean(task.isManualCompleted);
+                  const isFullySubmitted =
+                    (totalSchoolMembers > 0 && submittedCount >= totalSchoolMembers) ||
+                    Boolean(task.isManualCompleted) ||
+                    Boolean(task.isCompleted);
                   const mySubmission = (task.submissions || []).find(
                     s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)
                   );
@@ -792,7 +805,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           </>
                         )}
 
-                        {user.role !== 'developer' && (
+                        {user.role === 'admin' && (
                           <>
                             <button
                               type="button"
@@ -917,7 +930,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         </button>
                       )}
 
-                      {user.role !== 'developer' && (
+                      {user.role === 'admin' && (
                         <>
                           <button
                             type="button"
@@ -1510,8 +1523,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 </div>
               )}
 
-              {/* Edit & Delete in 2 columns */}
-              {user.role !== 'developer' && (
+              {/* Edit & Delete in 2 columns (Admin only) */}
+              {user.role === 'admin' && (
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"

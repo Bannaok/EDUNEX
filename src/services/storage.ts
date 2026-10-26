@@ -319,6 +319,28 @@ function pushToGoogleCloudKVDirect(resolvedKey: string, value: any, timestamp: n
 
 const tenantGoogleSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+function sanitizeValueForSync(val: any): any {
+  if (!val) return val;
+  if (typeof val === 'string') {
+    // If it's a huge base64 data URL, do not re-upload via generic background sync
+    if (val.startsWith('data:') && val.includes(';base64,')) {
+      return '';
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map(item => sanitizeValueForSync(item));
+  }
+  if (typeof val === 'object') {
+    const res: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      res[k] = sanitizeValueForSync(v);
+    }
+    return res;
+  }
+  return val;
+}
+
 function scheduleTenantKeySyncToSchoolSheet(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || GLOBAL_KEYS.has(resolvedKey) || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
@@ -359,6 +381,8 @@ function scheduleTenantKeySyncToSchoolSheet(resolvedKey: string, value: any, tim
       const gasUrl = cfg?.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
       if (!gasUrl) return;
 
+      const sanitizedValue = sanitizeValueForSync(value);
+
       fetch(gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -367,10 +391,11 @@ function scheduleTenantKeySyncToSchoolSheet(resolvedKey: string, value: any, tim
           spreadsheetId: matchedAdmin?.googleSheetId || '',
           schoolId: targetSchoolId,
           schoolName: matchedAdmin?.schoolName || '',
+          schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
           driveFolderId: cfg?.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
           baseKey,
           key: resolvedKey,
-          value,
+          value: sanitizedValue,
           updatedAt: timestamp
         })
       }).catch(() => {});
@@ -1371,7 +1396,14 @@ export const StorageService = {
         setLocal(KEYS.MEMBERS, nextMembers);
       }
     }
-    this.syncPostToGoogle('saveSchoolInfo', { schoolInfo: info });
+    this.syncPostToGoogle('saveSchoolInfo', { schoolInfo: info }).then(res => {
+      if (res && res.schoolInfo && res.schoolInfo.logoUrl && res.schoolInfo.logoUrl.startsWith('http')) {
+        const cur = this.getSchoolInfo();
+        if (cur.logoUrl !== res.schoolInfo.logoUrl) {
+          setLocal(KEYS.SCHOOL_INFO, { ...cur, logoUrl: res.schoolInfo.logoUrl }, true);
+        }
+      }
+    }).catch(() => {});
   },
 
   // Members
@@ -1507,7 +1539,17 @@ export const StorageService = {
       updated = [student, ...list];
     }
     setLocal(KEYS.STUDENTS, updated);
-    this.syncPostToGoogle('saveStudent', { student });
+    this.syncPostToGoogle('saveStudent', { student }).then(res => {
+      if (res && res.student && res.student.photoUrl && res.student.photoUrl.startsWith('http')) {
+        const curList = this.getStudents();
+        const sIdx = curList.findIndex(s => s.id === student.id);
+        if (sIdx >= 0 && curList[sIdx].photoUrl !== res.student.photoUrl) {
+          const next = [...curList];
+          next[sIdx] = { ...next[sIdx], photoUrl: res.student.photoUrl };
+          setLocal(KEYS.STUDENTS, next, true);
+        }
+      }
+    }).catch(() => {});
     return updated;
   },
 
@@ -1534,7 +1576,17 @@ export const StorageService = {
       updated = [person, ...list];
     }
     setLocal(KEYS.PERSONNEL, updated);
-    this.syncPostToGoogle('savePersonnel', { personnel: person });
+    this.syncPostToGoogle('savePersonnel', { personnel: person }).then(res => {
+      if (res && res.personnel && res.personnel.photoUrl && res.personnel.photoUrl.startsWith('http')) {
+        const curList = this.getPersonnel();
+        const pIdx = curList.findIndex(p => p.id === person.id);
+        if (pIdx >= 0 && curList[pIdx].photoUrl !== res.personnel.photoUrl) {
+          const next = [...curList];
+          next[pIdx] = { ...next[pIdx], photoUrl: res.personnel.photoUrl };
+          setLocal(KEYS.PERSONNEL, next, true);
+        }
+      }
+    }).catch(() => {});
     return updated;
   },
 
@@ -1908,7 +1960,17 @@ export const StorageService = {
       updated = [task, ...list];
     }
     setLocal(KEYS.TASKS, updated);
-    this.syncPostToGoogle('saveTask', { task });
+    this.syncPostToGoogle('saveTask', { task }).then(res => {
+      if (res && res.task && typeof res.task === 'object') {
+        const curTasks = this.getTasks();
+        const tIdx = curTasks.findIndex(t => t.id === task.id);
+        if (tIdx >= 0) {
+          const nextTasks = [...curTasks];
+          nextTasks[tIdx] = { ...nextTasks[tIdx], ...res.task };
+          setLocal(KEYS.TASKS, nextTasks, true);
+        }
+      }
+    }).catch(() => {});
     return updated;
   },
 
@@ -2013,7 +2075,17 @@ export const StorageService = {
       updated = [doc, ...list];
     }
     setLocal(KEYS.DOCUMENTS, updated);
-    this.syncPostToGoogle('uploadDocument', doc);
+    this.syncPostToGoogle('uploadDocument', doc).then(res => {
+      if (res && res.document && res.document.fileUrl && res.document.fileUrl.startsWith('http')) {
+        const curDocs = this.getDocuments();
+        const dIdx = curDocs.findIndex(d => d.id === doc.id);
+        if (dIdx >= 0) {
+          const nextDocs = [...curDocs];
+          nextDocs[dIdx] = { ...nextDocs[dIdx], ...res.document };
+          setLocal(KEYS.DOCUMENTS, nextDocs, true);
+        }
+      }
+    }).catch(() => {});
     return updated;
   },
 
@@ -2046,7 +2118,17 @@ export const StorageService = {
       updated = [site, ...list];
     }
     setLocal(KEYS.WEBSITES, updated);
-    this.syncPostToGoogle('saveWebsite', { website: site });
+    this.syncPostToGoogle('saveWebsite', { website: site }).then(res => {
+      if (res && res.website && res.website.logoUrl && res.website.logoUrl.startsWith('http')) {
+        const curWebs = this.getWebsites();
+        const wIdx = curWebs.findIndex(w => w.id === site.id);
+        if (wIdx >= 0) {
+          const nextWebs = [...curWebs];
+          nextWebs[wIdx] = { ...nextWebs[wIdx], ...res.website };
+          setLocal(KEYS.WEBSITES, nextWebs, true);
+        }
+      }
+    }).catch(() => {});
     return updated;
   },
 
@@ -2415,6 +2497,7 @@ export const StorageService = {
           spreadsheetId: matchedAdmin?.googleSheetId || schoolInfo.googleSheetId || '',
           schoolId: activeSchoolId,
           schoolName: matchedAdmin?.schoolName || schoolInfo.schoolName || session?.schoolName || 'โรงเรียนทั่วไป',
+          schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
           driveFolderId: config.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
           category,
           fileName,
@@ -2479,7 +2562,7 @@ export const StorageService = {
     const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
     if (!gasUrl) return;
 
-    // 1. Call deleteSchoolSheet to trash the school's dedicated Google Spreadsheet in Drive & clean up Master Sheet
+    // 1. Call deleteSchoolSheet to trash the school's dedicated Google Spreadsheet & Drive Folder & clean up Master Sheet
     fetch(gasUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -2489,6 +2572,7 @@ export const StorageService = {
         masterSpreadsheetId: MASTER_SPREADSHEET_ID,
         schoolSpreadsheetId: targetAdmin?.googleSheetId || '',
         googleSheetId: targetAdmin?.googleSheetId || '',
+        schoolDriveFolderId: targetAdmin?.driveFolderId || '',
         adminId,
         schoolName: targetAdmin?.schoolName || ''
       })
@@ -2536,13 +2620,13 @@ export const StorageService = {
     }
   },
 
-  // Automated Google Sheet creation per School Admin (ALWAYS provisions isolated sheet)
+  // Automated Google Sheet and Drive Folder creation per School Admin (1 Admin = 1 Sheet & 1 Drive Folder)
   async createSchoolGoogleSheet(
     schoolName: string,
     schoolCode?: string,
     adminId?: string,
     extraAdminInfo?: Partial<SchoolAdminAccount>
-  ): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; message: string }> {
+  ): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; driveFolderId?: string; driveFolderUrl?: string; message: string }> {
     const config = this.getGoogleConfig();
     const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
     const fallbackSheetId = `sheet_${adminId || Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
@@ -2582,7 +2666,9 @@ export const StorageService = {
           success: true,
           spreadsheetId: data.spreadsheetId,
           spreadsheetUrl: finalUrl,
-          message: data.message || `สร้าง Google Sheet ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
+          driveFolderId: data.driveFolderId,
+          driveFolderUrl: data.driveFolderUrl,
+          message: data.message || `สร้าง Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
         };
       }
       return {
@@ -2615,6 +2701,7 @@ export const StorageService = {
     const matchedAdmin = admins.find(a => a.id === activeSchoolId);
     const spreadsheetId = payload.spreadsheetId || matchedAdmin?.googleSheetId || this.getCurrentSchoolSpreadsheetId();
     const schoolName = payload.schoolName || matchedAdmin?.schoolName || schoolInfo.schoolName || session?.schoolName || '';
+    const schoolDriveFolderId = payload.schoolDriveFolderId || matchedAdmin?.driveFolderId || '';
 
     try {
       const response = await fetch(config.webAppUrl, {
@@ -2626,6 +2713,7 @@ export const StorageService = {
           spreadsheetId,
           schoolId: activeSchoolId,
           schoolName,
+          schoolDriveFolderId,
           ...payload
         })
       });

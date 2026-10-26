@@ -124,8 +124,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/png');
           setSchoolLogoUrl(dataUrl);
-          StorageService.uploadFileToGoogleDrive(dataUrl, `school_logo_${schoolInfo.schoolName || 'school'}.png`, 'school_logo').catch(() => {});
-          onShowToast('success', 'อัปโหลดสำเร็จ', 'อัปโหลดตราสัญลักษณ์โรงเรียนและจัดเก็บลง Google Drive เรียบร้อยแล้ว');
+          onShowToast('info', 'เลือกรูปโลโก้สำเร็จ', 'กดบันทึกข้อมูลโรงเรียนด้านล่างเพื่อจัดเก็บตราสัญลักษณ์ลง Google Drive');
         }
       };
       img.src = event.target?.result as string;
@@ -172,8 +171,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
           ctx.drawImage(img, 0, 0, width, height);
           const dataUrl = canvas.toDataURL('image/png');
           setUserAvatarUrl(dataUrl);
-          StorageService.uploadFileToGoogleDrive(dataUrl, `avatar_${user.username}.png`, 'school_logo').catch(() => {});
-          onShowToast('success', 'อัปโหลดสำเร็จ', 'อัปโหลดรูปภาพโปรไฟล์และจัดเก็บลง Google Drive เรียบร้อยแล้ว');
+          onShowToast('info', 'เลือกรูปโปรไฟล์สำเร็จ', 'กดบันทึกข้อมูลส่วนตัวด้านล่างเพื่อจัดเก็บรูปโปรไฟล์ลง Google Drive');
         }
       };
       img.src = event.target?.result as string;

@@ -12,7 +12,6 @@ import {
   MemberAccount,
   TaskSubmission
 } from '../types';
-import { StorageService } from '../services/storage';
 import { 
   Calendar as CalendarIcon, 
   CheckCircle2, 
@@ -166,9 +165,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       const base64 = event.target?.result as string;
       setSubmitFile({ name: file.name, url: base64, size: sizeStr });
       setIsUploadingSubmit(false);
-      StorageService.uploadFileToGoogleDrive(base64, `${user.fullName || user.username}_${file.name}`, 'assignment').catch(() => {});
       if (onShowToast) {
-        onShowToast('info', 'เลือกไฟล์เรียบร้อย', `พร้อมส่งไฟล์ "${file.name}" (${sizeStr}) ระบบจะจัดเก็บลง Google Drive อัตโนมัติ`);
+        onShowToast('info', 'เลือกไฟล์เรียบร้อย', `พร้อมส่งไฟล์ "${file.name}" (${sizeStr}) กดยืนยันส่งงานเพื่อจัดเก็บลง Google Drive`);
       }
     };
     reader.onerror = () => {

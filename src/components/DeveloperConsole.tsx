@@ -259,7 +259,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   // Google Sheet Automation per School Admin
   const handleCreateSheetForAdmin = async (admin: SchoolAdminAccount) => {
     setIsCreatingSheetForAdmin(admin.id);
-    onShowToast('info', 'กำลังสร้าง Google Sheet', `กำลังสร้าง Google Sheet ประจำโรงเรียน "${admin.schoolName}" ในพื้นหลัง...`);
+    onShowToast('info', 'กำลังสร้าง Google Sheet & Drive', `กำลังสร้าง Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน "${admin.schoolName}" ในพื้นหลัง...`);
     const res = await StorageService.createSchoolGoogleSheet(admin.schoolName, admin.schoolCode, admin.id, admin);
     setIsCreatingSheetForAdmin(null);
 
@@ -267,11 +267,13 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
       const updatedAdmin: SchoolAdminAccount = {
         ...admin,
         googleSheetId: res.spreadsheetId,
-        googleSheetUrl: res.spreadsheetUrl
+        googleSheetUrl: res.spreadsheetUrl,
+        driveFolderId: res.driveFolderId || admin.driveFolderId,
+        driveFolderUrl: res.driveFolderUrl || admin.driveFolderUrl
       };
       StorageService.saveAdmin(updatedAdmin);
       onRefreshData();
-      onShowToast('success', 'สร้าง Google Sheet สำเร็จ 🎉', `สร้างไฟล์ตารางข้อมูลแยกเฉพาะสำหรับ ${admin.schoolName} เรียบร้อยแล้ว`);
+      onShowToast('success', 'สร้าง Google Sheet & Drive สำเร็จ 🎉', `สร้างไฟล์ตารางข้อมูลและโฟลเดอร์ Google Drive แยกเฉพาะสำหรับ ${admin.schoolName} เรียบร้อยแล้ว`);
     } else {
       onShowToast('error', 'สร้างไม่สำเร็จ', res.message);
     }
@@ -329,10 +331,10 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     onShowToast(
       'success',
       'สร้าง ID Admin สำเร็จทันที ⚡',
-      `สร้างบัญชี "${cleanUsername}" (${cleanSchoolName}) เรียบร้อยแล้ว กำลังสร้าง Google Sheet แยกเฉพาะโรงเรียนในพื้นหลัง...`
+      `สร้างบัญชี "${cleanUsername}" (${cleanSchoolName}) เรียบร้อยแล้ว กำลังสร้าง Google Sheet และโฟลเดอร์ Google Drive แยกเฉพาะโรงเรียนในพื้นหลัง...`
     );
 
-    // 2. Provision isolated Google Sheet in the background without blocking UI
+    // 2. Provision isolated Google Sheet and dedicated Drive folder in the background without blocking UI
     setIsCreatingSheetForAdmin(adminId);
     StorageService.createSchoolGoogleSheet(cleanSchoolName, cleanSchoolCode, adminId, newAdmin)
       .then(sheetRes => {
@@ -343,14 +345,16 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
             const updatedAdmin: SchoolAdminAccount = {
               ...newAdmin,
               googleSheetId: sheetRes.spreadsheetId,
-              googleSheetUrl: sheetRes.spreadsheetUrl
+              googleSheetUrl: sheetRes.spreadsheetUrl,
+              driveFolderId: sheetRes.driveFolderId,
+              driveFolderUrl: sheetRes.driveFolderUrl
             };
             StorageService.saveAdmin(updatedAdmin);
             onRefreshData();
             onShowToast(
               'success',
-              'สร้าง Google Sheet โรงเรียนสำเร็จ 🎉',
-              `ผูก Google Sheets แยกเฉพาะสำหรับ "${cleanSchoolName}" เรียบร้อยแล้ว`
+              'สร้าง Google Sheet & Drive โรงเรียนสำเร็จ 🎉',
+              `ผูก Google Sheet และโฟลเดอร์ Google Drive แยกเฉพาะสำหรับ "${cleanSchoolName}" เรียบร้อยแล้ว`
             );
           }
         }
@@ -782,8 +786,8 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                           <strong className="text-indigo-400 font-bold font-mono">{adminMembersCount} คน</strong>
                         </div>
 
-                        {/* Dedicated School Google Sheet */}
-                        <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-700/60 text-[11px] space-y-1.5">
+                        {/* Dedicated School Google Sheet & Drive Folder */}
+                        <div className="p-2.5 bg-slate-900/90 rounded-xl border border-slate-700/60 text-[11px] space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-slate-400 flex items-center gap-1.5 font-semibold">
                               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
@@ -792,7 +796,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                             {isCreatingSheetForAdmin === adm.id ? (
                               <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold px-2 py-0.5 rounded-md flex items-center gap-1.5">
                                 <RefreshCw className="w-3 h-3 animate-spin" />
-                                <span>กำลังสร้าง Sheet ในพื้นหลัง...</span>
+                                <span>กำลังสร้างในพื้นหลัง...</span>
                               </span>
                             ) : adm.googleSheetUrl ? (
                               <a
@@ -817,9 +821,42 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                           </div>
                           {adm.googleSheetId && (
                             <p className="text-[10px] text-slate-500 font-mono truncate" title={adm.googleSheetId}>
-                              ID: {adm.googleSheetId}
+                              Sheet ID: {adm.googleSheetId}
                             </p>
                           )}
+
+                          {/* Dedicated School Google Drive Folder */}
+                          <div className="flex items-center justify-between pt-1.5 border-t border-slate-800">
+                            <span className="text-slate-400 flex items-center gap-1.5 font-semibold">
+                              <FolderSync className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>Google Drive:</span>
+                            </span>
+                            {adm.driveFolderUrl ? (
+                              <a
+                                href={adm.driveFolderUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                              >
+                                <span>เปิด Drive โรงเรียน</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : adm.driveFolderId ? (
+                              <a
+                                href={`https://drive.google.com/drive/folders/${adm.driveFolderId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                              >
+                                <span>เปิด Drive โรงเรียน</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-indigo-300/80 font-mono">
+                                แยกโฟลเดอร์โรงเรียนอัตโนมัติ
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 

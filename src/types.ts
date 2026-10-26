@@ -31,6 +31,7 @@ export interface SchoolAdminAccount {
   googleSheetId?: string;
   googleSheetUrl?: string;
   driveFolderId?: string;
+  driveFolderUrl?: string;
 }
 
 export type GradeLevel = 
@@ -161,6 +162,7 @@ export interface Personnel {
   phone: string;
   email: string;
   avatarUrl?: string;
+  photoUrl?: string;
 }
 
 export interface SchoolInfo {

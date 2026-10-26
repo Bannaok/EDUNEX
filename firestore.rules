@@ -44,24 +44,24 @@ service cloud.firestore {
 
     match /realtime_kv/{keyId} {
       allow get: if isValidId(keyId);
-      allow list: if existing().id is string && existing().id.size() <= 128;
+      allow list: if existing().updatedAt > 0;
       allow create: if isValidId(keyId) && isValidRealtimeKvEntry(incoming(), keyId);
       allow update: if isValidId(keyId) &&
                        isValidRealtimeKvEntry(incoming(), keyId) &&
                        incoming().id == existing().id &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['valueJson', 'updatedAt', 'chunkCount', 'clientId']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['id', 'valueJson', 'updatedAt', 'chunkCount', 'clientId']);
       allow delete: if isValidId(keyId);
     }
 
     match /realtime_kv_chunks/{chunkId} {
       allow get: if isValidId(chunkId);
-      allow list: if existing().id is string && existing().id.size() <= 128;
+      allow list: if existing().updatedAt > 0;
       allow create: if isValidId(chunkId) && isValidRealtimeKvChunk(incoming(), chunkId);
       allow update: if isValidId(chunkId) &&
                        isValidRealtimeKvChunk(incoming(), chunkId) &&
                        incoming().id == existing().id &&
                        incoming().parentKey == existing().parentKey &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['partIndex', 'data', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['id', 'parentKey', 'partIndex', 'data', 'updatedAt']);
       allow delete: if isValidId(chunkId);
     }
   }

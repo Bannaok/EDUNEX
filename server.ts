@@ -11,10 +11,20 @@ import {
   getDocs,
   setDoc,
   collection,
-  onSnapshot
+  onSnapshot,
+  query,
+  where,
+  setLogLevel,
+  terminate
 } from 'firebase/firestore';
 
 process.env.DISABLE_HMR = 'true';
+
+try {
+  setLogLevel('silent');
+} catch {
+  // ignore
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +35,21 @@ const FIREBASE_CONFIG_FILE = path.join(__dirname, 'firebase-applet-config.json')
 
 // Initialize Firebase Firestore on Server for cross-container (ais-dev <-> ais-pre) & cross-device persistence
 let firestoreDb: ReturnType<typeof getFirestore> | null = null;
+let serverFirestoreUnavailable = false;
+const lastServerFirestoreSerialized = new Map<string, string>();
+
+function tripServerFirestoreBreaker() {
+  if (serverFirestoreUnavailable) return;
+  serverFirestoreUnavailable = true;
+  if (firestoreDb) {
+    try {
+      terminate(firestoreDb).catch(() => {});
+    } catch {
+      // ignore
+    }
+  }
+}
+
 try {
   if (fs.existsSync(FIREBASE_CONFIG_FILE)) {
     const firebaseConfig = JSON.parse(fs.readFileSync(FIREBASE_CONFIG_FILE, 'utf-8'));
@@ -33,8 +58,8 @@ try {
       firestoreDb = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
     }
   }
-} catch (err) {
-  console.warn('Server Firebase initialization warning:', err);
+} catch {
+  serverFirestoreUnavailable = true;
 }
 
 const KV_COLLECTION = 'realtime_kv';
@@ -137,10 +162,12 @@ function sanitizeDocKey(rawKey: string): string {
 }
 
 async function pushKeyToFirestoreServer(rawKey: string, value: any, updatedAt: number): Promise<void> {
-  if (!firestoreDb || !rawKey || rawKey === 'ams_session') return;
+  if (!firestoreDb || serverFirestoreUnavailable || !rawKey || rawKey === 'ams_session') return;
   const docId = sanitizeDocKey(rawKey);
   const serialized = JSON.stringify(value ?? null);
   if (!serialized) return;
+  if (lastServerFirestoreSerialized.get(docId) === serialized) return;
+
   const safeUpdatedAt = Number(updatedAt) > 0 ? Number(updatedAt) : Date.now();
 
   try {
@@ -152,6 +179,7 @@ async function pushKeyToFirestoreServer(rawKey: string, value: any, updatedAt: n
         chunkCount: 0,
         clientId: 'server-node'
       });
+      lastServerFirestoreSerialized.set(docId, serialized);
       return;
     }
 
@@ -179,13 +207,14 @@ async function pushKeyToFirestoreServer(rawKey: string, value: any, updatedAt: n
       chunkCount: chunks.length,
       clientId: 'server-node'
     });
-  } catch (err) {
-    console.warn(`Firestore server push warning for ${docId}:`, err);
+    lastServerFirestoreSerialized.set(docId, serialized);
+  } catch {
+    tripServerFirestoreBreaker();
   }
 }
 
 async function resolveFirestoreDocServer(data: any): Promise<{ key: string; value: any; updatedAt: number } | null> {
-  if (!firestoreDb || !data || typeof data.id !== 'string') return null;
+  if (!firestoreDb || serverFirestoreUnavailable || !data || typeof data.id !== 'string') return null;
   const docId = data.id;
   const updatedAt = Number(data.updatedAt) || Date.now();
   const chunkCount = Number(data.chunkCount) || 0;
@@ -203,6 +232,7 @@ async function resolveFirestoreDocServer(data: any): Promise<{ key: string; valu
       fullJson = parts.join('');
     }
     if (!fullJson) return null;
+    lastServerFirestoreSerialized.set(docId, fullJson);
     return { key: docId, value: JSON.parse(fullJson), updatedAt };
   } catch {
     return null;
@@ -211,12 +241,13 @@ async function resolveFirestoreDocServer(data: any): Promise<{ key: string; valu
 
 let isSyncingFirestore = false;
 async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Promise<number> {
-  if (!firestoreDb || isSyncingFirestore) return 0;
+  if (!firestoreDb || serverFirestoreUnavailable || isSyncingFirestore) return 0;
   isSyncingFirestore = true;
   let appliedCount = 0;
 
   try {
-    const snap = await getDocs(collection(firestoreDb, KV_COLLECTION));
+    const kvQuery = query(collection(firestoreDb, KV_COLLECTION), where('updatedAt', '>', 0));
+    const snap = await getDocs(kvQuery);
     const remoteTimestamps = new Map<string, number>();
     const appliedUpdates: Record<string, any> = {};
     const appliedTimestamps: Record<string, number> = {};
@@ -252,19 +283,18 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
       broadcastDelta('firestore-cloud', appliedUpdates, appliedTimestamps);
     }
 
-    if (seedMissingLocalToFirestore) {
+    if (seedMissingLocalToFirestore && !serverFirestoreUnavailable) {
       for (const [key, val] of Object.entries(state.store)) {
-        if (!key || key === 'ams_session') continue;
+        if (!key || key === 'ams_session' || serverFirestoreUnavailable) continue;
         const docId = sanitizeDocKey(key);
-        const localTs = Number(state.timestamps[key]) || Date.now();
-        const remoteTs = remoteTimestamps.get(docId) || 0;
-        if (!remoteTimestamps.has(docId) || localTs > remoteTs) {
+        if (!remoteTimestamps.has(docId)) {
+          const localTs = Number(state.timestamps[key]) || Date.now();
           await pushKeyToFirestoreServer(key, val, localTs);
         }
       }
     }
-  } catch (err) {
-    console.warn('Firestore server sync warning:', err);
+  } catch {
+    tripServerFirestoreBreaker();
   } finally {
     isSyncingFirestore = false;
   }
@@ -273,11 +303,13 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
 }
 
 function startServerFirestoreListener() {
-  if (!firestoreDb) return;
+  if (!firestoreDb || serverFirestoreUnavailable) return;
   try {
+    const kvQuery = query(collection(firestoreDb, KV_COLLECTION), where('updatedAt', '>', 0));
     onSnapshot(
-      collection(firestoreDb, KV_COLLECTION),
+      kvQuery,
       async snapshot => {
+        if (serverFirestoreUnavailable) return;
         const changes = snapshot.docChanges();
         if (changes.length === 0) return;
 
@@ -313,11 +345,11 @@ function startServerFirestoreListener() {
         }
       },
       () => {
-        // ignore listener error
+        tripServerFirestoreBreaker();
       }
     );
   } catch {
-    // ignore
+    tripServerFirestoreBreaker();
   }
 }
 
@@ -554,11 +586,11 @@ async function startServer() {
   });
 
   // 2. Fast Authoritative State Fetch (supports ?sinceRev= and ?forceCloud=1)
-  app.get('/api/realtime/state', async (req, res) => {
+  app.get('/api/realtime/state', (req, res) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    const forceCloud = req.query.forceCloud === '1' || req.query.sinceRev === '0';
+    const forceCloud = req.query.forceCloud === '1';
     if (forceCloud) {
-      await syncWithFirestoreServer(true);
+      pullFromCloudKV(false).catch(() => {});
     }
 
     const sinceRev = Number(req.query.sinceRev || 0);
@@ -819,14 +851,14 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
-    // Initial global cloud sync & seed local keys into Firebase Firestore
-    syncWithFirestoreServer(true).catch(() => {});
+    // Initial global cloud sync
+    syncWithFirestoreServer(false).catch(() => {});
     startServerFirestoreListener();
-    pullFromCloudKV(true).catch(() => {});
-    // Continuous background reconciliation every 4 seconds
+    pullFromCloudKV(false).catch(() => {});
+    // Continuous background cloud KV reconciliation every 6 seconds
     setInterval(() => {
-      syncWithFirestoreServer(false).catch(() => {});
-    }, 4000);
+      pullFromCloudKV(false).catch(() => {});
+    }, 6000);
   });
 }
 

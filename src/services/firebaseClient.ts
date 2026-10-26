@@ -10,13 +10,51 @@ import {
   collection,
   onSnapshot,
   query,
-  where
+  where,
+  setLogLevel,
+  terminate
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+// Silence internal @firebase/firestore WebChannel backoff logs when free-tier daily quota is reached
+try {
+  setLogLevel('silent');
+} catch {
+  // ignore
+}
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+let firestoreUnavailable = false;
+let permissionErrorLogged = false;
+const lastSyncedSerialized = new Map<string, string>();
+
+function isQuotaOrNetworkError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error || '');
+  const code = (error as any)?.code || '';
+  return (
+    code === 'resource-exhausted' ||
+    code === 'unavailable' ||
+    code === 'failed-precondition' ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('Quota limit exceeded') ||
+    msg.includes('Quota exceeded') ||
+    msg.includes('client is offline') ||
+    msg.includes('terminated')
+  );
+}
+
+function tripCircuitBreaker() {
+  if (firestoreUnavailable) return;
+  firestoreUnavailable = true;
+  try {
+    terminate(db).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -45,6 +83,11 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  if (isQuotaOrNetworkError(error)) {
+    tripCircuitBreaker();
+    throw new Error('FIRESTORE_QUOTA_OR_OFFLINE');
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -62,17 +105,22 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+
+  if (!permissionErrorLogged) {
+    permissionErrorLogged = true;
+    tripCircuitBreaker();
+  }
   throw new Error(JSON.stringify(errInfo));
 }
 
 // Validate connection to Firestore on boot
 async function testConnection() {
+  if (firestoreUnavailable) return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+    if (isQuotaOrNetworkError(error)) {
+      tripCircuitBreaker();
     }
   }
 }
@@ -97,11 +145,18 @@ export async function saveKeyToFirestore(
   updatedAt: number,
   clientId: string
 ): Promise<boolean> {
+  if (firestoreUnavailable) return false;
+
   const docId = sanitizeFirestoreKey(rawKey);
   if (!docId || docId === 'ams_session') return false;
 
   const serialized = JSON.stringify(value ?? null);
   if (!serialized) return false;
+
+  // Deduplicate identical writes to preserve daily Firestore write quota
+  if (lastSyncedSerialized.get(docId) === serialized) {
+    return true;
+  }
 
   const safeClientId = String(clientId || 'client').slice(0, 120);
   const safeUpdatedAt = Number(updatedAt) > 0 ? Number(updatedAt) : Date.now();
@@ -117,6 +172,7 @@ export async function saveKeyToFirestore(
           chunkCount: 0,
           clientId: safeClientId,
         });
+        lastSyncedSerialized.set(docId, serialized);
       } catch (err) {
         handleFirestoreError(err, OperationType.WRITE, path);
       }
@@ -129,7 +185,6 @@ export async function saveKeyToFirestore(
       chunks.push(serialized.slice(i, i + SINGLE_DOC_MAX_CHARS));
     }
     if (chunks.length > MAX_CHUNKS) {
-      console.warn(`Payload for ${docId} exceeds maximum chunk count (${chunks.length})`);
       return false;
     }
 
@@ -158,6 +213,7 @@ export async function saveKeyToFirestore(
         chunkCount: chunks.length,
         clientId: safeClientId,
       });
+      lastSyncedSerialized.set(docId, serialized);
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, manifestPath);
     }
@@ -168,8 +224,10 @@ export async function saveKeyToFirestore(
   }
 }
 
-async function resolveEntryValue(data: any): Promise<{ key: string; value: any; updatedAt: number; clientId: string } | null> {
-  if (!data || typeof data.id !== 'string') return null;
+async function resolveEntryValue(
+  data: any
+): Promise<{ key: string; value: any; updatedAt: number; clientId: string } | null> {
+  if (firestoreUnavailable || !data || typeof data.id !== 'string') return null;
   const docId = data.id;
   const updatedAt = Number(data.updatedAt) || Date.now();
   const chunkCount = Number(data.chunkCount) || 0;
@@ -196,6 +254,7 @@ async function resolveEntryValue(data: any): Promise<{ key: string; value: any; 
     }
 
     if (!fullJson) return null;
+    lastSyncedSerialized.set(docId, fullJson);
     const parsed = JSON.parse(fullJson);
     return { key: docId, value: parsed, updatedAt, clientId };
   } catch {
@@ -210,12 +269,17 @@ export async function pullAllFromFirestore(): Promise<{
   const store: Record<string, any> = {};
   const timestamps: Record<string, number> = {};
 
+  if (firestoreUnavailable) {
+    return { store, timestamps };
+  }
+
   try {
     let snap;
     try {
-      snap = await getDocs(collection(db, KV_COLLECTION));
+      const kvQuery = query(collection(db, KV_COLLECTION), where('updatedAt', '>', 0));
+      snap = await getDocs(kvQuery);
     } catch (err) {
-      handleFirestoreError(err, OperationType.GET, KV_COLLECTION);
+      handleFirestoreError(err, OperationType.LIST, KV_COLLECTION);
     }
 
     const promises: Promise<{ key: string; value: any; updatedAt: number; clientId: string } | null>[] = [];
@@ -230,7 +294,7 @@ export async function pullAllFromFirestore(): Promise<{
       timestamps[item.key] = item.updatedAt;
     }
   } catch {
-    // handled by handleFirestoreError or offline fallback
+    // Gracefully fallback to Express Real-Time Server & Cloud KV
   }
 
   return { store, timestamps };
@@ -239,45 +303,55 @@ export async function pullAllFromFirestore(): Promise<{
 export function subscribeToFirestoreRealtime(
   onDelta: (updates: Record<string, any>, timestamps: Record<string, number>, sourceClientId: string) => void
 ): () => void {
-  const unsubscribe = onSnapshot(
-    collection(db, KV_COLLECTION),
-    async snapshot => {
-      const changes = snapshot.docChanges();
-      if (changes.length === 0) return;
+  if (firestoreUnavailable) {
+    return () => {};
+  }
 
-      const updates: Record<string, any> = {};
-      const timestamps: Record<string, number> = {};
-      let lastClientId = 'firestore-live';
+  try {
+    const kvQuery = query(collection(db, KV_COLLECTION), where('updatedAt', '>', 0));
+    const unsubscribe = onSnapshot(
+      kvQuery,
+      async snapshot => {
+        if (firestoreUnavailable) return;
+        const changes = snapshot.docChanges();
+        if (changes.length === 0) return;
 
-      const tasks: Promise<void>[] = [];
-      for (const change of changes) {
-        if (change.type === 'added' || change.type === 'modified') {
-          const rawData = change.doc.data();
-          tasks.push(
-            resolveEntryValue(rawData).then(resolved => {
-              if (resolved) {
-                updates[resolved.key] = resolved.value;
-                timestamps[resolved.key] = resolved.updatedAt;
-                if (resolved.clientId) lastClientId = resolved.clientId;
-              }
-            })
-          );
+        const updates: Record<string, any> = {};
+        const timestamps: Record<string, number> = {};
+        let lastClientId = 'firestore-live';
+
+        const tasks: Promise<void>[] = [];
+        for (const change of changes) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const rawData = change.doc.data();
+            tasks.push(
+              resolveEntryValue(rawData).then(resolved => {
+                if (resolved) {
+                  updates[resolved.key] = resolved.value;
+                  timestamps[resolved.key] = resolved.updatedAt;
+                  if (resolved.clientId) lastClientId = resolved.clientId;
+                }
+              })
+            );
+          }
+        }
+
+        await Promise.all(tasks);
+        if (Object.keys(updates).length > 0) {
+          onDelta(updates, timestamps, lastClientId);
+        }
+      },
+      error => {
+        try {
+          handleFirestoreError(error, OperationType.LIST, KV_COLLECTION);
+        } catch {
+          // Circuit breaker engaged
         }
       }
+    );
 
-      await Promise.all(tasks);
-      if (Object.keys(updates).length > 0) {
-        onDelta(updates, timestamps, lastClientId);
-      }
-    },
-    error => {
-      try {
-        handleFirestoreError(error, OperationType.GET, KV_COLLECTION);
-      } catch {
-        // logged in handleFirestoreError
-      }
-    }
-  );
-
-  return unsubscribe;
+    return unsubscribe;
+  } catch {
+    return () => {};
+  }
 }

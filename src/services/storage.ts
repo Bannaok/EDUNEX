@@ -644,11 +644,16 @@ export const StorageService = {
       }
     };
 
-    // 1. Pull from Firebase Firestore (always authoritative across all devices, browsers, emails, ais-dev & ais-pre)
-    const firestorePromise = pullAllFromFirestore().catch(() => ({
-      store: {} as Record<string, any>,
-      timestamps: {} as Record<string, number>
-    }));
+    // 1. Pull from Firebase Firestore on initial boot or forced full sync (live changes arrive via onSnapshot)
+    const firestorePromise = forceFull
+      ? pullAllFromFirestore().catch(() => ({
+          store: {} as Record<string, any>,
+          timestamps: {} as Record<string, number>
+        }))
+      : Promise.resolve({
+          store: {} as Record<string, any>,
+          timestamps: {} as Record<string, number>
+        });
 
     // 2. Pull from Express Server (/api/realtime/state)
     const sinceParam = forceFull ? 0 : lastKnownRev;
@@ -675,17 +680,6 @@ export const StorageService = {
 
     if (firestoreData && firestoreData.store && Object.keys(firestoreData.store).length > 0) {
       mergeInto(firestoreData.store, firestoreData.timestamps || {});
-    }
-
-    // If any key exists on server but not yet in Firestore, seed it to Firestore
-    if (serverData && serverData.store && firestoreData && firestoreData.store) {
-      for (const [k, v] of Object.entries(serverData.store)) {
-        const sTs = Number(serverData.timestamps?.[k]) || Date.now();
-        const fTs = Number(firestoreData.timestamps?.[k]) || 0;
-        if (!(k in firestoreData.store) || sTs > fTs) {
-          saveKeyToFirestore(k, v, sTs, CLIENT_ID).catch(() => {});
-        }
-      }
     }
 
     if (Object.keys(mergedStore).length > 0) {
@@ -771,7 +765,6 @@ export const StorageService = {
           const ts = keyTimestamps.get(k) || now - 30000;
           updates[k] = parsed;
           timestamps[k] = ts;
-          saveKeyToFirestore(k, parsed, ts, CLIENT_ID).catch(() => {});
         }
       } catch {
         // ignore

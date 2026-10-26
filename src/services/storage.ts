@@ -23,6 +23,11 @@ import {
   LeaveRequestRecord
 } from '../types';
 import { D1Service } from './d1Service';
+import {
+  saveKeyToFirestore,
+  pullAllFromFirestore,
+  subscribeToFirestoreRealtime
+} from './firebaseClient';
 
 import {
   INITIAL_SCHOOL_INFO,
@@ -74,6 +79,16 @@ const KEYS = {
   DEVELOPER_ACCOUNT: 'ams_developer_account'
 };
 
+// Keys shared globally across all schools so any user can sign in from any device/browser/email
+const GLOBAL_KEYS = new Set<string>([
+  KEYS.SESSION,
+  KEYS.GOOGLE_CONFIG,
+  KEYS.ADMINS,
+  KEYS.MEMBERS,
+  KEYS.ACADEMIC_YEARS,
+  KEYS.DEVELOPER_ACCOUNT
+]);
+
 // Keys that must be strictly isolated per School (Multi-Tenant Data Isolation)
 const TENANT_SCOPED_KEYS = new Set<string>([
   KEYS.SCHOOL_INFO,
@@ -97,7 +112,10 @@ const TENANT_SCOPED_KEYS = new Set<string>([
   KEYS.CUSTOM_PAGES,
   KEYS.LEAVE_REQUESTS,
   KEYS.DUTY_ASSIGNMENTS,
-  KEYS.DUTY_LOGS
+  KEYS.DUTY_LOGS,
+  'ams_reading_writing_config_v2',
+  'ams_assessment_3_booklets_v2',
+  'ams_weight_height_sessions_v2'
 ]);
 
 const DEFAULT_GAS_WEBAPP_URL =
@@ -115,18 +133,22 @@ const INTERNAL_SKIP_KEYS = new Set<string>([
   'ams_attendance_initialized'
 ]);
 
+function cleanSchoolNameForMatch(name?: string): string {
+  if (!name) return '';
+  return name.replace(/^โรงเรียน/, '').replace(/\s+/g, '').trim().toLowerCase();
+}
+
 function normalizeSchoolId(rawSchoolId?: string, rawSchoolName?: string, adminsList?: SchoolAdminAccount[]): string {
   if (!rawSchoolId && !rawSchoolName) return 'admin-school-01';
-  if (rawSchoolId === 'admin-01' || rawSchoolId === 'admin-school-01') return 'admin-school-01';
 
   let admins = adminsList;
   if (!admins) {
     try {
       const cached = memoryCache.get(KEYS.ADMINS);
-      if (Array.isArray(cached)) {
+      if (Array.isArray(cached) && cached.length > 0) {
         admins = cached;
       } else if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(KEYS.ADMINS);
+        const raw = nativeGetItem ? nativeGetItem(KEYS.ADMINS) : localStorage.getItem(KEYS.ADMINS);
         admins = raw ? JSON.parse(raw) : INITIAL_ADMINS;
       }
     } catch {
@@ -134,20 +156,33 @@ function normalizeSchoolId(rawSchoolId?: string, rawSchoolName?: string, adminsL
     }
   }
 
+  // 1. Check exact match in admins list
   if (rawSchoolId && Array.isArray(admins)) {
     const exact = admins.find(a => a.id === rawSchoolId);
-    if (exact) return exact.id;
+    if (exact) {
+      // If rawSchoolId is the default 'admin-school-01' but rawSchoolName explicitly matches a different school, prefer the name match
+      if ((rawSchoolId === 'admin-school-01' || rawSchoolId === 'admin-01') && rawSchoolName) {
+        const targetClean = cleanSchoolNameForMatch(rawSchoolName);
+        const exactClean = cleanSchoolNameForMatch(exact.schoolName);
+        if (targetClean && targetClean !== exactClean) {
+          const byNameOther = admins.find(a => cleanSchoolNameForMatch(a.schoolName) === targetClean);
+          if (byNameOther) return byNameOther.id;
+        }
+      }
+      return exact.id;
+    }
   }
 
+  // 2. Match by schoolName (ignoring "โรงเรียน" prefix and spaces)
   if (rawSchoolName && Array.isArray(admins)) {
-    const cleanTarget = rawSchoolName.replace(/^โรงเรียน/, '').trim();
-    const byName = admins.find(a => {
-      const cleanAdmin = (a.schoolName || '').replace(/^โรงเรียน/, '').trim();
-      return a.schoolName === rawSchoolName || (cleanTarget && cleanAdmin === cleanTarget);
-    });
-    if (byName) return byName.id;
+    const targetClean = cleanSchoolNameForMatch(rawSchoolName);
+    if (targetClean) {
+      const byName = admins.find(a => cleanSchoolNameForMatch(a.schoolName) === targetClean);
+      if (byName) return byName.id;
+    }
   }
 
+  if (rawSchoolId === 'admin-01' || rawSchoolId === 'admin-school-01') return 'admin-school-01';
   return rawSchoolId || 'admin-school-01';
 }
 
@@ -167,7 +202,16 @@ function getActiveSchoolId(): string | null {
 }
 
 function resolveTenantKey(key: string): string {
-  if (!TENANT_SCOPED_KEYS.has(key)) return key;
+  if (!key || GLOBAL_KEYS.has(key) || INTERNAL_SKIP_KEYS.has(key) || key.includes('__')) {
+    return key;
+  }
+  const isTenantScoped =
+    TENANT_SCOPED_KEYS.has(key) ||
+    key.startsWith('ams_') ||
+    key.startsWith('pp6_') ||
+    key.startsWith('school_');
+  if (!isTenantScoped) return key;
+
   const schoolId = getActiveSchoolId();
   if (schoolId && schoolId !== 'admin-school-01' && schoolId !== 'admin-01') {
     return `${key}__${schoolId}`;
@@ -185,8 +229,10 @@ const locallyModifiedKeys = new Set<string>();
 const subscribers = new Set<(changedKeys: string[]) => void>();
 let lastKnownRev = 0;
 let realtimeInitialized = false;
+let isInternalStorageWrite = false;
 let broadcastChannel: BroadcastChannel | null = null;
 let sseConnection: EventSource | null = null;
+let firestoreUnsubscribe: (() => void) | null = null;
 
 // Preserve native localStorage methods before hooking
 const nativeSetItem: ((key: string, value: string) => void) | null =
@@ -273,13 +319,17 @@ function pushToGoogleCloudKVDirect(resolvedKey: string, value: any, timestamp: n
 
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
+
+  // 1. Primary Cloud Database: Firebase Firestore (syncs across all devices, browsers, emails, ais-dev & ais-pre in real time)
+  saveKeyToFirestore(resolvedKey, value, timestamp, CLIENT_ID).catch(() => {});
+
   const payload = {
     clientId: CLIENT_ID,
     updates: { [resolvedKey]: value },
     timestamps: { [resolvedKey]: timestamp }
   };
 
-  // 1. Primary Real-Time Server Mutation (triggers instant SSE broadcast + server-side Cloud KV push)
+  // 2. Real-Time Express Server Mutation (triggers instant SSE broadcast + .data disk persistence)
   fetch('/api/realtime/mutate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -287,7 +337,6 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
   })
     .then(r => {
       if (!r.ok) {
-        // Fallback: if /api/realtime/mutate is not available (e.g. static Cloudflare Pages), push directly to Global Cloud KV
         pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
         return null;
       }
@@ -308,7 +357,7 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
       pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
     });
 
-  // 2. Cloudflare Pages D1 Real-Time State Mirror (when deployed on Cloudflare Pages)
+  // 3. Cloudflare Pages D1 Real-Time State Mirror
   fetch('/api/d1?action=saveRealtimeState', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -354,9 +403,12 @@ function applyIncomingUpdates(
     if (serializedIncoming !== serializedCurrent) {
       if (!fromStorageEvent && nativeSetItem) {
         try {
+          isInternalStorageWrite = true;
           nativeSetItem(resolvedKey, serializedIncoming);
         } catch {
           // ignore quota error
+        } finally {
+          isInternalStorageWrite = false;
         }
       }
       changedKeys.push(resolvedKey);
@@ -383,8 +435,13 @@ function getLocal<T>(key: string, fallback: T): T {
         if (Array.isArray(fallback)) return [] as unknown as T;
         if (key === KEYS.SCHOOL_INFO) {
           const schoolId = getActiveSchoolId();
+          const adminsCached = memoryCache.get(KEYS.ADMINS);
           const adminsRaw = nativeGetItem ? nativeGetItem(KEYS.ADMINS) : localStorage.getItem(KEYS.ADMINS);
-          const admins: SchoolAdminAccount[] = adminsRaw ? JSON.parse(adminsRaw) : INITIAL_ADMINS;
+          const admins: SchoolAdminAccount[] = Array.isArray(adminsCached)
+            ? adminsCached
+            : adminsRaw
+            ? JSON.parse(adminsRaw)
+            : INITIAL_ADMINS;
           const match = admins.find(a => a.id === schoolId);
           return {
             ...INITIAL_SCHOOL_INFO,
@@ -419,7 +476,12 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
 
     const serialized = JSON.stringify(value);
     if (nativeSetItem) {
-      nativeSetItem(resolvedKey, serialized);
+      isInternalStorageWrite = true;
+      try {
+        nativeSetItem(resolvedKey, serialized);
+      } finally {
+        isInternalStorageWrite = false;
+      }
     } else {
       localStorage.setItem(resolvedKey, serialized);
     }
@@ -441,7 +503,7 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
     // 2. Notify local React subscribers immediately
     notifySubscribers([resolvedKey]);
 
-    // 3. Push to Real-Time Server, D1 & Global Cloud KV so all devices, browsers, and emails sync immediately
+    // 3. Push to Firebase Firestore, Real-Time Server, D1 & Global Cloud KV
     if (!skipRemotePush) {
       pushToRemoteServer(resolvedKey, value, now);
     }
@@ -450,20 +512,43 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
   }
 }
 
-// Hook window.localStorage.setItem so sub-components writing directly to localStorage (e.g. PP6, Assessment3Booklets, WeightSessions) also sync across all devices/browsers
+// Hook window.localStorage.getItem & setItem so sub-components writing directly to localStorage (e.g. PP6, Assessment3Booklets, WeightSessions) are tenant-isolated per school AND sync via Firestore across all devices/browsers
 function installLocalStorageSyncHook() {
-  if (typeof window === 'undefined' || !nativeSetItem) return;
+  if (typeof window === 'undefined' || !nativeSetItem || !nativeGetItem) return;
   try {
-    window.localStorage.setItem = function (key: string, value: string) {
-      nativeSetItem(key, value);
+    window.localStorage.getItem = function (key: string): string | null {
       if (
         !key ||
         INTERNAL_SKIP_KEYS.has(key) ||
         key.startsWith('ams_cleared_') ||
         (!key.startsWith('ams_') && !key.startsWith('pp6_') && !key.startsWith('school_'))
       ) {
+        return nativeGetItem(key);
+      }
+      const resolvedKey = resolveTenantKey(key);
+      if (memoryCache.has(resolvedKey)) {
+        const cached = memoryCache.get(resolvedKey);
+        return typeof cached === 'string' ? cached : JSON.stringify(cached);
+      }
+      return nativeGetItem(resolvedKey);
+    };
+
+    window.localStorage.setItem = function (key: string, value: string) {
+      if (isInternalStorageWrite) {
+        nativeSetItem(key, value);
         return;
       }
+      if (
+        !key ||
+        INTERNAL_SKIP_KEYS.has(key) ||
+        key.startsWith('ams_cleared_') ||
+        (!key.startsWith('ams_') && !key.startsWith('pp6_') && !key.startsWith('school_'))
+      ) {
+        nativeSetItem(key, value);
+        return;
+      }
+      const resolvedKey = resolveTenantKey(key);
+      nativeSetItem(resolvedKey, value);
       try {
         let parsed: any = value;
         try {
@@ -472,25 +557,25 @@ function installLocalStorageSyncHook() {
           parsed = value;
         }
         const now = Date.now();
-        memoryCache.set(key, parsed);
-        keyTimestamps.set(key, now);
-        locallyModifiedKeys.add(key);
+        memoryCache.set(resolvedKey, parsed);
+        keyTimestamps.set(resolvedKey, now);
+        locallyModifiedKeys.add(resolvedKey);
         if (broadcastChannel) {
           broadcastChannel.postMessage({
             type: 'delta',
             clientId: CLIENT_ID,
-            updates: { [key]: parsed },
-            timestamps: { [key]: now }
+            updates: { [resolvedKey]: parsed },
+            timestamps: { [resolvedKey]: now }
           });
         }
-        notifySubscribers([key]);
-        pushToRemoteServer(key, parsed, now);
+        notifySubscribers([resolvedKey]);
+        pushToRemoteServer(resolvedKey, parsed, now);
       } catch {
         // ignore
       }
     };
   } catch {
-    // ignore if localStorage.setItem is non-writable in restricted webviews
+    // ignore if localStorage methods are non-writable in restricted webviews
   }
 }
 
@@ -538,50 +623,83 @@ export const StorageService = {
     return false;
   },
 
-  // Pull latest state from Real-Time Server, Cloudflare D1, and Global Cloud KV
+  // Pull latest state from Firebase Firestore, Real-Time Server, Cloudflare D1, and Global Cloud KV
   async pullRemoteState(forceFull = false): Promise<boolean> {
     if (typeof window === 'undefined') return false;
     let updatedAny = false;
     let serverReached = false;
 
-    try {
-      const sinceParam = forceFull ? 0 : lastKnownRev;
-      const forceCloudParam = forceFull ? '&forceCloud=1' : '';
-      const res = await fetch(`/api/realtime/state?sinceRev=${sinceParam}${forceCloudParam}`, {
-        headers: { Accept: 'application/json' },
-        cache: 'no-store'
-      });
+    const mergedStore: Record<string, any> = {};
+    const mergedTimestamps: Record<string, number> = {};
 
-      if (res.ok) {
-        serverReached = true;
-        const data = await res.json();
-        if (data.status === 'up_to_date') {
-          return false;
-        }
-        if (data.status === 'success' && data.store && typeof data.store === 'object') {
-          if (typeof data.rev === 'number') {
-            lastKnownRev = data.rev;
-          }
-          const remoteKeys = Object.keys(data.store);
-          if (remoteKeys.length > 0) {
-            const changed = applyIncomingUpdates(data.store, data.timestamps || {});
-            if (changed.length > 0) updatedAny = true;
-          } else {
-            // Server is empty -> try pulling from Global Cloud KV first before seeding
-            const pulledCloud = await this.pullFromGoogleCloudKV();
-            if (pulledCloud) {
-              updatedAny = true;
-            }
-            this.seedServerWithLocalData();
-          }
-          return updatedAny;
+    const mergeInto = (storeObj: Record<string, any>, tsObj: Record<string, number>) => {
+      for (const [k, v] of Object.entries(storeObj)) {
+        if (!k || INTERNAL_SKIP_KEYS.has(k)) continue;
+        const ts = Number(tsObj[k]) || Date.now();
+        const existingTs = mergedTimestamps[k] || 0;
+        if (!(k in mergedStore) || ts >= existingTs) {
+          mergedStore[k] = v;
+          mergedTimestamps[k] = ts;
         }
       }
-    } catch {
-      // Fallback to Cloudflare Pages D1 + Global Cloud KV if /api/realtime/state is not mounted
+    };
+
+    // 1. Pull from Firebase Firestore (always authoritative across all devices, browsers, emails, ais-dev & ais-pre)
+    const firestorePromise = pullAllFromFirestore().catch(() => ({
+      store: {} as Record<string, any>,
+      timestamps: {} as Record<string, number>
+    }));
+
+    // 2. Pull from Express Server (/api/realtime/state)
+    const sinceParam = forceFull ? 0 : lastKnownRev;
+    const forceCloudParam = forceFull ? '&forceCloud=1' : '';
+    const serverPromise = fetch(`/api/realtime/state?sinceRev=${sinceParam}${forceCloudParam}`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    })
+      .then(async res => {
+        if (!res.ok) return null;
+        serverReached = true;
+        return await res.json();
+      })
+      .catch(() => null);
+
+    const [firestoreData, serverData] = await Promise.all([firestorePromise, serverPromise]);
+
+    if (serverData && serverData.status === 'success' && serverData.store && typeof serverData.store === 'object') {
+      if (typeof serverData.rev === 'number') {
+        lastKnownRev = serverData.rev;
+      }
+      mergeInto(serverData.store, serverData.timestamps || {});
     }
 
-    if (!serverReached) {
+    if (firestoreData && firestoreData.store && Object.keys(firestoreData.store).length > 0) {
+      mergeInto(firestoreData.store, firestoreData.timestamps || {});
+    }
+
+    // If any key exists on server but not yet in Firestore, seed it to Firestore
+    if (serverData && serverData.store && firestoreData && firestoreData.store) {
+      for (const [k, v] of Object.entries(serverData.store)) {
+        const sTs = Number(serverData.timestamps?.[k]) || Date.now();
+        const fTs = Number(firestoreData.timestamps?.[k]) || 0;
+        if (!(k in firestoreData.store) || sTs > fTs) {
+          saveKeyToFirestore(k, v, sTs, CLIENT_ID).catch(() => {});
+        }
+      }
+    }
+
+    if (Object.keys(mergedStore).length > 0) {
+      const changed = applyIncomingUpdates(mergedStore, mergedTimestamps);
+      if (changed.length > 0) updatedAny = true;
+      return updatedAny;
+    }
+
+    if (serverData && serverData.status === 'up_to_date') {
+      return false;
+    }
+
+    // Fallback if both Firestore and /api/realtime/state had no keys yet
+    if (!serverReached || Object.keys(mergedStore).length === 0) {
       try {
         const [d1Master, d1Kv, cloudUpdated] = await Promise.all([
           D1Service.fetchAll(),
@@ -624,6 +742,8 @@ export const StorageService = {
         if (Object.keys(incoming).length > 0) {
           const changed = applyIncomingUpdates(incoming, incomingTs);
           if (changed.length > 0) updatedAny = true;
+        } else {
+          this.seedServerWithLocalData();
         }
       } catch {
         // ignore
@@ -647,8 +767,11 @@ export const StorageService = {
       try {
         const raw = nativeGetItem ? nativeGetItem(k) : localStorage.getItem(k);
         if (raw) {
-          updates[k] = JSON.parse(raw);
-          timestamps[k] = keyTimestamps.get(k) || now - 30000;
+          const parsed = JSON.parse(raw);
+          const ts = keyTimestamps.get(k) || now - 30000;
+          updates[k] = parsed;
+          timestamps[k] = ts;
+          saveKeyToFirestore(k, parsed, ts, CLIENT_ID).catch(() => {});
         }
       } catch {
         // ignore
@@ -669,17 +792,26 @@ export const StorageService = {
     }).catch(() => {});
   },
 
-  // Initialize Real-Time Synchronization (SSE + BroadcastChannel + Storage Event + Fast Cloud Poll)
+  // Initialize Real-Time Synchronization (Firebase Firestore onSnapshot + SSE + BroadcastChannel + Storage Event)
   initRealtimeSync(): void {
     if (typeof window === 'undefined' || realtimeInitialized) return;
     realtimeInitialized = true;
 
     installLocalStorageSyncHook();
 
-    // 1. Immediate initial pull from server & Global Cloud KV
+    // 1. Immediate initial pull from Firebase Firestore & Server
     this.pullRemoteState(true);
 
-    // 2. BroadcastChannel for 0ms cross-tab sync within same browser
+    // 2. Real-time Firebase Firestore onSnapshot listener (< 100ms across all devices, browsers, and emails)
+    if (!firestoreUnsubscribe) {
+      firestoreUnsubscribe = subscribeToFirestoreRealtime((updates, timestamps, sourceClientId) => {
+        if (sourceClientId !== CLIENT_ID) {
+          applyIncomingUpdates(updates, timestamps);
+        }
+      });
+    }
+
+    // 3. BroadcastChannel for 0ms cross-tab sync within same browser
     if ('BroadcastChannel' in window) {
       try {
         broadcastChannel = new BroadcastChannel('nexus_realtime_channel');
@@ -694,7 +826,7 @@ export const StorageService = {
       }
     }
 
-    // 3. Native window 'storage' event listener
+    // 4. Native window 'storage' event listener
     window.addEventListener('storage', (e) => {
       if (!e.key || INTERNAL_SKIP_KEYS.has(e.key) || !e.newValue) return;
       if (!e.key.startsWith('ams_') && !e.key.startsWith('pp6_') && !e.key.startsWith('school_')) return;
@@ -706,7 +838,7 @@ export const StorageService = {
       }
     });
 
-    // 4. Persistent Server-Sent Events (SSE) stream for < 30ms cross-device / cross-browser push
+    // 5. Persistent Server-Sent Events (SSE) stream for < 30ms push
     const connectSSE = () => {
       if (sseConnection) {
         try {
@@ -755,12 +887,12 @@ export const StorageService = {
 
     connectSSE();
 
-    // 5. Fast lightweight delta check every 2 seconds & on focus/visibility/online
+    // 6. Fast lightweight delta check every 3 seconds & on focus/visibility/online
     setInterval(() => {
       if (document.visibilityState === 'visible') {
         this.pullRemoteState(false);
       }
-    }, 2000);
+    }, 3000);
 
     window.addEventListener('focus', () => {
       this.pullRemoteState(false);
@@ -799,7 +931,7 @@ export const StorageService = {
   // Session & Auth
   getSession(): UserSession | null {
     try {
-      if (typeof window !== 'undefined' && localStorage.getItem(KEYS.SESSION)) {
+      if (typeof window !== 'undefined' && nativeGetItem && nativeGetItem(KEYS.SESSION)) {
         localStorage.removeItem(KEYS.SESSION);
       }
       const val = sessionStorage.getItem(KEYS.SESSION);
@@ -823,6 +955,9 @@ export const StorageService = {
         localStorage.removeItem(KEYS.SESSION);
       }
       if (session) {
+        if (session.role !== 'developer') {
+          session.schoolId = normalizeSchoolId(session.schoolId, session.schoolName);
+        }
         sessionStorage.setItem(KEYS.SESSION, JSON.stringify(session));
       } else {
         sessionStorage.removeItem(KEYS.SESSION);
@@ -954,7 +1089,7 @@ export const StorageService = {
         learningGroup: found.learningGroup,
         avatarUrl: found.avatarUrl,
         schoolId: memberSchoolId,
-        schoolName: found.schoolName || matchedAdmin?.schoolName,
+        schoolName: matchedAdmin?.schoolName || found.schoolName,
         isLoggedIn: true
       };
       this.setSession(memberUser);
@@ -1014,6 +1149,21 @@ export const StorageService = {
       nextAdmins[adminIdx] = updatedAdmin;
       setLocal(KEYS.ADMINS, nextAdmins);
       D1Service.saveAdmin(updatedAdmin).catch(() => {});
+
+      // Also synchronize schoolName on all members belonging to this schoolId
+      const currentMembers = getLocal<MemberAccount[]>(KEYS.MEMBERS, INITIAL_MEMBERS);
+      let membersUpdated = false;
+      const nextMembers = currentMembers.map(m => {
+        const mSchoolId = normalizeSchoolId(m.schoolId, m.schoolName, nextAdmins);
+        if (mSchoolId === activeSchoolId && (m.schoolId !== activeSchoolId || m.schoolName !== info.schoolName)) {
+          membersUpdated = true;
+          return { ...m, schoolId: activeSchoolId, schoolName: info.schoolName };
+        }
+        return m;
+      });
+      if (membersUpdated) {
+        setLocal(KEYS.MEMBERS, nextMembers);
+      }
     }
     this.syncPostToGoogle('saveSchoolInfo', { schoolInfo: info });
   },
@@ -1028,24 +1178,32 @@ export const StorageService = {
       return {
         ...m,
         schoolId: normId,
-        schoolName: m.schoolName || matchedAdmin?.schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา'
+        schoolName: matchedAdmin?.schoolName || m.schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา'
       };
     });
   },
 
   saveMember(member: MemberAccount): MemberAccount[] {
+    const admins = this.getAdmins();
+    const normSchoolId = normalizeSchoolId(member.schoolId, member.schoolName, admins);
+    const matchedAdmin = admins.find(a => a.id === normSchoolId);
+    const normalizedMember: MemberAccount = {
+      ...member,
+      schoolId: normSchoolId,
+      schoolName: matchedAdmin?.schoolName || member.schoolName
+    };
     const list = this.getMembers();
-    const idx = list.findIndex(m => m.id === member.id);
+    const idx = list.findIndex(m => m.id === normalizedMember.id);
     let updated: MemberAccount[];
     if (idx >= 0) {
       updated = [...list];
-      updated[idx] = member;
+      updated[idx] = normalizedMember;
     } else {
-      updated = [member, ...list];
+      updated = [normalizedMember, ...list];
     }
     setLocal(KEYS.MEMBERS, updated);
-    D1Service.saveMember(member).catch(() => {});
-    this.syncPostToGoogle('saveMember', { member });
+    D1Service.saveMember(normalizedMember).catch(() => {});
+    this.syncPostToGoogle('saveMember', { member: normalizedMember });
     return updated;
   },
 

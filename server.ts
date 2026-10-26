@@ -3,6 +3,16 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  collection,
+  onSnapshot
+} from 'firebase/firestore';
 
 process.env.DISABLE_HMR = 'true';
 
@@ -11,15 +21,34 @@ const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, '.data');
 const STORE_FILE = path.join(DATA_DIR, 'realtime-store.json');
+const FIREBASE_CONFIG_FILE = path.join(__dirname, 'firebase-applet-config.json');
 
-// Global Cloud KV Bridge (Google Apps Script + Google Sheets)
-// Connects ais-dev, ais-pre, Cloudflare Pages, and all browsers/emails/devices globally
+// Initialize Firebase Firestore on Server for cross-container (ais-dev <-> ais-pre) & cross-device persistence
+let firestoreDb: ReturnType<typeof getFirestore> | null = null;
+try {
+  if (fs.existsSync(FIREBASE_CONFIG_FILE)) {
+    const firebaseConfig = JSON.parse(fs.readFileSync(FIREBASE_CONFIG_FILE, 'utf-8'));
+    if (firebaseConfig && firebaseConfig.projectId) {
+      const fbApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+      firestoreDb = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
+    }
+  }
+} catch (err) {
+  console.warn('Server Firebase initialization warning:', err);
+}
+
+const KV_COLLECTION = 'realtime_kv';
+const CHUNKS_COLLECTION = 'realtime_kv_chunks';
+const SINGLE_DOC_MAX_CHARS = 650000;
+const MAX_FIRESTORE_CHUNKS = 25;
+
+// Legacy Google Apps Script fallback constants
 const DEFAULT_GAS_URL =
   'https://script.google.com/macros/s/AKfycbzol007NNSB5uYI_no15j6GB5Ej3IQ2MuN50Sud7mQKMYloHBYxoxv6N8PVLgSfsNjlZw/exec';
 const MASTER_SPREADSHEET_ID = '1mVJl2FSHiJmQlOR8t-7h1Z4wXfbMWepUU_Qzkd1FSAM';
 const CLOUD_KV_SHEET = 'RealtimeCloudKV';
 const CHUNK_SIZE = 38000;
-const MAX_CHUNKS = 12; // ~456KB per key across columns valueJson, c1..c11
+const MAX_CHUNKS = 12;
 
 interface PersistedState {
   rev: number;
@@ -53,7 +82,6 @@ if (fs.existsSync(STORE_FILE)) {
         store: parsed.store || {},
         timestamps: parsed.timestamps || {}
       };
-      // Ensure every existing key has a valid timestamp
       const now = Date.now();
       for (const k of Object.keys(state.store)) {
         if (!state.timestamps[k]) {
@@ -101,7 +129,200 @@ function broadcastDelta(clientId: string, updates: Record<string, any>, timestam
 }
 
 // ============================================================================
-// GLOBAL CLOUD KV BRIDGE (Syncs across ais-dev, ais-pre, Cloudflare, all emails)
+// FIREBASE FIRESTORE CLOUD SYNC (Primary Global Multi-Device / Multi-Email Store)
+// ============================================================================
+function sanitizeDocKey(rawKey: string): string {
+  const cleaned = String(rawKey || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+  return cleaned || 'default_key';
+}
+
+async function pushKeyToFirestoreServer(rawKey: string, value: any, updatedAt: number): Promise<void> {
+  if (!firestoreDb || !rawKey || rawKey === 'ams_session') return;
+  const docId = sanitizeDocKey(rawKey);
+  const serialized = JSON.stringify(value ?? null);
+  if (!serialized) return;
+  const safeUpdatedAt = Number(updatedAt) > 0 ? Number(updatedAt) : Date.now();
+
+  try {
+    if (serialized.length <= SINGLE_DOC_MAX_CHARS) {
+      await setDoc(doc(firestoreDb, KV_COLLECTION, docId), {
+        id: docId,
+        valueJson: serialized,
+        updatedAt: safeUpdatedAt,
+        chunkCount: 0,
+        clientId: 'server-node'
+      });
+      return;
+    }
+
+    const chunks: string[] = [];
+    for (let i = 0; i < serialized.length; i += SINGLE_DOC_MAX_CHARS) {
+      chunks.push(serialized.slice(i, i + SINGLE_DOC_MAX_CHARS));
+    }
+    if (chunks.length > MAX_FIRESTORE_CHUNKS) return;
+
+    for (let idx = 0; idx < chunks.length; idx++) {
+      const chunkId = `${docId}__part_${idx}`;
+      await setDoc(doc(firestoreDb, CHUNKS_COLLECTION, chunkId), {
+        id: chunkId,
+        parentKey: docId,
+        partIndex: idx,
+        data: chunks[idx],
+        updatedAt: safeUpdatedAt
+      });
+    }
+
+    await setDoc(doc(firestoreDb, KV_COLLECTION, docId), {
+      id: docId,
+      valueJson: '',
+      updatedAt: safeUpdatedAt,
+      chunkCount: chunks.length,
+      clientId: 'server-node'
+    });
+  } catch (err) {
+    console.warn(`Firestore server push warning for ${docId}:`, err);
+  }
+}
+
+async function resolveFirestoreDocServer(data: any): Promise<{ key: string; value: any; updatedAt: number } | null> {
+  if (!firestoreDb || !data || typeof data.id !== 'string') return null;
+  const docId = data.id;
+  const updatedAt = Number(data.updatedAt) || Date.now();
+  const chunkCount = Number(data.chunkCount) || 0;
+
+  try {
+    let fullJson = typeof data.valueJson === 'string' ? data.valueJson : '';
+    if (chunkCount > 0) {
+      const parts: string[] = [];
+      for (let idx = 0; idx < chunkCount; idx++) {
+        const chunkSnap = await getDoc(doc(firestoreDb, CHUNKS_COLLECTION, `${docId}__part_${idx}`));
+        if (!chunkSnap.exists()) return null;
+        const cData = chunkSnap.data();
+        parts.push(typeof cData.data === 'string' ? cData.data : '');
+      }
+      fullJson = parts.join('');
+    }
+    if (!fullJson) return null;
+    return { key: docId, value: JSON.parse(fullJson), updatedAt };
+  } catch {
+    return null;
+  }
+}
+
+let isSyncingFirestore = false;
+async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Promise<number> {
+  if (!firestoreDb || isSyncingFirestore) return 0;
+  isSyncingFirestore = true;
+  let appliedCount = 0;
+
+  try {
+    const snap = await getDocs(collection(firestoreDb, KV_COLLECTION));
+    const remoteTimestamps = new Map<string, number>();
+    const appliedUpdates: Record<string, any> = {};
+    const appliedTimestamps: Record<string, number> = {};
+
+    const tasks: Promise<{ key: string; value: any; updatedAt: number } | null>[] = [];
+    snap.forEach(docSnap => {
+      tasks.push(resolveFirestoreDocServer(docSnap.data()));
+    });
+
+    const resolvedList = await Promise.all(tasks);
+    for (const item of resolvedList) {
+      if (!item) continue;
+      remoteTimestamps.set(item.key, item.updatedAt);
+
+      const localTs = Number(state.timestamps[item.key]) || 0;
+      const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
+      const remoteSerialized = JSON.stringify(item.value);
+
+      if (!(item.key in state.store) || item.updatedAt > localTs) {
+        state.store[item.key] = item.value;
+        state.timestamps[item.key] = item.updatedAt;
+        if (localSerialized !== remoteSerialized) {
+          appliedUpdates[item.key] = item.value;
+          appliedTimestamps[item.key] = item.updatedAt;
+          appliedCount++;
+        }
+      }
+    }
+
+    if (appliedCount > 0) {
+      state.rev += 1;
+      scheduleDiskSave();
+      broadcastDelta('firestore-cloud', appliedUpdates, appliedTimestamps);
+    }
+
+    if (seedMissingLocalToFirestore) {
+      for (const [key, val] of Object.entries(state.store)) {
+        if (!key || key === 'ams_session') continue;
+        const docId = sanitizeDocKey(key);
+        const localTs = Number(state.timestamps[key]) || Date.now();
+        const remoteTs = remoteTimestamps.get(docId) || 0;
+        if (!remoteTimestamps.has(docId) || localTs > remoteTs) {
+          await pushKeyToFirestoreServer(key, val, localTs);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore server sync warning:', err);
+  } finally {
+    isSyncingFirestore = false;
+  }
+
+  return appliedCount;
+}
+
+function startServerFirestoreListener() {
+  if (!firestoreDb) return;
+  try {
+    onSnapshot(
+      collection(firestoreDb, KV_COLLECTION),
+      async snapshot => {
+        const changes = snapshot.docChanges();
+        if (changes.length === 0) return;
+
+        const appliedUpdates: Record<string, any> = {};
+        const appliedTimestamps: Record<string, number> = {};
+
+        for (const change of changes) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const raw = change.doc.data();
+            if (raw.clientId === 'server-node') continue;
+            const resolved = await resolveFirestoreDocServer(raw);
+            if (!resolved) continue;
+
+            const localTs = Number(state.timestamps[resolved.key]) || 0;
+            if (!(resolved.key in state.store) || resolved.updatedAt > localTs) {
+              const prevSerialized =
+                resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
+              const nextSerialized = JSON.stringify(resolved.value);
+              state.store[resolved.key] = resolved.value;
+              state.timestamps[resolved.key] = resolved.updatedAt;
+              if (prevSerialized !== nextSerialized) {
+                appliedUpdates[resolved.key] = resolved.value;
+                appliedTimestamps[resolved.key] = resolved.updatedAt;
+              }
+            }
+          }
+        }
+
+        if (Object.keys(appliedUpdates).length > 0) {
+          state.rev += 1;
+          scheduleDiskSave();
+          broadcastDelta('firestore-live', appliedUpdates, appliedTimestamps);
+        }
+      },
+      () => {
+        // ignore listener error
+      }
+    );
+  } catch {
+    // ignore
+  }
+}
+
+// ============================================================================
+// GLOBAL CLOUD KV BRIDGE (Syncs with Firestore + Google Apps Script fallback)
 // ============================================================================
 function getGasWebAppUrl(): string {
   const cfg = state.store['ams_google_config'];
@@ -164,6 +385,10 @@ function scheduleCloudKvPush(keys: string[]) {
   for (const k of keys) {
     if (k && k !== 'ams_session') {
       pendingCloudPushKeys.add(k);
+      // Immediately push to Firebase Firestore
+      if (k in state.store) {
+        pushKeyToFirestoreServer(k, state.store[k], state.timestamps[k] || Date.now()).catch(() => {});
+      }
     }
   }
   if (cloudPushTimer) clearTimeout(cloudPushTimer);
@@ -191,7 +416,6 @@ async function flushCloudKvPush() {
     }
 
     if (records.length > 0) {
-      // Push in batches of 8 rows to keep each request fast and reliable
       const url = getGasWebAppUrl();
       for (let i = 0; i < records.length; i += 8) {
         const slice = records.slice(i, i + 8);
@@ -208,9 +432,8 @@ async function flushCloudKvPush() {
         });
       }
     }
-  } catch (err) {
-    // Re-queue on transient error
-    for (const k of keysBatch) pendingCloudPushKeys.add(k);
+  } catch {
+    // ignore GAS fallback error since Firestore is primary
   } finally {
     for (const k of keysBatch) {
       inFlightCloudPushKeys.delete(k);
@@ -224,28 +447,28 @@ async function flushCloudKvPush() {
 
 let isPullingFromCloud = false;
 async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
-  if (isPullingFromCloud) return 0;
+  // Always sync with Firebase Firestore first
+  const firestoreApplied = await syncWithFirestoreServer(seedMissingToCloud);
+
+  if (isPullingFromCloud) return firestoreApplied;
   isPullingFromCloud = true;
-  let appliedCount = 0;
+  let appliedCount = firestoreApplied;
 
   try {
     const url = `${getGasWebAppUrl()}?action=getSheet&spreadsheetId=${MASTER_SPREADSHEET_ID}&sheet=${CLOUD_KV_SHEET}&_t=${Date.now()}`;
     const res = await fetch(url, { method: 'GET', headers: { Accept: 'application/json' } });
-    if (!res.ok) return 0;
+    if (!res.ok) return appliedCount;
     const json: any = await res.json();
-    if (!json || json.status !== 'success' || !Array.isArray(json.data)) return 0;
+    if (!json || json.status !== 'success' || !Array.isArray(json.data)) return appliedCount;
 
     const appliedUpdates: Record<string, any> = {};
     const appliedTimestamps: Record<string, number> = {};
-    const cloudTimestamps = new Map<string, number>();
 
     for (const rawRow of json.data) {
       const parsed = parseCloudKvRow(rawRow);
       if (!parsed) continue;
       const { key, value, updatedAt } = parsed;
-      cloudTimestamps.set(key, updatedAt);
 
-      // Skip if this key is currently queued or in-flight to be pushed from local server
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
 
       const localTs = Number(state.timestamps[key]) || 0;
@@ -263,24 +486,10 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       }
     }
 
-    if (appliedCount > 0) {
+    if (Object.keys(appliedUpdates).length > 0) {
       state.rev += 1;
       scheduleDiskSave();
       broadcastDelta('cloud-kv', appliedUpdates, appliedTimestamps);
-    }
-
-    if (seedMissingToCloud) {
-      const missingOrNewerLocalKeys: string[] = [];
-      for (const key of Object.keys(state.store)) {
-        const localTs = Number(state.timestamps[key]) || 0;
-        const cloudTs = cloudTimestamps.get(key) || 0;
-        if (!cloudTimestamps.has(key) || localTs > cloudTs) {
-          missingOrNewerLocalKeys.push(key);
-        }
-      }
-      if (missingOrNewerLocalKeys.length > 0) {
-        scheduleCloudKvPush(missingOrNewerLocalKeys);
-      }
     }
   } catch {
     // ignore transient network errors
@@ -319,7 +528,6 @@ async function startServer() {
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
-    // Send initial connection handshake with current revision
     res.write(
       `data: ${JSON.stringify({
         type: 'connected',
@@ -350,7 +558,7 @@ async function startServer() {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     const forceCloud = req.query.forceCloud === '1' || req.query.sinceRev === '0';
     if (forceCloud) {
-      await pullFromCloudKV(false);
+      await syncWithFirestoreServer(true);
     }
 
     const sinceRev = Number(req.query.sinceRev || 0);
@@ -372,7 +580,7 @@ async function startServer() {
     });
   });
 
-  // 3. Real-Time Mutation Endpoint (optimistic update + instant SSE broadcast + Global Cloud KV push)
+  // 3. Real-Time Mutation Endpoint (optimistic update + instant SSE broadcast + Firestore & Cloud KV push)
   app.post('/api/realtime/mutate', (req, res) => {
     const { clientId = 'unknown', updates = {}, timestamps = {}, isInitialSeed = false } = req.body || {};
     if (!updates || typeof updates !== 'object') {
@@ -387,7 +595,6 @@ async function startServer() {
     for (const [key, value] of Object.entries(updates)) {
       if (!key || key === 'ams_session') continue;
 
-      // If this is only an initial seed from a client, do not overwrite keys that already exist on server
       if (isInitialSeed && key in state.store) {
         continue;
       }
@@ -396,7 +603,6 @@ async function startServer() {
       const existingTs = Number(state.timestamps[key]) || 0;
       const effectiveTs = isInitialSeed ? incomingTs : Math.max(now, existingTs + 1, incomingTs);
 
-      // Apply update if live mutation, or newer/equal, or key doesn't exist yet
       if (!isInitialSeed || effectiveTs >= existingTs || !(key in state.store)) {
         if (value === null || value === undefined) {
           delete state.store[key];
@@ -425,14 +631,14 @@ async function startServer() {
     });
   });
 
-  // 4. Compatible /api/d1 Endpoint (works in Node/Cloud Run dev & prod and mirrors Cloudflare D1)
+  // 4. Compatible /api/d1 Endpoint
   app.all('/api/d1', async (req, res) => {
     const action = String(req.query.action || 'ping');
 
     if (action === 'ping') {
       res.json({
         status: 'success',
-        message: 'Real-Time Cloud Sync & D1 Store is online',
+        message: 'Firebase Firestore & Real-Time Cloud Sync is online',
         isD1Available: true,
         result: { isOnline: 1 }
       });
@@ -440,7 +646,7 @@ async function startServer() {
     }
 
     if (action === 'getAll') {
-      await pullFromCloudKV(false);
+      await syncWithFirestoreServer(false);
       const developer = state.store['ams_developer_account'] || { username: 'airfan', password: '456789' };
       const admins = state.store['ams_school_admins'] || [];
       const members = state.store['ams_members'] || [];
@@ -613,12 +819,14 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
-    // Initial global cloud sync & seed missing local keys to RealtimeCloudKV
+    // Initial global cloud sync & seed local keys into Firebase Firestore
+    syncWithFirestoreServer(true).catch(() => {});
+    startServerFirestoreListener();
     pullFromCloudKV(true).catch(() => {});
-    // Continuous cross-container / cross-domain sync every 2.5 seconds
+    // Continuous background reconciliation every 4 seconds
     setInterval(() => {
-      pullFromCloudKV(false).catch(() => {});
-    }, 2500);
+      syncWithFirestoreServer(false).catch(() => {});
+    }, 4000);
   });
 }
 

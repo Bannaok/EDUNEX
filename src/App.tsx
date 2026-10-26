@@ -112,9 +112,46 @@ export default function App() {
   };
 
   const reloadAllStates = () => {
-    setAdmins(StorageService.getAdmins());
-    setMembers(StorageService.getMembers());
+    const latestAdmins = StorageService.getAdmins();
+    const latestMembers = StorageService.getMembers();
+    setAdmins(latestAdmins);
+    setMembers(latestMembers);
     setAcademicYears(StorageService.getAcademicYears());
+
+    // Ensure active session's schoolId stays strictly aligned with latest synced admins/members
+    const currentSession = StorageService.getSession();
+    if (currentSession && currentSession.role !== 'developer') {
+      let resolvedSchoolId = StorageService.getNormalizedSchoolId(currentSession.schoolId, currentSession.schoolName);
+      if (currentSession.role === 'member') {
+        const matchedMem = latestMembers.find(
+          m => m.id === currentSession.id || m.username.toLowerCase() === currentSession.username.toLowerCase()
+        );
+        if (matchedMem && matchedMem.schoolId) {
+          resolvedSchoolId = StorageService.getNormalizedSchoolId(matchedMem.schoolId, matchedMem.schoolName);
+        }
+      } else if (currentSession.role === 'admin') {
+        const matchedAdm = latestAdmins.find(
+          a => a.id === currentSession.id || a.username.toLowerCase() === currentSession.username.toLowerCase()
+        );
+        if (matchedAdm) {
+          resolvedSchoolId = matchedAdm.id;
+        }
+      }
+      const matchedSchool = latestAdmins.find(a => a.id === resolvedSchoolId);
+      if (
+        resolvedSchoolId !== currentSession.schoolId ||
+        (matchedSchool?.schoolName && matchedSchool.schoolName !== currentSession.schoolName)
+      ) {
+        const updatedSession: UserSession = {
+          ...currentSession,
+          schoolId: resolvedSchoolId,
+          schoolName: matchedSchool?.schoolName || currentSession.schoolName
+        };
+        StorageService.setSession(updatedSession);
+        setUser(updatedSession);
+      }
+    }
+
     setSchoolInfo(StorageService.getSchoolInfo());
     setStudents(StorageService.getStudents());
     setPersonnel(StorageService.getPersonnel());
@@ -145,13 +182,14 @@ export default function App() {
 
   // Auth Handlers
   const handleLogin = async (username: string, password: string) => {
-    let res = StorageService.authenticate(username, password);
-    if (!res.success) {
-      // On a brand-new browser/device/email, pull the latest cloud/server state first and retry
-      await StorageService.pullRemoteState(true);
-      reloadAllStates();
-      res = StorageService.authenticate(username, password);
-    }
+    // Always pull latest cloud state from Firebase Firestore before authenticating on any device/browser/email
+    await Promise.race([
+      StorageService.pullRemoteState(true),
+      new Promise(resolve => setTimeout(resolve, 2500))
+    ]);
+    reloadAllStates();
+
+    const res = StorageService.authenticate(username, password);
     if (res.success && res.user) {
       setUser(res.user);
       setIsInspectingSchool(false);

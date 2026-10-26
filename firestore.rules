@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRealtimeKvEntry(data, keyId) {
+      return data.keys().hasAll(['id', 'valueJson', 'updatedAt', 'chunkCount', 'clientId']) &&
+             data.keys().hasOnly(['id', 'valueJson', 'updatedAt', 'chunkCount', 'clientId']) &&
+             data.id is string && data.id == keyId && isValidId(data.id) &&
+             data.valueJson is string && data.valueJson.size() <= 900000 &&
+             data.updatedAt is number && data.updatedAt > 0 &&
+             data.chunkCount is number && data.chunkCount >= 0 && data.chunkCount <= 25 &&
+             data.clientId is string && data.clientId.size() >= 1 && data.clientId.size() <= 128;
+    }
+
+    function isValidRealtimeKvChunk(data, chunkId) {
+      return data.keys().hasAll(['id', 'parentKey', 'partIndex', 'data', 'updatedAt']) &&
+             data.keys().hasOnly(['id', 'parentKey', 'partIndex', 'data', 'updatedAt']) &&
+             data.id is string && data.id == chunkId && isValidId(data.id) &&
+             data.parentKey is string && isValidId(data.parentKey) &&
+             data.partIndex is number && data.partIndex >= 0 && data.partIndex <= 25 &&
+             data.data is string && data.data.size() <= 750000 &&
+             data.updatedAt is number && data.updatedAt > 0;
+    }
+
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+    }
+
+    match /realtime_kv/{keyId} {
+      allow get: if isValidId(keyId);
+      allow list: if existing().id is string && existing().id.size() <= 128;
+      allow create: if isValidId(keyId) && isValidRealtimeKvEntry(incoming(), keyId);
+      allow update: if isValidId(keyId) &&
+                       isValidRealtimeKvEntry(incoming(), keyId) &&
+                       incoming().id == existing().id &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['valueJson', 'updatedAt', 'chunkCount', 'clientId']);
+      allow delete: if isValidId(keyId);
+    }
+
+    match /realtime_kv_chunks/{chunkId} {
+      allow get: if isValidId(chunkId);
+      allow list: if existing().id is string && existing().id.size() <= 128;
+      allow create: if isValidId(chunkId) && isValidRealtimeKvChunk(incoming(), chunkId);
+      allow update: if isValidId(chunkId) &&
+                       isValidRealtimeKvChunk(incoming(), chunkId) &&
+                       incoming().id == existing().id &&
+                       incoming().parentKey == existing().parentKey &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['partIndex', 'data', 'updatedAt']);
+      allow delete: if isValidId(chunkId);
+    }
+  }
+}

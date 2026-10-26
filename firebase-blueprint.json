@@ -1,0 +1,83 @@
+{
+  "entities": {
+    "RealtimeKvEntry": {
+      "title": "RealtimeKvEntry",
+      "description": "Synchronized key-value state entry for multi-school real-time data persistence across devices and browsers.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Sanitized document key identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "valueJson": {
+          "type": "string",
+          "description": "Serialized JSON payload for this state key",
+          "maxLength": 900000
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Unix epoch timestamp in milliseconds of the last update"
+        },
+        "chunkCount": {
+          "type": "number",
+          "description": "Number of overflow chunks if payload exceeds single document threshold"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "Originating client or server identifier",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["id", "valueJson", "updatedAt", "chunkCount", "clientId"]
+    },
+    "RealtimeKvChunk": {
+      "title": "RealtimeKvChunk",
+      "description": "Overflow chunk for large payloads such as PDF documents or base64 images.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Chunk document identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "parentKey": {
+          "type": "string",
+          "description": "Parent RealtimeKvEntry key identifier",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "partIndex": {
+          "type": "number",
+          "description": "Zero-based index of the chunk"
+        },
+        "data": {
+          "type": "string",
+          "description": "Chunk slice of the serialized JSON string",
+          "maxLength": 750000
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Unix epoch timestamp in milliseconds"
+        }
+      },
+      "required": ["id", "parentKey", "partIndex", "data", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/realtime_kv/{keyId}": {
+      "schema": "RealtimeKvEntry",
+      "description": "Global and per-school tenant-isolated real-time key-value store"
+    },
+    "/realtime_kv_chunks/{chunkId}": {
+      "schema": "RealtimeKvChunk",
+      "description": "Overflow chunks for large state payloads"
+    }
+  }
+}

@@ -1460,18 +1460,21 @@ export const StorageService = {
     const updated = currentList.filter(m => m.id !== id);
     setLocal(KEYS.MEMBERS, updated);
     D1Service.deleteMember(id).catch(() => {});
+    const avatarUrl = targetMember?.avatarUrl;
     if (targetMember) {
       const admins = this.getAdmins();
       const matchedAdmin = admins.find(a => a.id === targetMember.schoolId);
       if (matchedAdmin?.googleSheetId && !matchedAdmin.googleSheetId.startsWith('sheet_')) {
         this.syncPostToGoogle('deleteMember', {
           id,
+          avatarUrl,
           spreadsheetId: matchedAdmin.googleSheetId
         });
       }
     }
     this.syncPostToGoogle('deleteMember', {
       id,
+      avatarUrl,
       spreadsheetId: MASTER_SPREADSHEET_ID
     });
     return updated;
@@ -1554,9 +1557,11 @@ export const StorageService = {
   },
 
   deleteStudent(id: string): Student[] {
-    const updated = this.getStudents().filter(s => s.id !== id);
+    const list = this.getStudents();
+    const target = list.find(s => s.id === id);
+    const updated = list.filter(s => s.id !== id);
     setLocal(KEYS.STUDENTS, updated);
-    this.syncPostToGoogle('deleteStudent', { id });
+    this.syncPostToGoogle('deleteStudent', { id, photoUrl: target?.photoUrl });
     return updated;
   },
 
@@ -1591,9 +1596,11 @@ export const StorageService = {
   },
 
   deletePersonnel(id: string): Personnel[] {
-    const updated = this.getPersonnel().filter(p => p.id !== id);
+    const list = this.getPersonnel();
+    const target = list.find(p => p.id === id);
+    const updated = list.filter(p => p.id !== id);
     setLocal(KEYS.PERSONNEL, updated);
-    this.syncPostToGoogle('deletePersonnel', { id });
+    this.syncPostToGoogle('deletePersonnel', { id, photoUrl: target?.photoUrl });
     return updated;
   },
 
@@ -1990,7 +1997,11 @@ export const StorageService = {
     const targetTask = allTasks.find(t => t.id === id);
     const updated = allTasks.filter(t => t.id !== id);
     setLocal(KEYS.TASKS, updated);
-    this.syncPostToGoogle('deleteTask', { id });
+    this.syncPostToGoogle('deleteTask', {
+      id,
+      attachmentUrl: targetTask?.attachmentUrl,
+      submissions: targetTask?.submissions
+    });
 
     // Cascade delete or clean up linked CalendarEvent
     if (targetTask) {
@@ -2090,9 +2101,15 @@ export const StorageService = {
   },
 
   deleteDocument(id: string): DocumentItem[] {
-    const updated = this.getDocuments().filter(d => d.id !== id);
+    const list = this.getDocuments();
+    const targetDoc = list.find(d => d.id === id);
+    const updated = list.filter(d => d.id !== id);
     setLocal(KEYS.DOCUMENTS, updated);
-    this.syncPostToGoogle('deleteDocument', { id });
+    this.syncPostToGoogle('deleteDocument', {
+      id,
+      fileUrl: targetDoc?.fileUrl,
+      driveFileId: (targetDoc as any)?.driveFileId
+    });
     return updated;
   },
 
@@ -2133,9 +2150,11 @@ export const StorageService = {
   },
 
   deleteWebsite(id: string): RecommendedWebsite[] {
-    const updated = this.getWebsites().filter(w => w.id !== id);
+    const list = this.getWebsites();
+    const target = list.find(w => w.id === id);
+    const updated = list.filter(w => w.id !== id);
     setLocal(KEYS.WEBSITES, updated);
-    this.syncPostToGoogle('deleteWebsite', { id });
+    this.syncPostToGoogle('deleteWebsite', { id, logoUrl: target?.logoUrl });
     return updated;
   },
 

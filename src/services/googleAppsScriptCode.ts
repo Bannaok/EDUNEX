@@ -1,27 +1,36 @@
 /**
- * รหัสต้นฉบับ Google Apps Script (Code.gs) - Version 4.1
- * 1. 1 Admin = 1 Dedicated School Folder in Google Drive (1 Admin คือ 1 โฟลเดอร์ใหม่ ตามชื่อโรงเรียนของ Admin)
- * 2. ป้องกันไฟล์ซ้ำ 100%: ส่ง 1 ชิ้น = อยู่ใน Google Drive 1 ชิ้นเท่านั้น (Zero Duplication Engine)
- * 3. จัดเก็บข้อมูลทุกส่วนที่สมาชิกและ Admin กรอกแยกตามโรงเรียนใน Google Sheets โดยอัตโนมัติ
- * 4. ระบบระงับสิทธิ์ใช้งานชั่วคราวของ Admin และสมาชิกในสังกัด
+ * รหัสต้นฉบับ Google Apps Script (Code.gs) - Version 5.0
+ * 1. 1 Admin = ONLY 1 Single School Folder in Google Drive (ห้ามสร้างโฟลเดอร์หน้าอื่นๆ หรือโฟลเดอร์ย่อยเด็ดขาด)
+ * 2. ทุกการอัปโหลดไฟล์ในเว็บ (หน้ามอบหมาย, ศูนย์เอกสาร, ตั้งค่า, Website แนะนำ ฯลฯ) เก็บตรงเข้าโฟลเดอร์โรงเรียน
+ * 3. เก็บข้อมูลจริง 1 อัปโหลด = 1 ไฟล์ใน Google Drive (Zero Duplicate Files Engine)
+ * 4. เมื่อหน้าเว็ปลบรายการ/ไฟล์ ให้ลบไฟล์ใน Google Drive ด้วยอัตโนมัติ (ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด)
+ * 5. Google Sheets แยกข้อมูลโรงเรียนชัดเจน เมื่อหน้าเว็ปลบข้อมูล แถวใน Google Sheets ก็จะถูกลบด้วย
  */
 
 export const CODE_GS_SOURCE = `/**
  * ============================================================================
  * ระบบบริหารจัดการงานวิชาการและธุรการโรงเรียน (School Management System)
- * Google Apps Script Backend (Code.gs) - Version 4.1 (1 Admin = 1 School Folder & Zero-Duplicate Drive Engine)
+ * Google Apps Script Backend (Code.gs) - Version 5.0
+ * (Strict 1 Admin = ONLY 1 Single School Folder, No Subfolders, Zero Duplicate Files,
+ *  Automatic Drive File Deletion on Web Deletion, Automatic Google Sheets Row Deletion,
+ *  Strict No Deletion of School Folder)
  * ============================================================================
- * คุณสมบัติหลัก (Version 4.1):
- * 1. แยกไฟล์ Google Sheets และโฟลเดอร์ Google Drive ตามโรงเรียน (1 Admin = 1 โฟลเดอร์โรงเรียน):
- *    - เมื่อสร้าง Admin โรงเรียนใหม่ ระบบจะสร้างโฟลเดอร์ Google Drive ประจำโรงเรียนนั้นๆ ตามชื่อโรงเรียน
- *      ของ Admin โดยอัตโนมัติ (เช่น "[โรงเรียน] โรงเรียนอนุบาล...") พร้อมแยกโฟลเดอร์ย่อยครบทุกหมวดหมู่
- *    - ทุกไฟล์ที่ Admin หรือสมาชิกของโรงเรียนนั้นๆ อัปโหลดในเว็บไซต์ จะถูกจัดเก็บลงในโฟลเดอร์ของโรงเรียนนั้นๆ
- *      ตาม ID โรงเรียนที่อัปโหลดโดยอัตโนมัติ
- * 2. ระบบป้องกันไฟล์ซ้ำใน Google Drive 100% (ส่ง 1 ชิ้น = อยู่ใน Google Drive 1 ชิ้นเท่านั้น):
- *    - ตรวจสอบด้วย LockService + MD5 Content Hash + ชื่อและขนาดไฟล์ เพื่อป้องกันการสร้างไฟล์ซ้ำ
- *    - ป้องกันการอัปโหลดซ้ำระหว่าง task.submissions และ task.submittedFileUrl
- * 3. รองรับการระงับสิทธิ์ใช้งานชั่วคราวของ Admin โรงเรียน (isSuspended):
- *    - บันทึกสถานะ isSuspended ลงในชีต Admins และซิงค์สถานะแบบเรียลไทม์
+ * ข้อกำหนดและคุณสมบัติหลัก (Version 5.0):
+ * 1. เมื่อ Developer สร้าง ID Admin ใหม่:
+ *    - ระบบจะสร้าง Google Sheets ของโรงเรียนนั้น 1 ไฟล์
+ *    - และสร้างโฟลเดอร์ Google Drive ประจำโรงเรียน 1 อันเท่านั้น (ชื่อ "[โรงเรียน] <ชื่อโรงเรียน>")
+ *    - ห้ามสร้างโฟลเดอร์หน้าอื่นๆ หรือโฟลเดอร์ย่อยใดๆ ทั้งสิ้นใน Google Drive อย่างเด็ดขาด!
+ * 2. ทุกการอัปโหลดไฟล์ในเว็บไซต์ (หน้ามอบหมายงาน, หน้าศูนย์เอกสาร, หน้าตั้งค่า/โลโก้,
+ *    หน้า Website แนะนำ, รูปนักเรียน, รูปบุคลากร ฯลฯ):
+ *    - เก็บไว้ใน "โฟลเดอร์โรงเรียนนั้นๆ" เพียงโฟลเดอร์เดียวเท่านั้น
+ *    - เก็บข้อมูลจริง: หากอัปโหลดในเว็บ 1 ไฟล์ ก็จะอยู่ในโฟลเดอร์ Google Drive 1 ไฟล์ตามจริง
+ *    - ห้ามสร้างไฟล์ซ้ำซ้อนเด็ดขาด (Zero Duplicate Files Engine) เพื่อประหยัดพื้นที่ Google Drive สูงสุด
+ * 3. เมื่อลบไฟล์หรือลบรายการต่างๆ ในหน้าเว็บ (หน้ามอบหมาย, ศูนย์เอกสาร, นักเรียน, บุคลากร, เว็บไซต์ ฯลฯ):
+ *    - ไฟล์ที่เกี่ยวข้องในโฟลเดอร์ Google Drive จะถูกลบ (ย้ายลงถังขยะ) โดยอัตโนมัติทันที
+ *    - **ข้อบังคับเด็ดขาด**: ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด! ลบเฉพาะไฟล์ข้างในเท่านั้น
+ * 4. Google Sheets แยกข้อมูลโรงเรียนชัดเจน ไม่ปะปนกัน:
+ *    - ข้อมูลทุกอย่างจัดเก็บใน Google Sheets ของโรงเรียนนั้นๆ
+ *    - เมื่อในเว็บลบข้อมูล แถวใน Google Sheets ประจำโรงเรียนก็จะถูกลบโดยอัตโนมัติ
  * ============================================================================
  */
 
@@ -43,8 +52,9 @@ function doGet(e) {
     if (action === 'ping') {
       return jsonResponse({
         status: 'success',
-        message: 'เชื่อมต่อ Google Apps Script (v4.1 1-Admin-1-Folder & Zero-Duplicate Drive Engine) สำเร็จ!',
+        message: 'เชื่อมต่อ Google Apps Script (v5.0 1-Admin-1-School-Folder, Zero Duplication & Auto-Deletion) สำเร็จ!',
         timestamp: new Date().toISOString(),
+        version: '5.0',
         masterSpreadsheetId: MASTER_SPREADSHEET_ID,
         driveFolderId: DEFAULT_DRIVE_FOLDER_ID
       });
@@ -119,9 +129,16 @@ function doPost(e) {
         result = handleToggleSuspendMember(payload);
         break;
 
-      // --- อัปโหลดไฟล์ทุกประเภทลง Google Drive แยกตามโรงเรียนและหมวดหมู่ ---
+      // --- อัปโหลดไฟล์ทุกประเภทลง Google Drive เข้าโฟลเดอร์โรงเรียนโดยตรง ---
       case 'uploadDriveFile':
         result = handleUploadDriveFile(payload);
+        break;
+      case 'deleteDriveFile':
+        result = {
+          status: 'success',
+          trashed: deleteDriveFileByUrlOrId(payload.fileUrl || payload.fileId || payload.driveFileId, payload),
+          message: 'ลบไฟล์ใน Google Drive สำเร็จ'
+        };
         break;
 
       // --- ซิงค์ข้อมูลทั้งหมดหรือซิงค์ตามคีย์ของโรงเรียนอัตโนมัติ ---
@@ -137,7 +154,7 @@ function doPost(e) {
         result = handleSaveSchoolInfo(payload);
         break;
 
-      // --- นักเรียน (Students) พร้อมอัปโหลดรูปนักเรียนลง Google Drive ---
+      // --- นักเรียน (Students) พร้อมรูปภาพลง Google Drive & ลบรูปภาพเมื่อลบนักเรียน ---
       case 'saveStudent':
         result = handleSaveStudent(payload);
         break;
@@ -145,7 +162,7 @@ function doPost(e) {
         result = handleDeleteRowById('Students', payload.id, 'id', payload);
         break;
 
-      // --- บุคลากร (Personnel) พร้อมอัปโหลดรูปบุคลากรลง Google Drive ---
+      // --- บุคลากร (Personnel) พร้อมรูปภาพลง Google Drive & ลบรูปภาพเมื่อลบบุคลากร ---
       case 'savePersonnel':
         result = handleSavePersonnel(payload);
         break;
@@ -153,7 +170,7 @@ function doPost(e) {
         result = handleDeleteRowById('Personnel', payload.id, 'id', payload);
         break;
 
-      // --- สมาชิกผู้ใช้งาน (Members) พร้อมอัปโหลดรูปโปรไฟล์ลง Google Drive ---
+      // --- สมาชิกผู้ใช้งาน (Members) พร้อมรูปโปรไฟล์ลง Google Drive & ลบรูปเมื่อลบสมาชิก ---
       case 'saveMember':
         result = handleSaveMember(payload);
         break;
@@ -207,7 +224,7 @@ function doPost(e) {
         result = handleDeleteRowById('Savings', payload.id, 'id', payload);
         break;
 
-      // --- มอบหมายงาน & แจ้งให้ทราบ (Tasks & TaskSubmissions) พร้อมเก็บไฟล์ส่งงานใน Drive ---
+      // --- มอบหมายงาน & แจ้งให้ทราบ (Tasks & TaskSubmissions) พร้อมลบไฟล์ใน Drive อัตโนมัติเมื่อลบงาน ---
       case 'saveTask':
         result = handleSaveTask(payload);
         break;
@@ -215,13 +232,13 @@ function doPost(e) {
         result = handleCompleteTask(payload);
         break;
       case 'deleteTask':
-        result = handleDeleteRowById('Tasks', payload.id, 'id', payload);
+        result = handleDeleteTask(payload);
         break;
       case 'saveAllTasks':
         result = handleSaveAllTasks(payload);
         break;
 
-      // --- ศูนย์เอกสารและหนังสือคำสั่ง (Documents & Google Drive) ---
+      // --- ศูนย์เอกสารและหนังสือคำสั่ง (Documents) พร้อมลบไฟล์ใน Drive อัตโนมัติเมื่อลบเอกสาร ---
       case 'uploadDocument':
         result = handleUploadDocument(payload);
         break;
@@ -232,7 +249,7 @@ function doPost(e) {
         result = handleSaveAllDocuments(payload);
         break;
 
-      // --- เว็บไซต์แนะนำ (Websites) พร้อมเก็บโลโก้เว็บไซต์ใน Google Drive ---
+      // --- เว็บไซต์แนะนำ (Websites) พร้อมเก็บโลโก้เว็บไซต์ & ลบโลโก้เมื่อลบเว็บไซต์ ---
       case 'saveWebsite':
         result = handleSaveWebsite(payload);
         break;
@@ -334,7 +351,7 @@ function cleanSchoolName(name) {
 }
 
 /**
- * ค้นหาหรือสร้าง Google Spreadsheet ประจำโรงเรียนโดยอัตโนมัติ
+ * ค้นหาหรือเปิด Google Spreadsheet ประจำโรงเรียนโดยอัตโนมัติ
  */
 function getTargetSpreadsheet(payloadOrId) {
   var spreadsheetId = '';
@@ -347,32 +364,30 @@ function getTargetSpreadsheet(payloadOrId) {
   } else if (payloadOrId && typeof payloadOrId === 'object') {
     spreadsheetId = payloadOrId.spreadsheetId || payloadOrId.schoolSpreadsheetId || '';
     schoolId = payloadOrId.schoolId || payloadOrId.adminId || '';
-    schoolName = payloadOrId.schoolName || (payloadOrId.schoolInfo && payloadOrId.schoolInfo.schoolName) || '';
-    if (payloadOrId.sheetName === 'Admins' || payloadOrId.sheetName === 'RealtimeCloudKV') {
-      forceMaster = true;
-    }
+    schoolName = payloadOrId.schoolName || '';
+    forceMaster = Boolean(payloadOrId.forceMaster);
   }
 
-  // 1. หากบังคับใช้ Master Spreadsheet (เช่น ตาราง Admins หรือ RealtimeCloudKV กลาง)
-  if (forceMaster && (!isRealSpreadsheetId(spreadsheetId) || spreadsheetId === MASTER_SPREADSHEET_ID)) {
-    return SpreadsheetApp.openById(MASTER_SPREADSHEET_ID);
+  // 1. หากระบุ forceMaster ให้เปิด Master Spreadsheet
+  if (forceMaster && MASTER_SPREADSHEET_ID) {
+    try {
+      return SpreadsheetApp.openById(MASTER_SPREADSHEET_ID);
+    } catch (e) {}
   }
 
-  // 2. หากส่งรหัส Google Sheet จริงของโรงเรียนมา ให้เปิดใช้งานทันที
+  // 2. หากระบุ spreadsheetId ที่ถูกต้องมาโดยตรง ให้เปิดทันที
   if (isRealSpreadsheetId(spreadsheetId)) {
     try {
       return SpreadsheetApp.openById(spreadsheetId.trim());
-    } catch (e) {
-      // หากรหัสเปิดไม่ได้ ให้ค้นหาจากชื่อโรงเรียนหรือ schoolId ต่อด้านล่าง
-    }
+    } catch (err1) {}
   }
 
-  // 3. ค้นหารหัส Google Sheet ของโรงเรียนจากตาราง Admins ใน Master Spreadsheet
-  if (schoolId || schoolName) {
+  // 3. ค้นหา Google Sheet ของโรงเรียนนี้จาก Master Spreadsheet (ชีต Admins)
+  if (MASTER_SPREADSHEET_ID && (schoolId || schoolName)) {
     try {
       var masterSS = SpreadsheetApp.openById(MASTER_SPREADSHEET_ID);
       var adminsData = getSheetDataAsObjects(masterSS, 'Admins');
-      var targetCleanName = cleanSchoolName(schoolName);
+      var cleanTarget = cleanSchoolName(schoolName);
       var matchedAdmin = null;
 
       for (var i = 0; i < adminsData.length; i++) {
@@ -381,7 +396,7 @@ function getTargetSpreadsheet(payloadOrId) {
           matchedAdmin = adm;
           break;
         }
-        if (targetCleanName && cleanSchoolName(adm.schoolName) === targetCleanName) {
+        if (cleanTarget && cleanSchoolName(adm.schoolName) === cleanTarget) {
           matchedAdmin = adm;
           break;
         }
@@ -390,21 +405,15 @@ function getTargetSpreadsheet(payloadOrId) {
       if (matchedAdmin && isRealSpreadsheetId(matchedAdmin.googleSheetId)) {
         try {
           return SpreadsheetApp.openById(String(matchedAdmin.googleSheetId).trim());
-        } catch (openErr) {
-          // หากไฟล์ถูกลบไปแล้ว ให้สร้างใหม่ด้านล่าง
-        }
+        } catch (openErr) {}
       }
 
-      // หากโรงเรียนนี้ยังไม่มี Google Sheet จริง ให้สร้างให้อัตโนมัติทันที!
-      var resolvedName = (matchedAdmin && matchedAdmin.schoolName) ? matchedAdmin.schoolName : schoolName;
-      if (resolvedName && String(schoolId) !== 'admin-school-01') {
+      // หากยังไม่มี ให้สร้าง Google Sheet ใหม่และโฟลเดอร์ Google Drive ประจำโรงเรียนให้ทันที
+      if (schoolName) {
         var created = handleCreateSchoolSheet({
-          schoolName: resolvedName,
+          schoolName: schoolName,
+          adminId: schoolId,
           schoolCode: (matchedAdmin && matchedAdmin.schoolCode) || '',
-          adminId: (matchedAdmin && matchedAdmin.id) || schoolId || ('admin-' + new Date().getTime()),
-          username: (matchedAdmin && matchedAdmin.username) || '',
-          password: (matchedAdmin && matchedAdmin.password) || '',
-          fullName: (matchedAdmin && matchedAdmin.fullName) || '',
           affiliation: (matchedAdmin && matchedAdmin.affiliation) || '',
           directorName: (matchedAdmin && matchedAdmin.directorName) || ''
         });
@@ -412,9 +421,7 @@ function getTargetSpreadsheet(payloadOrId) {
           return SpreadsheetApp.openById(created.spreadsheetId);
         }
       }
-    } catch (lookupErr) {
-      // fallback to master
-    }
+    } catch (lookupErr) {}
   }
 
   // 4. Fallback ไปที่ Master Spreadsheet
@@ -435,7 +442,10 @@ function isRealDriveFolderId(id) {
 }
 
 /**
- * สร้าง Google Sheet ใหม่แยกเฉพาะโรงเรียน พร้อมโฟลเดอร์ Google Drive ประจำโรงเรียน (1 Admin = 1 โฟลเดอร์โรงเรียน)
+ * สร้าง Google Sheet ใหม่แยกเฉพาะโรงเรียน พร้อมโฟลเดอร์ Google Drive ประจำโรงเรียน
+ * ข้อบังคับ Version 5.0:
+ * - สร้างเฉพาะโฟลเดอร์โรงเรียน 1 อันเท่านั้น (ชื่อ "[โรงเรียน] <ชื่อโรงเรียน>")
+ * - ห้ามสร้างโฟลเดอร์ย่อยหรือโฟลเดอร์หน้าอื่นๆ อย่างเด็ดขาด!
  */
 function handleCreateSchoolSheet(payload) {
   var schoolName = (payload.schoolName || 'โรงเรียนใหม่').trim();
@@ -443,7 +453,7 @@ function handleCreateSchoolSheet(payload) {
   var rootFolderId = payload.folderId || payload.driveFolderId || DEFAULT_DRIVE_FOLDER_ID;
   var sheetTitle = '[ระบบวิชาการ] ' + schoolName + (schoolCode ? ' (' + schoolCode + ')' : '');
 
-  // 1. สร้างหรือดึงโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin นี้ทันที (1 Admin = 1 โฟลเดอร์โรงเรียน)
+  // 1. สร้างหรือดึงโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin นี้ทันที (1 Admin = 1 โฟลเดอร์โรงเรียนเท่านั้น ไม่มีโฟลเดอร์ย่อย)
   var schoolFolder = null;
   var schoolFolderId = '';
   var schoolFolderUrl = '';
@@ -452,20 +462,6 @@ function handleCreateSchoolSheet(payload) {
     if (schoolFolder) {
       schoolFolderId = schoolFolder.getId();
       schoolFolderUrl = schoolFolder.getUrl();
-      // สร้างโฟลเดอร์ย่อยครบทุกหมวดหมู่ไว้ล่วงหน้าในโฟลเดอร์โรงเรียนนี้
-      var defaultCategories = [
-        '1_งานมอบหมายและการส่งงาน',
-        '2_ศูนย์เอกสารและคำสั่ง',
-        '3_โลโก้โรงเรียนและตั้งค่า',
-        '4_โลโก้เว็บไซต์แนะนำ',
-        '5_รูปภาพนักเรียนและบุคลากร',
-        '6_ไฟล์อื่นๆ'
-      ];
-      defaultCategories.forEach(function(subName) {
-        try {
-          getOrCreateSubfolder(schoolFolder, subName);
-        } catch (subErr) {}
-      });
     }
   } catch (folderInitErr) {}
 
@@ -626,7 +622,7 @@ function handleCreateSchoolSheet(payload) {
 }
 
 /**
- * ลบไฟล์ Google Sheet และโฟลเดอร์ Google Drive ของโรงเรียนเมื่อ Developer ลบ ID Admin (โรงเรียน)
+ * ลบไฟล์ Google Sheet และโฟลเดอร์ Google Drive ของโรงเรียนเมื่อ Developer สั่งลบ ID Admin (โรงเรียน)
  */
 function handleDeleteSchoolSheet(payload) {
   var schoolSpreadsheetId = payload.schoolSpreadsheetId || payload.googleSheetId || '';
@@ -795,41 +791,15 @@ function handleToggleSuspendMember(payload) {
 
 /**
  * ============================================================================
- * SECTION B: ระบบจัดการไฟล์อัปโหลดลง Google Drive แยกตามโรงเรียน (1 Admin = 1 โฟลเดอร์)
- * และป้องกันไฟล์ซ้ำ 100% (ส่ง 1 ชิ้น = อยู่ใน Google Drive 1 ชิ้นเท่านั้น)
+ * SECTION B: ระบบจัดการโฟลเดอร์ Google Drive ประจำโรงเรียน และ Zero-Duplicate Engine
+ * ข้อบังคับ Version 5.0:
+ * - 1 Admin = 1 โฟลเดอร์โรงเรียนเท่านั้น (ไม่มีโฟลเดอร์ย่อยใดๆ ทั้งสิ้น)
+ * - ทุกการอัปโหลดไฟล์ในเว็บ เข้าโฟลเดอร์โรงเรียนนี้โดยตรง
+ * - อัปโหลดจริง 1 ไฟล์ = อยู่ใน Google Drive 1 ไฟล์ตามจริง (ห้ามทำซ้ำ)
+ * - เมื่อหน้าเว็ปลบรายการ/ไฟล์ ให้ลบไฟล์ใน Google Drive ด้วยอัตโนมัติ
+ * - **ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด!**
  * ============================================================================
  */
-
-function getCategoryFolderName(category) {
-  var cat = String(category || '').toLowerCase();
-  if (cat.indexOf('assignment') !== -1 || cat.indexOf('submission') !== -1 || cat.indexOf('task') !== -1 || cat.indexOf('มอบหมาย') !== -1 || cat.indexOf('ส่งงาน') !== -1) {
-    return '1_งานมอบหมายและการส่งงาน';
-  }
-  if (cat.indexOf('document') !== -1 || cat.indexOf('order') !== -1 || cat.indexOf('เอกสาร') !== -1 || cat.indexOf('คำสั่ง') !== -1) {
-    return '2_ศูนย์เอกสารและคำสั่ง';
-  }
-  if (cat.indexOf('school_logo') !== -1 || cat.indexOf('setting') !== -1 || cat.indexOf('avatar') !== -1 || cat.indexOf('โลโก้โรงเรียน') !== -1 || cat.indexOf('ตั้งค่า') !== -1) {
-    return '3_โลโก้โรงเรียนและตั้งค่า';
-  }
-  if (cat.indexOf('website') !== -1 || cat.indexOf('เว็บไซต์') !== -1) {
-    return '4_โลโก้เว็บไซต์แนะนำ';
-  }
-  if (cat.indexOf('student') !== -1 || cat.indexOf('personnel') !== -1 || cat.indexOf('photo') !== -1 || cat.indexOf('นักเรียน') !== -1 || cat.indexOf('บุคลากร') !== -1) {
-    return '5_รูปภาพนักเรียนและบุคลากร';
-  }
-  return '6_ไฟล์อื่นๆ';
-}
-
-function getOrCreateSubfolder(parentFolder, folderName) {
-  var iter = parentFolder.getFoldersByName(folderName);
-  while (iter.hasNext()) {
-    var f = iter.next();
-    if (!f.isTrashed()) {
-      return f;
-    }
-  }
-  return parentFolder.createFolder(folderName);
-}
 
 function getOrCreateSchoolFolder(schoolName, rootFolderId) {
   var targetRootId = rootFolderId || DEFAULT_DRIVE_FOLDER_ID;
@@ -842,12 +812,18 @@ function getOrCreateSchoolFolder(schoolName, rootFolderId) {
 
   var cleanName = (schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา').trim();
   var schoolFolderName = '[โรงเรียน] ' + cleanName;
-  return getOrCreateSubfolder(rootFolder, schoolFolderName);
+  var iter = rootFolder.getFoldersByName(schoolFolderName);
+  while (iter.hasNext()) {
+    var f = iter.next();
+    if (!f.isTrashed()) {
+      return f;
+    }
+  }
+  return rootFolder.createFolder(schoolFolderName);
 }
 
 /**
- * ค้นหาหรือสร้างโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin (1 Admin = 1 โฟลเดอร์โรงเรียน)
- * โดยอ้างอิงจาก schoolId / adminId หรือชื่อโรงเรียนของผู้อัปโหลด แล้วบันทึก driveFolderId ไว้ในตาราง Admins
+ * ค้นหาหรือเปิดโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin (1 Admin = 1 โฟลเดอร์โรงเรียน)
  */
 function resolveSchoolDriveFolder(payload) {
   var p = payload || {};
@@ -891,7 +867,6 @@ function resolveSchoolDriveFolder(payload) {
       try {
         var savedFolder = DriveApp.getFolderById(String(matchedAdmin.driveFolderId).trim());
         if (savedFolder && !savedFolder.isTrashed()) {
-          // หากชื่อโรงเรียนเปลี่ยน ให้ปรับชื่อโฟลเดอร์ให้ตรงกับชื่อโรงเรียนของ Admin
           var expectedName = '[โรงเรียน] ' + String(matchedAdmin.schoolName || schoolName).trim();
           if (matchedAdmin.schoolName && savedFolder.getName() !== expectedName) {
             try { savedFolder.setName(expectedName); } catch (rnErr) {}
@@ -923,16 +898,6 @@ function resolveSchoolDriveFolder(payload) {
   return schoolFolder;
 }
 
-function getSchoolCategoryDriveFolder(schoolName, category, rootFolderId, payload) {
-  var mergedPayload = payload || { schoolName: schoolName, driveFolderId: rootFolderId };
-  if (!mergedPayload.schoolName && schoolName) {
-    mergedPayload.schoolName = schoolName;
-  }
-  var schoolFolder = resolveSchoolDriveFolder(mergedPayload);
-  var subName = getCategoryFolderName(category);
-  return getOrCreateSubfolder(schoolFolder, subName);
-}
-
 function computeBase64Md5Hash(base64Data) {
   try {
     var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, base64Data);
@@ -946,7 +911,127 @@ function computeBase64Md5Hash(base64Data) {
 }
 
 /**
- * แปลง Base64 Data URL หรือ Base64 String แล้วบันทึกลง Google Drive ในโฟลเดอร์ของโรงเรียนนั้นๆ
+ * ดึง Google Drive File ID จาก URL หรือ File ID String
+ */
+function extractDriveFileId(fileUrlOrId) {
+  if (!fileUrlOrId || typeof fileUrlOrId !== 'string') return '';
+  var str = fileUrlOrId.trim();
+  if (str.indexOf('data:') === 0 || str.indexOf('blob:') === 0) return '';
+
+  // 1. https://lh3.googleusercontent.com/d/FILE_ID
+  var m1 = str.match(/lh3\\.googleusercontent\\.com\\/d\\/([a-zA-Z0-9_-]{20,})/);
+  if (m1 && m1[1]) return m1[1];
+
+  // 2. https://drive.google.com/file/d/FILE_ID/...
+  var m2 = str.match(/drive\\.google\\.com\\/file\\/d\\/([a-zA-Z0-9_-]{20,})/);
+  if (m2 && m2[1]) return m2[1];
+
+  // 3. https://drive.google.com/uc?export=download&id=FILE_ID
+  var m3 = str.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+  if (m3 && m3[1]) return m3[1];
+
+  // 4. https://drive.google.com/open?id=FILE_ID
+  var m4 = str.match(/drive\\.google\\.com\\/open\\?id=([a-zA-Z0-9_-]{20,})/);
+  if (m4 && m4[1]) return m4[1];
+
+  // 5. File ID เปล่าๆ 25-60 ตัวอักษร
+  if (/^[a-zA-Z0-9_-]{25,60}$/.test(str)) {
+    return str;
+  }
+
+  return '';
+}
+
+/**
+ * ลบไฟล์ออกจาก Google Drive และแท็บ DriveFiles อัตโนมัติเมื่อมีการลบรายการในเว็บ
+ * **ข้อบังคับเด็ดขาด**: ห้ามลบโฟลเดอร์โรงเรียน, root folder หรือ spreadsheet เด็ดขาด!
+ */
+function deleteDriveFileByUrlOrId(fileUrlOrId, payload) {
+  var fileId = extractDriveFileId(fileUrlOrId);
+  if (!fileId) return false;
+
+  var p = payload || {};
+  var prohibitedIds = [
+    MASTER_SPREADSHEET_ID,
+    DEFAULT_DRIVE_FOLDER_ID,
+    p.spreadsheetId,
+    p.schoolSpreadsheetId,
+    p.driveFolderId,
+    p.schoolDriveFolderId,
+    p.folderId
+  ].filter(Boolean).map(function(s) { return String(s).trim(); });
+
+  for (var i = 0; i < prohibitedIds.length; i++) {
+    if (fileId === prohibitedIds[i]) {
+      return false; // ป้องกันการลบโฟลเดอร์โรงเรียนหรือ Spreadsheet เด็ดขาด!
+    }
+  }
+
+  var trashed = false;
+  try {
+    var f = DriveApp.getFileById(fileId);
+    if (f) {
+      // ตรวจสอบเพิ่มเติมว่าเป็น Folder หรือไม่ (ห้ามลบโฟลเดอร์ใดๆ เด็ดขาด)
+      var mime = f.getMimeType();
+      if (mime === 'application/vnd.google-apps.folder') {
+        return false;
+      }
+      f.setTrashed(true);
+      trashed = true;
+    }
+  } catch (err) {}
+
+  // ลบประวัติอ้างอิงออกจากแท็บ DriveFiles ใน Google Sheet ของโรงเรียน
+  try {
+    var ss = getTargetSpreadsheet(payload);
+    var driveSheet = ss.getSheetByName('DriveFiles');
+    if (driveSheet && driveSheet.getLastRow() > 1) {
+      var dData = driveSheet.getDataRange().getValues();
+      var dHeaders = dData[0].map(function(h) { return String(h).trim(); });
+      var fidIdx = dHeaders.indexOf('driveFileId');
+      var vUrlIdx = dHeaders.indexOf('driveViewUrl');
+      var dlUrlIdx = dHeaders.indexOf('driveDownloadUrl');
+
+      for (var j = dData.length - 1; j >= 1; j--) {
+        var rowFid = fidIdx >= 0 ? String(dData[j][fidIdx]) : '';
+        var rowVUrl = vUrlIdx >= 0 ? String(dData[j][vUrlIdx]) : '';
+        var rowDlUrl = dlUrlIdx >= 0 ? String(dData[j][dlUrlIdx]) : '';
+        if (rowFid === fileId || (rowVUrl && rowVUrl.indexOf(fileId) !== -1) || (rowDlUrl && rowDlUrl.indexOf(fileId) !== -1)) {
+          driveSheet.deleteRow(j + 1);
+        }
+      }
+    }
+  } catch (sheetErr) {}
+
+  return trashed;
+}
+
+/**
+ * สแกนหาไฟล์ Google Drive ใน Object หรือ Array แล้วลบออกจาก Drive อัตโนมัติ
+ */
+function scanAndTrashDriveFilesInObject(obj, payload) {
+  if (!obj) return;
+  if (Array.isArray(obj)) {
+    obj.forEach(function(item) {
+      scanAndTrashDriveFilesInObject(item, payload);
+    });
+  } else if (typeof obj === 'object') {
+    Object.keys(obj).forEach(function(k) {
+      var val = obj[k];
+      if (val && typeof val === 'string') {
+        var fid = extractDriveFileId(val);
+        if (fid) {
+          deleteDriveFileByUrlOrId(fid, payload);
+        }
+      } else if (val && typeof val === 'object') {
+        scanAndTrashDriveFilesInObject(val, payload);
+      }
+    });
+  }
+}
+
+/**
+ * แปลง Base64 Data URL หรือ Base64 String แล้วบันทึกลง Google Drive ในโฟลเดอร์โรงเรียนนั้นๆ โดยตรง
  * พร้อมระบบป้องกันการอัปโหลดไฟล์ซ้ำ 100% (LockService + MD5 Content Hash + ชื่อและขนาดไฟล์)
  */
 function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
@@ -960,7 +1045,6 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
     mimeType = parts[0].replace('data:', '') || mimeType;
     base64Data = parts[1];
   } else if (base64OrDataUrl.indexOf('http://') === 0 || base64OrDataUrl.indexOf('https://') === 0 || base64OrDataUrl.indexOf('/') === 0) {
-    // เป็น URL ปกติอยู่แล้ว ไม่ต้องแปลงซ้ำ
     return null;
   }
 
@@ -988,9 +1072,8 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
   } catch (lockErr) {}
 
   try {
-    var schoolName = (payload && (payload.schoolName || (payload.schoolInfo && payload.schoolInfo.schoolName))) || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา';
-    var rootFolderId = (payload && (payload.driveFolderId || payload.folderId)) || DEFAULT_DRIVE_FOLDER_ID;
-    var targetFolder = getSchoolCategoryDriveFolder(schoolName, category, rootFolderId, payload);
+    // บันทึกไฟล์ลง "โฟลเดอร์โรงเรียน" โดยตรงเท่านั้น (ไม่มีโฟลเดอร์ย่อย)
+    var targetFolder = resolveSchoolDriveFolder(payload);
     var ss = getTargetSpreadsheet(payload);
     var driveHeaders = ['id', 'category', 'fileName', 'mimeType', 'fileSize', 'driveFileId', 'driveViewUrl', 'driveDownloadUrl', 'uploadedBy', 'uploadedAt'];
     var driveSheet = getOrCreateSheet(ss, 'DriveFiles', driveHeaders);
@@ -999,7 +1082,7 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
     var hashRowId = 'drv-' + fileHash;
     var isImage = mimeType.indexOf('image/') === 0;
 
-    // 1. ตรวจสอบจากตาราง DriveFiles ของโรงเรียนก่อนว่าเคยอัปโหลดไฟล์ที่มีเนื้อหา (MD5 Hash) เดียวกันนี้แล้วหรือยัง
+    // 1. ตรวจสอบจากตาราง DriveFiles ของโรงเรียนก่อนว่าเคยอัปโหลดไฟล์เนื้อหา (MD5 Hash) เดียวกันนี้แล้วหรือยัง
     try {
       if (driveSheet.getLastRow() > 1) {
         var existingRows = getSheetDataAsObjects(ss, 'DriveFiles');
@@ -1030,7 +1113,7 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
 
     var decoded = Utilities.base64Decode(base64Data);
 
-    // 2. ตรวจสอบในโฟลเดอร์ปลายทางว่ามีไฟล์ชื่อเดียวกันและขนาดเท่ากันอยู่แล้วหรือไม่
+    // 2. ตรวจสอบในโฟลเดอร์โรงเรียนว่ามีไฟล์ชื่อเดียวกันและขนาดเท่ากันอยู่แล้วหรือไม่
     try {
       var existingIter = targetFolder.getFilesByName(safeName);
       while (existingIter.hasNext()) {
@@ -1044,7 +1127,7 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
           try {
             upsertRowInSheet(driveSheet, driveHeaders, 'id', {
               id: hashRowId,
-              category: getCategoryFolderName(category),
+              category: category || 'ทั่วไป',
               fileName: safeName,
               mimeType: mimeType,
               fileSize: Math.round(decoded.length / 1024) + ' KB',
@@ -1067,7 +1150,7 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
       }
     } catch (folderCheckErr) {}
 
-    // 3. สร้างไฟล์ใหม่ลงในโฟลเดอร์ของโรงเรียนนั้นๆ เพียง 1 ชิ้นเท่านั้น
+    // 3. สร้างไฟล์ใหม่ลงในโฟลเดอร์ประจำโรงเรียนนั้นๆ เพียง 1 ชิ้นเท่านั้น
     var blob = Utilities.newBlob(decoded, mimeType, safeName);
     var driveFile = targetFolder.createFile(blob);
 
@@ -1081,11 +1164,11 @@ function saveBase64ToGoogleDrive(base64OrDataUrl, fileName, category, payload) {
       : ('https://drive.google.com/file/d/' + fileId + '/view?usp=sharing');
     var downloadUrl = 'https://drive.google.com/uc?export=download&id=' + fileId;
 
-    // 4. บันทึกประวัติไฟล์ลงในแท็บ DriveFiles ของ Google Sheet โรงเรียน (ใช้ hashRowId เพื่อป้องกันการสร้างซ้ำ)
+    // 4. บันทึกประวัติไฟล์ลงในแท็บ DriveFiles ของ Google Sheet โรงเรียน
     try {
       upsertRowInSheet(driveSheet, driveHeaders, 'id', {
         id: hashRowId,
-        category: getCategoryFolderName(category),
+        category: category || 'ทั่วไป',
         fileName: safeName,
         mimeType: mimeType,
         fileSize: Math.round(decoded.length / 1024) + ' KB',
@@ -1140,15 +1223,15 @@ function handleUploadDriveFile(payload) {
 }
 
 /**
- * ฟังก์ชันอัตโนมัติ: สแกนหา Base64 (รูปภาพ/เอกสาร/ไฟล์ส่งงาน) ใน Object แล้วบันทึกลง Google Drive
- * พร้อมป้องกันการอัปโหลดซ้ำระหว่าง task.submissions และ task.submittedFileUrl (ส่ง 1 ชิ้น = อัปโหลด 1 ชิ้น)
+ * ฟังก์ชันสแกนหา Base64 ใน Object แล้วบันทึกลงโฟลเดอร์ Google Drive ของโรงเรียน
+ * ป้องกันการอัปโหลดซ้ำ 100% (ส่ง 1 ชิ้น = อัปโหลด 1 ชิ้น)
  */
 function processObjectFilesToDrive(obj, defaultCategory, payload) {
   if (!obj || typeof obj !== 'object') return obj;
   var clone = JSON.parse(JSON.stringify(obj));
   var uploadedCache = {};
 
-  // 1. ประมวลผลรายการส่งงานของสมาชิกใน Tasks (submissions array) ก่อน
+  // 1. ประมวลผลรายการส่งงานของสมาชิกใน Tasks (submissions array)
   var latestSubmissionDriveUrl = '';
   if (Array.isArray(clone.submissions)) {
     clone.submissions = clone.submissions.map(function(sub) {
@@ -1158,7 +1241,7 @@ function processObjectFilesToDrive(obj, defaultCategory, payload) {
           var upSub = uploadedCache[rawBase64];
           if (!upSub) {
             var subFileName = (sub.memberName ? sub.memberName + '_' : '') + (sub.fileName || 'submission');
-            upSub = saveBase64ToGoogleDrive(rawBase64, subFileName, 'assignment', payload);
+            upSub = saveBase64ToGoogleDrive(rawBase64, subFileName, 'งานมอบหมายและการส่งงาน', payload);
             if (upSub) {
               uploadedCache[rawBase64] = upSub;
             }
@@ -1176,7 +1259,7 @@ function processObjectFilesToDrive(obj, defaultCategory, payload) {
     });
   }
 
-  // 2. หาก submittedFileUrl เป็น Base64 และมีไฟล์ใน submissions ที่เพิ่งอัปโหลดแล้ว ให้ใช้ URL เดียวกันทันทีโดยไม่อัปโหลดซ้ำ!
+  // 2. หาก submittedFileUrl เป็น Base64 และมีใน submissions ที่อัปโหลดแล้ว ให้ใช้ URL เดียวกันทันที
   if (typeof clone.submittedFileUrl === 'string' && clone.submittedFileUrl.indexOf('data:') === 0) {
     if (uploadedCache[clone.submittedFileUrl] && uploadedCache[clone.submittedFileUrl].fileUrl) {
       clone.submittedFileUrl = uploadedCache[clone.submittedFileUrl].fileUrl;
@@ -1186,13 +1269,13 @@ function processObjectFilesToDrive(obj, defaultCategory, payload) {
   }
 
   var fileFields = [
-    { field: 'logoUrl', namePrefix: 'logo_', cat: defaultCategory || 'school_logo' },
-    { field: 'photoUrl', namePrefix: 'photo_', cat: defaultCategory || 'student_photo' },
-    { field: 'avatarUrl', namePrefix: 'avatar_', cat: 'school_logo' },
-    { field: 'attachmentUrl', namePrefix: 'attachment_', cat: 'assignment' },
-    { field: 'submittedFileUrl', namePrefix: 'submission_', cat: 'assignment' },
-    { field: 'fileUrl', namePrefix: 'file_', cat: defaultCategory || 'document' },
-    { field: 'fileData', namePrefix: 'doc_', cat: defaultCategory || 'document' }
+    { field: 'logoUrl', namePrefix: 'logo_', cat: defaultCategory || 'โลโก้โรงเรียน' },
+    { field: 'photoUrl', namePrefix: 'photo_', cat: defaultCategory || 'รูปภาพ' },
+    { field: 'avatarUrl', namePrefix: 'avatar_', cat: 'รูปโปรไฟล์' },
+    { field: 'attachmentUrl', namePrefix: 'attachment_', cat: 'งานมอบหมายและการส่งงาน' },
+    { field: 'submittedFileUrl', namePrefix: 'submission_', cat: 'งานมอบหมายและการส่งงาน' },
+    { field: 'fileUrl', namePrefix: 'file_', cat: defaultCategory || 'ศูนย์เอกสาร' },
+    { field: 'fileData', namePrefix: 'doc_', cat: defaultCategory || 'ศูนย์เอกสาร' }
   ];
 
   fileFields.forEach(function(ff) {
@@ -1226,14 +1309,14 @@ function processObjectFilesToDrive(obj, defaultCategory, payload) {
 
 /**
  * ============================================================================
- * SECTION C: ฟังก์ชันบันทึกข้อมูลแต่ละโมดูลลง Google Sheets ประจำโรงเรียน
+ * SECTION C: ฟังก์ชันบันทึกและลบข้อมูลแต่ละโมดูลใน Google Sheets & Drive
  * ============================================================================
  */
 
 function handleSaveSchoolInfo(payload) {
   var ss = getTargetSpreadsheet(payload);
   var rawInfo = payload.schoolInfo || {};
-  var info = processObjectFilesToDrive(rawInfo, 'school_logo', payload);
+  var info = processObjectFilesToDrive(rawInfo, 'โลโก้โรงเรียน', payload);
 
   var headers = ['schoolName', 'schoolCode', 'affiliation', 'address', 'phone', 'email', 'directorName', 'academicYear', 'semester', 'logoUrl', 'driveLogoUrl', 'updatedAt'];
   var sheet = getOrCreateSheet(ss, 'Settings', headers);
@@ -1260,30 +1343,43 @@ function handleSaveSchoolInfo(payload) {
 
 function handleSaveStudent(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var s = processObjectFilesToDrive(payload.student || {}, 'student_photo', payload);
+  var s = processObjectFilesToDrive(payload.student || {}, 'รูปภาพนักเรียน', payload);
   var headers = ['id', 'rollNumber', 'studentCode', 'prefix', 'firstName', 'lastName', 'nickname', 'gender', 'birthDate', 'age', 'religion', 'gradeLevel', 'room', 'address', 'fatherName', 'fatherPhone', 'motherName', 'motherPhone', 'guardianName', 'guardianPhone', 'dailyAllowance', 'photoUrl', 'status', 'fullDataJson'];
   var sheet = getOrCreateSheet(ss, 'Students', headers);
-  s.fullDataJson = safeJsonStringify(s);
-  upsertRowInSheet(sheet, headers, 'id', s);
-  return { status: 'success', message: 'บันทึกข้อมูลนักเรียนลง Google Sheets สำเร็จ', studentId: s.id, photoUrl: s.photoUrl, student: s };
+
+  var rowObj = JSON.parse(JSON.stringify(s));
+  rowObj.fullDataJson = safeJsonStringify(s);
+  upsertRowInSheet(sheet, headers, 'id', rowObj);
+
+  return { status: 'success', message: 'บันทึกข้อมูลนักเรียนสำเร็จ', student: s };
 }
 
 function handleSavePersonnel(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var p = processObjectFilesToDrive(payload.personnel || {}, 'personnel_photo', payload);
+  var p = processObjectFilesToDrive(payload.personnel || {}, 'รูปภาพบุคลากร', payload);
   var headers = ['id', 'personnelCode', 'prefix', 'firstName', 'lastName', 'gender', 'birthDate', 'age', 'position', 'academicStanding', 'department', 'assignedClass', 'education', 'major', 'phone', 'email', 'photoUrl', 'status'];
   var sheet = getOrCreateSheet(ss, 'Personnel', headers);
   upsertRowInSheet(sheet, headers, 'id', p);
-  return { status: 'success', message: 'บันทึกข้อมูลบุคลากรลง Google Sheets สำเร็จ', personnelId: p.id, photoUrl: p.photoUrl, personnel: p };
+  return { status: 'success', message: 'บันทึกข้อมูลบุคลากรสำเร็จ', personnel: p };
 }
 
 function handleSaveMember(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var m = processObjectFilesToDrive(payload.member || {}, 'school_logo', payload);
+  var m = processObjectFilesToDrive(payload.member || {}, 'รูปโปรไฟล์สมาชิก', payload);
   var headers = ['id', 'username', 'password', 'prefix', 'fullName', 'firstName', 'lastName', 'role', 'gradeLevel', 'position', 'learningGroup', 'schoolId', 'schoolName', 'isSuspended', 'avatarUrl'];
   var sheet = getOrCreateSheet(ss, 'Members', headers);
   upsertRowInSheet(sheet, headers, 'id', m);
-  return { status: 'success', message: 'บันทึกข้อมูลสมาชิกลง Google Sheets สำเร็จ', memberId: m.id, avatarUrl: m.avatarUrl, member: m };
+
+  // ซิงค์สมาชิกลงในชีต Members ของ Master Spreadsheet ด้วย
+  if (MASTER_SPREADSHEET_ID) {
+    try {
+      var masterSS = SpreadsheetApp.openById(MASTER_SPREADSHEET_ID);
+      var masterMembersSheet = getOrCreateSheet(masterSS, 'Members', headers);
+      upsertRowInSheet(masterMembersSheet, headers, 'id', m);
+    } catch (eMasterMem) {}
+  }
+
+  return { status: 'success', message: 'บันทึกข้อมูลผู้ใช้งานสำเร็จ', member: m };
 }
 
 function handleSaveDailyTracking(payload) {
@@ -1291,52 +1387,63 @@ function handleSaveDailyTracking(payload) {
   var r = payload.record || {};
   var headers = ['id', 'date', 'studentId', 'milkStatus', 'toothBrushing', 'semester', 'academicYear'];
   var sheet = getOrCreateSheet(ss, 'DailyTracking', headers);
+  if (!r.id) {
+    r.id = (r.date || '') + '_' + (r.studentId || '');
+  }
   upsertRowInSheet(sheet, headers, 'id', r);
-  return { status: 'success', message: 'บันทึกการดื่มนมและแปรงฟันสำเร็จ' };
+  return { status: 'success', message: 'บันทึกการดื่มนม/แปรงฟันสำเร็จ' };
 }
 
 function handleSaveSubject(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var sub = payload.subject || {};
+  var s = payload.subject || {};
   var headers = ['id', 'code', 'name', 'gradeLevel', 'credits', 'hoursPerYear', 'subjectGroup', 'semester', 'academicYear', 'teacherId', 'teacherName', 'scoreRatio', 'assignmentItemsJson'];
   var sheet = getOrCreateSheet(ss, 'Subjects', headers);
-  var rowObj = JSON.parse(JSON.stringify(sub));
-  rowObj.assignmentItemsJson = safeJsonStringify(sub.assignmentItems || []);
+  var rowObj = JSON.parse(JSON.stringify(s));
+  rowObj.assignmentItemsJson = safeJsonStringify(s.assignmentItems || []);
   upsertRowInSheet(sheet, headers, 'id', rowObj);
-  return { status: 'success', message: 'บันทึกรายวิชาลง Google Sheets สำเร็จ' };
+  return { status: 'success', message: 'บันทึกข้อมูลรายวิชาสำเร็จ' };
 }
 
 function handleSaveGrades(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var grades = payload.grades || [];
+  var grades = Array.isArray(payload.grades) ? payload.grades : (payload.grade ? [payload.grade] : []);
   var headers = ['id', 'studentId', 'subjectId', 'semester', 'academicYear', 'assignmentScoresJson', 'collectedScore', 'midtermScore', 'finalScore', 'totalScore', 'grade'];
   var sheet = getOrCreateSheet(ss, 'Grades', headers);
   grades.forEach(function(g) {
     var rowObj = JSON.parse(JSON.stringify(g));
+    if (!rowObj.id) {
+      rowObj.id = (g.studentId || '') + '_' + (g.subjectId || '') + '_' + (g.semester || '1') + '_' + (g.academicYear || '2569');
+    }
     rowObj.assignmentScoresJson = safeJsonStringify(g.assignmentScores || {});
     upsertRowInSheet(sheet, headers, 'id', rowObj);
   });
-  return { status: 'success', message: 'บันทึกคะแนนและเกรดจำนวน ' + grades.length + ' รายการสำเร็จ' };
+  return { status: 'success', message: 'บันทึกผลการเรียนสำเร็จ', count: grades.length };
 }
 
 function handleSaveAttendance(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var records = payload.records || [];
+  var records = Array.isArray(payload.records) ? payload.records : (payload.record ? [payload.record] : []);
   var headers = ['id', 'date', 'studentId', 'status', 'note', 'semester', 'academicYear'];
   var sheet = getOrCreateSheet(ss, 'Attendance', headers);
   records.forEach(function(r) {
-    upsertRowInSheet(sheet, headers, 'id', r);
+    var rowObj = JSON.parse(JSON.stringify(r));
+    if (!rowObj.id) {
+      rowObj.id = (r.date || '') + '_' + (r.studentId || '');
+    }
+    upsertRowInSheet(sheet, headers, 'id', rowObj);
   });
-  return { status: 'success', message: 'บันทึกเวลาเรียนจำนวน ' + records.length + ' รายการสำเร็จ' };
+  return { status: 'success', message: 'บันทึกเวลาเรียนสำเร็จ', count: records.length };
 }
 
 function handleSaveAttendanceConfig(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var cfg = payload.config || payload.data || {};
+  var cfg = payload.config || {};
   var headers = ['id', 'semester', 'academicYear', 'startDate', 'endDate', 'targetDays', 'holidaysJson', 'schoolDaysJson'];
   var sheet = getOrCreateSheet(ss, 'AttendanceConfig', headers);
+  var cfgId = (cfg.semester || '1') + '_' + (cfg.academicYear || '2569');
   var rowObj = {
-    id: (cfg.semester || '1') + '_' + (cfg.academicYear || '2569'),
+    id: cfgId,
     semester: cfg.semester || '1',
     academicYear: cfg.academicYear || '2569',
     startDate: cfg.startDate || '',
@@ -1346,7 +1453,7 @@ function handleSaveAttendanceConfig(payload) {
     schoolDaysJson: safeJsonStringify(cfg.schoolDays || [])
   };
   upsertRowInSheet(sheet, headers, 'id', rowObj);
-  return { status: 'success', message: 'บันทึกตั้งค่าวันเปิด-ปิดภาคเรียนสำเร็จ' };
+  return { status: 'success', message: 'บันทึกการตั้งค่าเวลาเรียนสำเร็จ' };
 }
 
 function handleSaveSavings(payload) {
@@ -1354,6 +1461,9 @@ function handleSaveSavings(payload) {
   var r = payload.record || {};
   var headers = ['id', 'date', 'studentId', 'type', 'amount', 'balanceAfter', 'note', 'recordedBy', 'semester', 'academicYear'];
   var sheet = getOrCreateSheet(ss, 'Savings', headers);
+  if (!r.id) {
+    r.id = 'sav-' + new Date().getTime();
+  }
   upsertRowInSheet(sheet, headers, 'id', r);
   return { status: 'success', message: 'บันทึกรายการออมทรัพย์สำเร็จ' };
 }
@@ -1368,7 +1478,7 @@ function handleSetAllSavings(payload) {
 
 function handleSaveTask(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var t = processObjectFilesToDrive(payload.task || {}, 'assignment', payload);
+  var t = processObjectFilesToDrive(payload.task || {}, 'งานมอบหมายและการส่งงาน', payload);
   var headers = ['id', 'title', 'description', 'type', 'priority', 'dueDate', 'isCompleted', 'isManualCompleted', 'createdBy', 'assignedTo', 'attachmentUrl', 'submissionsCount', 'submissionsJson'];
   var sheet = getOrCreateSheet(ss, 'Tasks', headers);
 
@@ -1407,7 +1517,7 @@ function handleSaveTask(payload) {
 function handleSaveAllTasks(payload) {
   var ss = getTargetSpreadsheet(payload);
   var tasks = (payload.tasks || []).map(function(t) {
-    var processed = processObjectFilesToDrive(t, 'assignment', payload);
+    var processed = processObjectFilesToDrive(t, 'งานมอบหมายและการส่งงาน', payload);
     processed.submissionsCount = Array.isArray(processed.submissions) ? processed.submissions.length : 0;
     processed.submissionsJson = safeJsonStringify(processed.submissions || []);
     return processed;
@@ -1432,9 +1542,93 @@ function handleCompleteTask(payload) {
   return { status: 'warning', message: 'ไม่พบรหัสงานที่ระบุ' };
 }
 
+/**
+ * ลบงานมอบหมาย และลบไฟล์แนบ + ไฟล์ส่งงานทั้งหมดใน Google Drive ออกอัตโนมัติ
+ * (ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด)
+ */
+function handleDeleteTask(payload) {
+  var ss = getTargetSpreadsheet(payload);
+  var taskId = payload.id || payload.taskId || '';
+  if (!taskId) {
+    return { status: 'error', message: 'ไม่พบรหัสงานที่ต้องการลบ' };
+  }
+
+  // ลบไฟล์แนบจาก payload โดยตรงถ้าส่งมา
+  if (payload.attachmentUrl) {
+    deleteDriveFileByUrlOrId(payload.attachmentUrl, payload);
+  }
+  if (Array.isArray(payload.submissions)) {
+    payload.submissions.forEach(function(sub) {
+      if (sub && (sub.fileUrl || sub.driveFileId)) {
+        deleteDriveFileByUrlOrId(sub.driveFileId || sub.fileUrl, payload);
+      }
+    });
+  }
+
+  // 1. ค้นหาแถวงานในชีต Tasks เพื่อดึง attachmentUrl และ submissionsJson แล้วลบไฟล์ใน Drive
+  var sheet = ss.getSheetByName('Tasks');
+  if (sheet && sheet.getLastRow() > 1) {
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0].map(function(h) { return String(h).trim(); });
+    var idIdx = headers.indexOf('id');
+    var attIdx = headers.indexOf('attachmentUrl');
+    var subIdx = headers.indexOf('submissionsJson');
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][idIdx >= 0 ? idIdx : 0]) === String(taskId)) {
+        var attUrl = attIdx >= 0 ? String(data[i][attIdx] || '') : '';
+        if (attUrl) {
+          deleteDriveFileByUrlOrId(attUrl, payload);
+        }
+
+        var subsStr = subIdx >= 0 ? String(data[i][subIdx] || '') : '';
+        if (subsStr) {
+          try {
+            var subsArr = JSON.parse(subsStr);
+            if (Array.isArray(subsArr)) {
+              subsArr.forEach(function(sub) {
+                if (sub && (sub.fileUrl || sub.driveFileId)) {
+                  deleteDriveFileByUrlOrId(sub.driveFileId || sub.fileUrl, payload);
+                }
+              });
+            }
+          } catch (eParse) {}
+        }
+
+        sheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  // 2. ลบแถวในชีต TaskSubmissions ของงานนี้ พร้อมลบไฟล์ใน Google Drive
+  var subSheet = ss.getSheetByName('TaskSubmissions');
+  if (subSheet && subSheet.getLastRow() > 1) {
+    var sData = subSheet.getDataRange().getValues();
+    var sHeaders = sData[0].map(function(h) { return String(h).trim(); });
+    var sTaskIdIdx = sHeaders.indexOf('taskId');
+    var sFileUrlIdx = sHeaders.indexOf('fileUrl');
+
+    for (var j = sData.length - 1; j >= 1; j--) {
+      if (String(sData[j][sTaskIdIdx >= 0 ? sTaskIdIdx : 1]) === String(taskId)) {
+        var subFileUrl = sFileUrlIdx >= 0 ? String(sData[j][sFileUrlIdx] || '') : '';
+        if (subFileUrl) {
+          deleteDriveFileByUrlOrId(subFileUrl, payload);
+        }
+        subSheet.deleteRow(j + 1);
+      }
+    }
+  }
+
+  return {
+    status: 'success',
+    taskId: taskId,
+    message: 'ลบงานมอบหมาย และลบไฟล์ทั้งหมดที่เกี่ยวข้องออกจาก Google Drive และ Google Sheets สำเร็จ'
+  };
+}
+
 function handleUploadDocument(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var doc = processObjectFilesToDrive(payload, 'document', payload);
+  var doc = processObjectFilesToDrive(payload, 'ศูนย์เอกสารและคำสั่ง', payload);
   var headers = ['id', 'docNumber', 'title', 'docType', 'category', 'date', 'fileUrl', 'fileName', 'fileSize', 'uploadedBy', 'driveFileId'];
   var sheet = getOrCreateSheet(ss, 'Documents', headers);
 
@@ -1465,38 +1659,63 @@ function handleUploadDocument(payload) {
 function handleSaveAllDocuments(payload) {
   var ss = getTargetSpreadsheet(payload);
   var docs = (payload.documents || []).map(function(d) {
-    return processObjectFilesToDrive(d, 'document', payload);
+    return processObjectFilesToDrive(d, 'ศูนย์เอกสารและคำสั่ง', payload);
   });
   var headers = ['id', 'docNumber', 'title', 'docType', 'category', 'date', 'fileUrl', 'fileName', 'fileSize', 'uploadedBy', 'driveFileId'];
   replaceEntireSheetData(ss, 'Documents', headers, docs);
   return { status: 'success', message: 'บันทึกข้อมูลเอกสารทั้งหมดสำเร็จ', documents: docs };
 }
 
+/**
+ * ลบเอกสารและไฟล์ใน Google Drive ออกอัตโนมัติ (ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด)
+ */
 function handleDeleteDocument(payload) {
   var ss = getTargetSpreadsheet(payload);
+  var docId = payload.id || payload.docId || '';
   var sheet = ss.getSheetByName('Documents');
+  var deletedCount = 0;
+
   if (sheet && sheet.getLastRow() > 1) {
     var data = sheet.getDataRange().getValues();
     var headers = data[0].map(function(h) { return String(h).trim(); });
+    var idIdx = headers.indexOf('id');
     var driveIdIdx = headers.indexOf('driveFileId');
+    var fileUrlIdx = headers.indexOf('fileUrl');
+
     for (var i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][0]) === String(payload.id)) {
+      if (String(data[i][idIdx >= 0 ? idIdx : 0]) === String(docId)) {
         var driveFileId = driveIdIdx >= 0 ? String(data[i][driveIdIdx] || '') : '';
+        var fileUrl = fileUrlIdx >= 0 ? String(data[i][fileUrlIdx] || '') : '';
+
         if (driveFileId) {
-          try {
-            DriveApp.getFileById(driveFileId).setTrashed(true);
-          } catch (e) {}
+          deleteDriveFileByUrlOrId(driveFileId, payload);
+        } else if (fileUrl) {
+          deleteDriveFileByUrlOrId(fileUrl, payload);
         }
+
         sheet.deleteRow(i + 1);
+        deletedCount++;
       }
     }
   }
-  return { status: 'success', message: 'ลบเอกสารออกจากระบบและ Google Sheets สำเร็จ' };
+
+  // หากส่ง driveFileId หรือ fileUrl มาใน payload โดยตรงให้ลบด้วย
+  if (payload.driveFileId) {
+    deleteDriveFileByUrlOrId(payload.driveFileId, payload);
+  } else if (payload.fileUrl) {
+    deleteDriveFileByUrlOrId(payload.fileUrl, payload);
+  }
+
+  return {
+    status: 'success',
+    deletedRows: deletedCount,
+    message: 'ลบเอกสารและไฟล์ออกจาก Google Drive และ Google Sheets สำเร็จ'
+  };
 }
 
 function handleSaveWebsite(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var w = processObjectFilesToDrive(payload.website || {}, 'website_logo', payload);
+  var w = processObjectFilesToDrive(payload.website || {}, 'โลโก้เว็บไซต์แนะนำ', payload);
   var headers = ['id', 'title', 'url', 'category', 'description', 'isOfficial', 'logoUrl'];
   var sheet = getOrCreateSheet(ss, 'Websites', headers);
   upsertRowInSheet(sheet, headers, 'id', w);
@@ -1506,7 +1725,7 @@ function handleSaveWebsite(payload) {
 function handleSaveAllWebsites(payload) {
   var ss = getTargetSpreadsheet(payload);
   var websites = (payload.websites || []).map(function(w) {
-    return processObjectFilesToDrive(w, 'website_logo', payload);
+    return processObjectFilesToDrive(w, 'โลโก้เว็บไซต์แนะนำ', payload);
   });
   var headers = ['id', 'title', 'url', 'category', 'description', 'isOfficial', 'logoUrl'];
   replaceEntireSheetData(ss, 'Websites', headers, websites);
@@ -1546,14 +1765,14 @@ function handleSyncTenantKey(payload) {
     } else if (baseKey === 'ams_students' && Array.isArray(value)) {
       var stdHeaders = ['id', 'rollNumber', 'studentCode', 'prefix', 'firstName', 'lastName', 'nickname', 'gender', 'birthDate', 'age', 'religion', 'gradeLevel', 'room', 'address', 'fatherName', 'fatherPhone', 'motherName', 'motherPhone', 'guardianName', 'guardianPhone', 'dailyAllowance', 'photoUrl', 'status', 'fullDataJson'];
       var stdRows = value.map(function(s) {
-        var cleanS = processObjectFilesToDrive(s, 'student_photo', payload);
+        var cleanS = processObjectFilesToDrive(s, 'รูปภาพนักเรียน', payload);
         cleanS.fullDataJson = safeJsonStringify(cleanS);
         return cleanS;
       });
       replaceEntireSheetData(ss, 'Students', stdHeaders, stdRows);
     } else if (baseKey === 'ams_personnel' && Array.isArray(value)) {
       var perHeaders = ['id', 'personnelCode', 'prefix', 'firstName', 'lastName', 'gender', 'birthDate', 'age', 'position', 'academicStanding', 'department', 'assignedClass', 'education', 'major', 'phone', 'email', 'photoUrl', 'status'];
-      var perRows = value.map(function(p) { return processObjectFilesToDrive(p, 'personnel_photo', payload); });
+      var perRows = value.map(function(p) { return processObjectFilesToDrive(p, 'รูปภาพบุคลากร', payload); });
       replaceEntireSheetData(ss, 'Personnel', perHeaders, perRows);
     } else if (baseKey === 'ams_subjects' && Array.isArray(value)) {
       var subHeaders = ['id', 'code', 'name', 'gradeLevel', 'credits', 'hoursPerYear', 'subjectGroup', 'semester', 'academicYear', 'teacherId', 'teacherName', 'scoreRatio', 'assignmentItemsJson'];
@@ -1613,96 +1832,195 @@ function handleSyncTenantKey(payload) {
           sessionId: item.sessionId || '',
           academicYear: item.academicYear || '',
           semester: item.semester || '',
-          score: item.score || '',
+          score: item.score || 0,
           level: item.level || '',
           comment: item.comment || '',
           evaluatedBy: item.evaluatedBy || '',
-          updatedAt: item.updatedAt || new Date().toISOString(),
+          updatedAt: item.updatedAt || '',
           fullDataJson: safeJsonStringify(item)
         };
       });
       replaceEntireSheetData(ss, 'BehaviorEvaluations', behHeaders, behRows);
-    } else if (baseKey.indexOf('pp6_') === 0 && value && typeof value === 'object') {
-      var pp6Headers = ['id', 'studentId', 'academicYear', 'semester', 'gradeLevel', 'teacherComment', 'directorComment', 'updatedAt', 'fullDataJson'];
-      var pp6Sheet = getOrCreateSheet(ss, 'PhorPhor6', pp6Headers);
-      upsertRowInSheet(pp6Sheet, pp6Headers, 'id', {
-        id: baseKey,
-        studentId: value.studentId || '',
-        academicYear: value.academicYear || '',
-        semester: value.semester || '',
-        gradeLevel: value.gradeLevel || '',
-        teacherComment: value.teacherComment || '',
-        directorComment: value.directorComment || '',
-        updatedAt: new Date().toISOString(),
-        fullDataJson: safeJsonStringify(value)
-      });
-    } else if (baseKey === 'ams_assessment_3_booklets_v2' && value && typeof value === 'object') {
-      var b3Headers = ['id', 'studentId', 'academicYear', 'semester', 'readingScore', 'characteristicsScore', 'competenciesScore', 'activityResult', 'updatedAt', 'fullDataJson'];
-      var b3Rows = Object.keys(value).map(function(k) {
+    } else if (baseKey === 'ams_phorphor6' && value && typeof value === 'object') {
+      var p6Headers = ['id', 'studentId', 'academicYear', 'semester', 'gradeLevel', 'teacherComment', 'directorComment', 'updatedAt', 'fullDataJson'];
+      var p6Rows = Object.keys(value).map(function(k) {
         var item = value[k] || {};
         return {
           id: k,
-          studentId: item.studentId || k,
+          studentId: item.studentId || '',
           academicYear: item.academicYear || '',
           semester: item.semester || '',
-          readingScore: item.readingScore || '',
-          characteristicsScore: item.characteristicsScore || '',
-          competenciesScore: item.competenciesScore || '',
-          activityResult: item.activityResult || '',
-          updatedAt: new Date().toISOString(),
+          gradeLevel: item.gradeLevel || '',
+          teacherComment: item.teacherComment || '',
+          directorComment: item.directorComment || '',
+          updatedAt: item.updatedAt || '',
           fullDataJson: safeJsonStringify(item)
         };
       });
-      replaceEntireSheetData(ss, 'Assessment3Booklets', b3Headers, b3Rows);
+      replaceEntireSheetData(ss, 'PhorPhor6', p6Headers, p6Rows);
+    } else if (baseKey === 'ams_assessment_3_booklets' && value && typeof value === 'object') {
+      var a3Headers = ['id', 'studentId', 'academicYear', 'semester', 'readingScore', 'characteristicsScore', 'competenciesScore', 'activityResult', 'updatedAt', 'fullDataJson'];
+      var a3Rows = Object.keys(value).map(function(k) {
+        var item = value[k] || {};
+        return {
+          id: k,
+          studentId: item.studentId || '',
+          academicYear: item.academicYear || '',
+          semester: item.semester || '',
+          readingScore: item.readingScore || 0,
+          characteristicsScore: item.characteristicsScore || 0,
+          competenciesScore: item.competenciesScore || 0,
+          activityResult: item.activityResult || '',
+          updatedAt: item.updatedAt || '',
+          fullDataJson: safeJsonStringify(item)
+        };
+      });
+      replaceEntireSheetData(ss, 'Assessment3Booklets', a3Headers, a3Rows);
+    } else if (baseKey === 'ams_reading_writing' && value && typeof value === 'object') {
+      var rwHeaders = ['id', 'academicYear', 'semester', 'gradeLevel', 'dataJson', 'updatedAt'];
+      var rwRows = Object.keys(value).map(function(k) {
+        var item = value[k] || {};
+        return {
+          id: k,
+          academicYear: item.academicYear || '',
+          semester: item.semester || '',
+          gradeLevel: item.gradeLevel || '',
+          dataJson: safeJsonStringify(item),
+          updatedAt: item.updatedAt || new Date().toISOString()
+        };
+      });
+      replaceEntireSheetData(ss, 'ReadingWriting', rwHeaders, rwRows);
+    } else if (baseKey === 'ams_weight_height' && value && typeof value === 'object') {
+      var whHeaders = ['id', 'sessionId', 'academicYear', 'semester', 'studentRecordsJson', 'updatedAt'];
+      var whRows = Object.keys(value).map(function(k) {
+        var item = value[k] || {};
+        return {
+          id: k,
+          sessionId: item.sessionId || k,
+          academicYear: item.academicYear || '',
+          semester: item.semester || '',
+          studentRecordsJson: safeJsonStringify(item.studentRecords || item),
+          updatedAt: item.updatedAt || new Date().toISOString()
+        };
+      });
+      replaceEntireSheetData(ss, 'WeightHeight', whHeaders, whRows);
+    } else if (baseKey === 'ams_custom_buttons' && Array.isArray(value)) {
+      var btnHeaders = ['id', 'label', 'actionUrl', 'category', 'icon', 'color', 'targetRole', 'openInNewTab', 'order', 'schoolId', 'createdAt', 'updatedAt'];
+      replaceEntireSheetData(ss, 'CustomButtons', btnHeaders, value);
+    } else if (baseKey === 'ams_custom_pages' && Array.isArray(value)) {
+      var pgHeaders = ['id', 'title', 'slug', 'description', 'content', 'externalUrl', 'icon', 'targetRole', 'isVisible', 'order', 'schoolId', 'createdAt', 'updatedAt'];
+      replaceEntireSheetData(ss, 'CustomPages', pgHeaders, value);
     }
-  } catch (structuredErr) {}
+  } catch (syncErr) {}
 
-  // 2. บันทึก Snapshot ลงในแท็บ SchoolDataKV ของไฟล์โรงเรียนด้วยเสมอ เพื่อเก็บข้อมูลครบ 100% ทุกฟิลด์
+  // 2. สำรองข้อมูลลงในตาราง SchoolDataKV ในไฟล์ของโรงเรียน
   try {
-    var kvRow = buildChunkedKvRow(baseKey, value, payload.updatedAt || new Date().getTime());
-    if (kvRow) {
-      var kvHeaders = ['id', 'updatedAt', 'valueJson', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10', 'c11'];
-      var kvSheet = getOrCreateSheet(ss, 'SchoolDataKV', kvHeaders);
-      upsertRowInSheet(kvSheet, kvHeaders, 'id', kvRow);
+    var kvHeaders = ['id', 'updatedAt', 'valueJson', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10', 'c11'];
+    var kvSheet = getOrCreateSheet(ss, 'SchoolDataKV', kvHeaders);
+    var chunked = buildChunkedKvRow(baseKey, value, payload.updatedAt);
+    if (chunked) {
+      upsertRowInSheet(kvSheet, kvHeaders, 'id', chunked);
     }
-  } catch (kvErr) {}
+  } catch (eKV) {}
 
   return {
     status: 'success',
-    spreadsheetId: ss.getId(),
     baseKey: baseKey,
-    message: 'ซิงค์ข้อมูล ' + baseKey + ' ลง Google Sheet ประจำโรงเรียนสำเร็จ'
+    spreadsheetId: ss.getId(),
+    message: 'ซิงค์ข้อมูล ' + baseKey + ' ลงใน Google Sheet โรงเรียนสำเร็จ'
   };
 }
 
 function handleSyncAll(payload) {
   var ss = getTargetSpreadsheet(payload);
-  var allData = payload.data || {};
-  var commonMeta = {
-    spreadsheetId: ss.getId(),
-    schoolId: payload.schoolId,
-    schoolName: (allData.schoolInfo && allData.schoolInfo.schoolName) || payload.schoolName,
-    schoolDriveFolderId: payload.schoolDriveFolderId,
-    driveFolderId: payload.driveFolderId
-  };
+  var data = payload.data || {};
 
-  if (allData.schoolInfo) handleSaveSchoolInfo({ spreadsheetId: ss.getId(), schoolInfo: allData.schoolInfo, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.students) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_students', value: allData.students, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.personnel) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_personnel', value: allData.personnel, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.subjects) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_subjects', value: allData.subjects });
-  if (allData.grades) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_grades', value: allData.grades });
-  if (allData.attendance) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_attendance', value: allData.attendance });
-  if (allData.savings) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_savings', value: allData.savings });
-  if (allData.dailyTracking) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_daily_tracking', value: allData.dailyTracking });
-  if (allData.tasks) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_tasks', value: allData.tasks, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.documents) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_documents', value: allData.documents, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.websites) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_websites', value: allData.websites, schoolId: commonMeta.schoolId, schoolName: commonMeta.schoolName, schoolDriveFolderId: commonMeta.schoolDriveFolderId, driveFolderId: commonMeta.driveFolderId });
-  if (allData.calendar) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_calendar', value: allData.calendar });
-  if (allData.leaveRequests) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_leave_requests_v1', value: allData.leaveRequests });
-  if (allData.dutyAssignments) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_duty_assignments_v1', value: allData.dutyAssignments });
-  if (allData.dailyDutyLogs) handleSyncTenantKey({ spreadsheetId: ss.getId(), baseKey: 'ams_daily_duty_logs_v1', value: allData.dailyDutyLogs });
-  if (allData.customButtons) replaceEntireSheetData(ss, 'CustomButtons', ['id', 'label', 'actionUrl', 'category', 'icon', 'color', 'targetRole', 'openInNewTab', 'order', 'schoolId', 'createdAt', 'updatedAt'], allData.customButtons);
-  if (allData.customPages) replaceEntireSheetData(ss, 'CustomPages', ['id', 'title', 'slug', 'description', 'content', 'externalUrl', 'icon', 'targetRole', 'isVisible', 'order', 'schoolId', 'createdAt', 'updatedAt'], allData.customPages);
+  if (data.schoolInfo) {
+    handleSaveSchoolInfo({ spreadsheetId: ss.getId(), schoolInfo: data.schoolInfo, schoolId: payload.schoolId, schoolName: payload.schoolName, schoolDriveFolderId: payload.schoolDriveFolderId, driveFolderId: payload.driveFolderId });
+  }
+  if (Array.isArray(data.students)) {
+    var stdHeaders = ['id', 'rollNumber', 'studentCode', 'prefix', 'firstName', 'lastName', 'nickname', 'gender', 'birthDate', 'age', 'religion', 'gradeLevel', 'room', 'address', 'fatherName', 'fatherPhone', 'motherName', 'motherPhone', 'guardianName', 'guardianPhone', 'dailyAllowance', 'photoUrl', 'status', 'fullDataJson'];
+    var stdRows = data.students.map(function(s) {
+      var cleanS = processObjectFilesToDrive(s, 'รูปภาพนักเรียน', payload);
+      cleanS.fullDataJson = safeJsonStringify(cleanS);
+      return cleanS;
+    });
+    replaceEntireSheetData(ss, 'Students', stdHeaders, stdRows);
+  }
+  if (Array.isArray(data.personnel)) {
+    var perHeaders = ['id', 'personnelCode', 'prefix', 'firstName', 'lastName', 'gender', 'birthDate', 'age', 'position', 'academicStanding', 'department', 'assignedClass', 'education', 'major', 'phone', 'email', 'photoUrl', 'status'];
+    var perRows = data.personnel.map(function(p) { return processObjectFilesToDrive(p, 'รูปภาพบุคลากร', payload); });
+    replaceEntireSheetData(ss, 'Personnel', perHeaders, perRows);
+  }
+  if (Array.isArray(data.dailyTracking)) {
+    replaceEntireSheetData(ss, 'DailyTracking', ['id', 'date', 'studentId', 'milkStatus', 'toothBrushing', 'semester', 'academicYear'], data.dailyTracking);
+  }
+  if (Array.isArray(data.subjects)) {
+    var subHeaders = ['id', 'code', 'name', 'gradeLevel', 'credits', 'hoursPerYear', 'subjectGroup', 'semester', 'academicYear', 'teacherId', 'teacherName', 'scoreRatio', 'assignmentItemsJson'];
+    var subRows = data.subjects.map(function(s) {
+      var r = JSON.parse(JSON.stringify(s));
+      r.assignmentItemsJson = safeJsonStringify(s.assignmentItems || []);
+      return r;
+    });
+    replaceEntireSheetData(ss, 'Subjects', subHeaders, subRows);
+  }
+  if (Array.isArray(data.grades)) {
+    var grdHeaders = ['id', 'studentId', 'subjectId', 'semester', 'academicYear', 'assignmentScoresJson', 'collectedScore', 'midtermScore', 'finalScore', 'totalScore', 'grade'];
+    var grdRows = data.grades.map(function(g) {
+      var r = JSON.parse(JSON.stringify(g));
+      r.assignmentScoresJson = safeJsonStringify(g.assignmentScores || {});
+      return r;
+    });
+    replaceEntireSheetData(ss, 'Grades', grdHeaders, grdRows);
+  }
+  if (Array.isArray(data.attendance)) {
+    replaceEntireSheetData(ss, 'Attendance', ['id', 'date', 'studentId', 'status', 'note', 'semester', 'academicYear'], data.attendance);
+  }
+  if (Array.isArray(data.savings)) {
+    replaceEntireSheetData(ss, 'Savings', ['id', 'date', 'studentId', 'type', 'amount', 'balanceAfter', 'note', 'recordedBy', 'semester', 'academicYear'], data.savings);
+  }
+  if (Array.isArray(data.tasks)) {
+    handleSaveAllTasks({ spreadsheetId: ss.getId(), tasks: data.tasks, schoolId: payload.schoolId, schoolName: payload.schoolName, schoolDriveFolderId: payload.schoolDriveFolderId, driveFolderId: payload.driveFolderId });
+  }
+  if (Array.isArray(data.documents)) {
+    handleSaveAllDocuments({ spreadsheetId: ss.getId(), documents: data.documents, schoolId: payload.schoolId, schoolName: payload.schoolName, schoolDriveFolderId: payload.schoolDriveFolderId, driveFolderId: payload.driveFolderId });
+  }
+  if (Array.isArray(data.websites)) {
+    handleSaveAllWebsites({ spreadsheetId: ss.getId(), websites: data.websites, schoolId: payload.schoolId, schoolName: payload.schoolName, schoolDriveFolderId: payload.schoolDriveFolderId, driveFolderId: payload.driveFolderId });
+  }
+  if (Array.isArray(data.calendar)) {
+    var calHeaders = ['id', 'title', 'date', 'type', 'description', 'announcement', 'taskDue', 'taskPriority', 'linkedTaskIdsJson'];
+    var calRows = data.calendar.map(function(c) {
+      var r = JSON.parse(JSON.stringify(c));
+      r.linkedTaskIdsJson = safeJsonStringify(c.linkedTaskIds || []);
+      return r;
+    });
+    replaceEntireSheetData(ss, 'Calendar', calHeaders, calRows);
+  }
+  if (Array.isArray(data.members)) {
+    var memHeaders = ['id', 'username', 'password', 'prefix', 'fullName', 'firstName', 'lastName', 'role', 'gradeLevel', 'position', 'learningGroup', 'schoolId', 'schoolName', 'isSuspended', 'avatarUrl'];
+    var memRows = data.members.map(function(m) { return processObjectFilesToDrive(m, 'รูปโปรไฟล์สมาชิก', payload); });
+    replaceEntireSheetData(ss, 'Members', memHeaders, memRows);
+  }
+  if (Array.isArray(data.leaveRequests)) {
+    var lvHeaders = ['id', 'teacherName', 'leaveType', 'startDate', 'endDate', 'reason', 'contactAddress', 'mobilePhone', 'directorName', 'personnelOfficer', 'status', 'createdAt', 'priorSickDays', 'priorPersonalDays', 'priorMaternityDays'];
+    replaceEntireSheetData(ss, 'LeaveRequests', lvHeaders, data.leaveRequests);
+  }
+  if (Array.isArray(data.dutyAssignments)) {
+    replaceEntireSheetData(ss, 'DutyAssignments', ['id', 'dayOfWeek', 'teacherNames', 'dutyType', 'location', 'note'], data.dutyAssignments);
+  }
+  if (Array.isArray(data.dailyDutyLogs)) {
+    var dlHeaders = ['id', 'date', 'dayOfWeek', 'dutyTeachers', 'dutyTimeSlot', 'absentTeachersCount', 'absentTeachersDetail', 'studentsMalePresent', 'studentsFemalePresent', 'incidentMorning', 'incidentNoon', 'incidentAfternoon', 'overallStatus', 'AllowanceNote', 'recorderName', 'createdAt'];
+    replaceEntireSheetData(ss, 'DailyDutyLogs', dlHeaders, data.dailyDutyLogs);
+  }
+  if (Array.isArray(data.customButtons)) {
+    var btnHeaders = ['id', 'label', 'actionUrl', 'category', 'icon', 'color', 'targetRole', 'openInNewTab', 'order', 'schoolId', 'createdAt', 'updatedAt'];
+    replaceEntireSheetData(ss, 'CustomButtons', btnHeaders, data.customButtons);
+  }
+  if (Array.isArray(data.customPages)) {
+    var pgHeaders = ['id', 'title', 'slug', 'description', 'content', 'externalUrl', 'icon', 'targetRole', 'isVisible', 'order', 'schoolId', 'createdAt', 'updatedAt'];
+    replaceEntireSheetData(ss, 'CustomPages', pgHeaders, data.customPages);
+  }
 
   return {
     status: 'success',
@@ -1713,7 +2031,7 @@ function handleSyncAll(payload) {
 
 /**
  * ============================================================================
- * SECTION E: Helper Functions สำหรับจัดการตาราง Google Sheets
+ * SECTION E: Helper Functions สำหรับจัดการตาราง Google Sheets & Deletion
  * ============================================================================
  */
 
@@ -1829,13 +2147,28 @@ function handleDeleteAcademicYearCascade(academicYear, payload) {
       var rowDate = dateIdx >= 0 ? String(data[i][dateIdx]) : (dueDateIdx >= 0 ? String(data[i][dueDateIdx]) : '');
       var matchDate = rowDate && (rowDate.indexOf(yearStr) !== -1 || rowDate.indexOf(gregorianStr) !== -1);
       if (matchYear || matchDate) {
+        // สแกนลบไฟล์ใน Google Drive ของแถวนี้ด้วย
+        var row = data[i];
+        for (var c = 0; c < headers.length; c++) {
+          var val = row[c];
+          if (val && typeof val === 'string') {
+            var extractedId = extractDriveFileId(val);
+            if (extractedId) {
+              deleteDriveFileByUrlOrId(extractedId, payload);
+            } else if (val.indexOf('{') !== -1 || val.indexOf('[') !== -1) {
+              try {
+                scanAndTrashDriveFilesInObject(JSON.parse(val), payload);
+              } catch (errJson) {}
+            }
+          }
+        }
         sheet.deleteRow(i + 1);
         deletedCount++;
       }
     }
   });
 
-  return { status: 'success', message: 'ลบข้อมูลปีการศึกษา ' + yearStr + ' จำนวน ' + deletedCount + ' แถวเรียบร้อยแล้ว' };
+  return { status: 'success', message: 'ลบข้อมูลปีการศึกษา ' + yearStr + ' จำนวน ' + deletedCount + ' แถว พร้อมลบไฟล์ใน Google Drive เรียบร้อยแล้ว' };
 }
 
 function getAllDataFromSheets(payload) {
@@ -1968,6 +2301,10 @@ function replaceEntireSheetData(ss, sheetName, headers, recordsArray) {
   sheet.getRange(2, 1, matrix.length, headers.length).setValues(matrix);
 }
 
+/**
+ * ลบแถวในชีตตาม ID และสแกนหาไฟล์ Google Drive ในแถวนั้นเพื่อลบออกจาก Drive อัตโนมัติ
+ * (ห้ามลบโฟลเดอร์โรงเรียนเด็ดขาด)
+ */
 function handleDeleteRowById(sheetName, idValue, keyField, payload) {
   var ss = getTargetSpreadsheet(payload);
   var sheet = ss.getSheetByName(sheetName);
@@ -1983,11 +2320,45 @@ function handleDeleteRowById(sheetName, idValue, keyField, payload) {
   var deletedCount = 0;
   for (var i = data.length - 1; i >= 1; i--) {
     if (String(data[i][colIdx]) === String(idValue)) {
+      var row = data[i];
+
+      // สแกนทุกคอลัมน์ในแถวที่กำลังจะลบ หากมีไฟล์ใน Google Drive ให้ลบไฟล์นั้นใน Google Drive ทันที
+      // (เช่น รูปภาพนักเรียน photoUrl, รูปบุคลากร, โลโก้เว็บไซต์ logoUrl, avatarUrl ฯลฯ)
+      for (var c = 0; c < headers.length; c++) {
+        var val = row[c];
+        if (val && typeof val === 'string') {
+          var extractedId = extractDriveFileId(val);
+          if (extractedId) {
+            deleteDriveFileByUrlOrId(extractedId, payload);
+          } else if (val.indexOf('{') !== -1 || val.indexOf('[') !== -1) {
+            try {
+              var parsedObj = JSON.parse(val);
+              scanAndTrashDriveFilesInObject(parsedObj, payload);
+            } catch (errJson) {}
+          }
+        }
+      }
+
       sheet.deleteRow(i + 1);
       deletedCount++;
     }
   }
-  return { status: 'success', deletedRows: deletedCount, message: 'ลบข้อมูลรหัส ' + idValue + ' จากชีต ' + sheetName + ' สำเร็จ' };
+
+  // หาก payload ระบุ photoUrl, logoUrl, avatarUrl, fileUrl มาโดยตรง ให้สั่งลบด้วย
+  var directFileFields = ['photoUrl', 'logoUrl', 'avatarUrl', 'fileUrl', 'driveFileId', 'attachmentUrl'];
+  if (payload) {
+    directFileFields.forEach(function(field) {
+      if (payload[field]) {
+        deleteDriveFileByUrlOrId(payload[field], payload);
+      }
+    });
+  }
+
+  return {
+    status: 'success',
+    deletedRows: deletedCount,
+    message: 'ลบข้อมูลรหัส ' + idValue + ' จากชีต ' + sheetName + ' พร้อมลบไฟล์ใน Google Drive สำเร็จ'
+  };
 }
 
 function jsonResponse(obj) {
@@ -2005,7 +2376,7 @@ export const SETUP_GUIDE_STEPS = [
   },
   {
     step: 2,
-    title: 'วางโค้ด Code.gs (เวอร์ชัน 4.1 1-Admin-1-Folder & Zero-Duplicate Drive Engine)',
+    title: 'วางโค้ด Code.gs (เวอร์ชัน 5.0 1-Admin-1-Folder, Zero-Duplicate & Auto-Deletion Engine)',
     desc: 'ลบโค้ดเก่าในไฟล์ Code.gs ออกทั้งหมด แล้วกดปุ่ม "คัดลอกโค้ด Code.gs" ด้านบนไปวางแทนที่ จากนั้นกดบันทึก (Ctrl+S)'
   },
   {
@@ -2016,7 +2387,6 @@ export const SETUP_GUIDE_STEPS = [
   {
     step: 4,
     title: 'คัดลอก Web App URL มาเชื่อมต่อ',
-    desc: 'นำ Web App URL ที่ลงท้ายด้วย /exec มาวางในช่องตั้งค่าด้านซ้าย ระบบจะแยกเก็บข้อมูลลง Google Sheets ตามโรงเรียนและเก็บไฟล์ทุกประเภทลงโฟลเดอร์ประจำโรงเรียนของ Admin นั้นๆ ใน Google Drive ให้อัตโนมัติ'
+    desc: 'นำ Web App URL ที่ลงท้ายด้วย /exec มาวางในช่องตั้งค่าด้านซ้าย ระบบจะจัดเก็บข้อมูลลง Google Sheets แยกตามโรงเรียน และจัดเก็บไฟล์ทุกประเภทลงโฟลเดอร์โรงเรียนของ Admin ใน Google Drive พร้อมลบไฟล์อัตโนมัติเมื่อมีการลบในเว็บ'
   }
 ];
-

@@ -761,6 +761,7 @@ export default function App() {
             user={user}
             tasks={tasks}
             members={tenantMembers}
+            academicYear={schoolInfo.academicYear}
             onSaveTask={handleSaveTask}
             onDeleteTask={handleDeleteTask}
             onCompleteTask={handleCompleteTask}
@@ -774,6 +775,7 @@ export default function App() {
             user={user}
             documents={documents}
             googleConfig={googleConfig}
+            academicYear={schoolInfo.academicYear}
             onSaveDocument={handleSaveDocument}
             onDeleteDocument={handleDeleteDocument}
             onReorderDocuments={handleReorderDocuments}

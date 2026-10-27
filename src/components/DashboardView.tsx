@@ -243,7 +243,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const schoolMembersList = (members || []).filter(m => m.role !== 'admin');
   const totalMembersCount = schoolMembersList.length > 0 ? schoolMembersList.length : 1;
 
+  const activeAcademicYear = schoolInfo?.academicYear || '2569';
+  const isTaskInYear = (task: TaskItem, yr: string = activeAcademicYear) => {
+    if (task.academicYear) {
+      return task.academicYear === yr;
+    }
+    if (task.dueDate) {
+      if (task.dueDate.includes(yr)) return true;
+      const gregYear = String(Number(yr) - 543);
+      if (!isNaN(Number(yr)) && task.dueDate.includes(gregYear)) return true;
+      return false;
+    }
+    return yr === '2569' || yr === '2568';
+  };
+
   const visibleTasks = tasks.filter(t => {
+    if (!isTaskInYear(t, activeAcademicYear)) return false;
     if (t.type === 'announcement') return false;
     if (t.isManualCompleted) return false;
 
@@ -362,6 +377,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         description: newEventAnnouncement.trim(),
         dueDate: newEventDate,
         type: 'announcement',
+        academicYear: activeAcademicYear,
         priority: 'normal',
         createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),
@@ -383,6 +399,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           : '',
         dueDate: newEventDate,
         type: 'assignment',
+        academicYear: activeAcademicYear,
         priority: newEventTaskPriority,
         createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),
@@ -404,6 +421,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         description: newEventDesc.trim() || '',
         dueDate: newEventDate,
         type: 'assignment',
+        academicYear: activeAcademicYear,
         priority: newEventTaskPriority,
         createdBy: user.fullName || user.username || 'สมาชิก',
         createdAt: new Date().toISOString(),

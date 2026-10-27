@@ -601,9 +601,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
                     placeholder="เช่น บ้านนาออก"
                     className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold"
                   />
-                  <p className="text-[11px] text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 rounded-xl px-3 py-2 mt-1.5 leading-normal">
-                    💡 <strong>คำแนะนำ:</strong> ให้ใส่เฉพาะชื่อโรงเรียน ไม่ต้องใส่คำว่า "โรงเรียน" (เช่น ใส่คำว่า <strong>บ้านนาออก</strong> ระบบจะแสดงผลข้างบนและในรายงานเป็น <strong>โรงเรียนบ้านนาออก</strong> โดยอัตโนมัติ)
-                  </p>
+
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

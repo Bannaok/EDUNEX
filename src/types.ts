@@ -371,6 +371,7 @@ export interface TaskItem {
   title: string;
   description: string;
   type?: 'assignment' | 'announcement';
+  academicYear?: string;
   assignedTo?: string;
   priority?: 'urgent' | 'high' | 'normal';
   dueDate: string;
@@ -399,6 +400,7 @@ export interface DocumentItem {
   title: string;
   category?: string;
   docType?: 'document' | 'order';
+  academicYear?: string;
   activityName?: string;
   folderName?: string;
   date: string;
@@ -502,6 +504,8 @@ export interface CustomPage {
 
 export interface LeaveRequestRecord {
   id: string;
+  userId?: string;
+  username?: string;
   teacherName: string;
   leaveType: string;
   startDate: string;
@@ -510,6 +514,7 @@ export interface LeaveRequestRecord {
   directorName?: string;
   personnelOfficer?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
+  fiscalYear?: number;
   schoolId?: string;
   createdAt: string;
 }

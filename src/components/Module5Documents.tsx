@@ -14,7 +14,8 @@ import {
   File, 
   FileSpreadsheet, 
   Plus, 
-  Eye 
+  Eye,
+  Sparkles
 } from 'lucide-react';
 import { downloadRealFile, isWordFile, isPdfFile, isExcelFile, isImageFile, getFileExtension } from '../services/fileDownloadHelper';
 
@@ -22,6 +23,7 @@ interface Module5Props {
   user: UserSession;
   documents: DocumentItem[];
   googleConfig?: GoogleConfig;
+  academicYear?: string;
   onSaveDocument: (doc: DocumentItem) => void;
   onDeleteDocument: (id: string) => void;
   onReorderDocuments?: (docs: DocumentItem[]) => void;
@@ -31,11 +33,13 @@ interface Module5Props {
 export const Module5Documents: React.FC<Module5Props> = ({
   user,
   documents,
+  academicYear,
   onSaveDocument,
   onDeleteDocument,
   onReorderDocuments,
   onShowToast
 }) => {
+  const currentAcademicYear = academicYear || '2569';
   // 2 Tabs: 1) ศูนย์เอกสาร 2) หนังสือคำสั่ง
   const [activeTab, setActiveTab] = useState<'documents' | 'orders'>('documents');
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,10 +93,33 @@ export const Module5Documents: React.FC<Module5Props> = ({
     return d.docType === 'order' || d.category === 'คำสั่งโรงเรียน';
   };
 
-  // Filter and sort documents for active tab
+  // Helper: check if an order (หนังสือคำสั่ง) belongs to the selected academic year
+  const isOrderInYear = (doc: DocumentItem, yr: string = currentAcademicYear) => {
+    if (doc.academicYear) {
+      return doc.academicYear === yr;
+    }
+    if (doc.docNumber && doc.docNumber.includes(`/${yr}`)) {
+      return true;
+    }
+    if (doc.docNumber && /\/\d{4}/.test(doc.docNumber)) {
+      return doc.docNumber.includes(`/${yr}`);
+    }
+    if (doc.date) {
+      if (doc.date.includes(yr)) return true;
+      const gregYear = String(Number(yr) - 543);
+      if (!isNaN(Number(yr)) && doc.date.includes(gregYear)) return true;
+      return false;
+    }
+    return yr === '2569' || yr === '2568';
+  };
+
+  // Filter and sort documents for active tab (ศูนย์เอกสารไม่มีปีการศึกษา, เฉพาะหนังสือคำสั่งแสดงตามปีการศึกษาที่ Admin เลือก)
   const currentDocs = documents.filter(d => {
     const isOrder = isOrderDoc(d);
-    return activeTab === 'orders' ? isOrder : !isOrder;
+    if (activeTab === 'orders') {
+      return isOrder && isOrderInYear(d, currentAcademicYear);
+    }
+    return !isOrder;
   });
 
   const filteredDocs = currentDocs.filter(d => {
@@ -202,6 +229,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
       docNumber: docNumber.trim() || '-',
       title: trimmedTitle,
       docType: modalTargetType,
+      academicYear: modalTargetType === 'order' ? (editingDoc?.academicYear || currentAcademicYear) : undefined,
       category: modalTargetType === 'order' ? 'คำสั่งโรงเรียน' : 'เอกสารทั่วไป',
       date: docDate || new Date().toISOString().split('T')[0],
       fileUrl: fileUrl || fileData || (editingDoc ? editingDoc.fileUrl : '#'),
@@ -374,46 +402,56 @@ export const Module5Documents: React.FC<Module5Props> = ({
       {/* Header: ศูนย์เอกสาร / หนังสือคำสั่ง อยู่ด้านบน แถบสีเขียวอ่อนเพื่อแยกออกกับเมนูอื่นๆ และบรรทัดอื่นๆ */}
       <div className="space-y-3 pb-3 border-b border-slate-200">
         {/* แถบศูนย์เอกสาร / หนังสือคำสั่ง เป็นแถบสีเขียวอ่อน */}
-        <div className="bg-emerald-100/90 p-1.5 sm:p-2 rounded-2xl border border-emerald-300/90 shadow-xs flex items-center gap-1.5 w-fit">
-          <button
-            type="button"
-            onClick={() => setActiveTab('documents')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'documents'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            <span>ศูนย์เอกสาร</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
-              activeTab === 'documents' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {documents.filter(d => !isOrderDoc(d)).length}
-            </span>
-          </button>
+        <div className="bg-emerald-100/90 p-1.5 sm:p-2 rounded-2xl border border-emerald-300/90 shadow-xs flex items-center justify-between gap-2 flex-wrap w-full sm:w-fit">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setActiveTab('documents')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'documents'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>ศูนย์เอกสาร</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                activeTab === 'documents' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {documents.filter(d => !isOrderDoc(d)).length}
+              </span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('orders')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeTab === 'orders'
-                ? 'bg-emerald-600 text-white shadow-xs'
-                : 'text-emerald-900 hover:bg-emerald-100/70'
-            }`}
-          >
-            <FileCheck className="w-4 h-4" />
-            <span>หนังสือคำสั่ง</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
-              activeTab === 'orders' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {documents.filter(d => isOrderDoc(d)).length}
-            </span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('orders')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'orders'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-emerald-900 hover:bg-emerald-100/70'
+              }`}
+            >
+              <FileCheck className="w-4 h-4" />
+              <span>หนังสือคำสั่ง</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                activeTab === 'orders' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'
+              }`}>
+                {documents.filter(d => isOrderDoc(d) && isOrderInYear(d, currentAcademicYear)).length}
+              </span>
+            </button>
+          </div>
+
+          {/* แสดงปีการศึกษาเฉพาะในหน้า "หนังสือคำสั่ง" เท่านั้น (ศูนย์เอกสารจะไม่มีปีการศึกษา) */}
+          {activeTab === 'orders' && (
+            <div className="flex items-center gap-1.5 bg-white px-2.5 sm:px-3 py-1.5 rounded-xl border border-emerald-300/90 shadow-2xs shrink-0">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span className="text-xs font-bold text-slate-800 whitespace-nowrap">ปีการศึกษา {currentAcademicYear}</span>
+            </div>
+          )}
         </div>
 
         {/* ช่องค้นหาและปุ่ม + อยู่ด้านล่างฝั่งซ้าย */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* ช่องค้นหาขนาดกะทัดรัด */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -421,8 +459,8 @@ export const Module5Documents: React.FC<Module5Props> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="ค้นหาเอกสาร..."
-              className="text-xs pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 w-36 sm:w-48"
+              placeholder={activeTab === 'orders' ? `ค้นหาหนังสือคำสั่ง (ปี ${currentAcademicYear})...` : 'ค้นหาเอกสาร...'}
+              className="text-xs pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 w-44 sm:w-56"
             />
           </div>
 
@@ -445,7 +483,11 @@ export const Module5Documents: React.FC<Module5Props> = ({
         {filteredDocs.length === 0 ? (
           <div className="py-14 text-center text-slate-400 text-xs">
             <File className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-            <p className="font-semibold text-slate-600">ยังไม่มีเอกสารในส่วนนี้</p>
+            <p className="font-semibold text-slate-600">
+              {activeTab === 'orders'
+                ? `ยังไม่มีหนังสือคำสั่งในปีการศึกษา ${currentAcademicYear}`
+                : 'ยังไม่มีเอกสารในส่วนนี้'}
+            </p>
           </div>
         ) : (
           filteredDocs.map((doc, index) => {
@@ -518,11 +560,21 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
                   {/* ข้อมูลชื่อและเลขที่เอกสาร */}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[11px] text-slate-500 font-mono font-medium flex items-center gap-1 whitespace-nowrap shrink-0">
                         <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                         <span className="whitespace-nowrap">{formatThaiDocDate(doc.date)}</span>
                       </span>
+                      {activeTab === 'orders' && (
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap shrink-0">
+                          ปีการศึกษา {doc.academicYear || currentAcademicYear}
+                        </span>
+                      )}
+                      {activeTab === 'orders' && doc.docNumber && doc.docNumber !== '-' && (
+                        <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md font-mono whitespace-nowrap shrink-0">
+                          {doc.docNumber}
+                        </span>
+                      )}
                     </div>
 
                     <h4 
@@ -713,14 +765,19 @@ export const Module5Documents: React.FC<Module5Props> = ({
               {/* เลขที่คำสั่ง (เฉพาะหนังสือคำสั่ง และห้ามบังคับ) */}
               {modalTargetType === 'order' && (
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    เลขที่คำสั่ง (ไม่บังคับ)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-slate-700">
+                      เลขที่คำสั่ง (ไม่บังคับ)
+                    </label>
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-mono">
+                      ปีการศึกษา {currentAcademicYear}
+                    </span>
+                  </div>
                   <input
                     type="text"
                     value={docNumber}
                     onChange={(e) => setDocNumber(e.target.value)}
-                    placeholder="เช่น คำสั่งที่ 12/2569"
+                    placeholder={`เช่น คำสั่งที่ 12/${currentAcademicYear}`}
                     className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
                   />
                 </div>
@@ -789,9 +846,16 @@ export const Module5Documents: React.FC<Module5Props> = ({
                   <FileText className="w-5 h-5 text-emerald-600" />
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-mono">
-                    {isOrderDoc(selectedDocDetailModal) ? 'หนังสือคำสั่ง' : 'ศูนย์เอกสาร'}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md font-mono">
+                      {isOrderDoc(selectedDocDetailModal) ? 'หนังสือคำสั่ง' : 'ศูนย์เอกสาร'}
+                    </span>
+                    {isOrderDoc(selectedDocDetailModal) && (
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-mono">
+                        ปีการศึกษา {selectedDocDetailModal.academicYear || currentAcademicYear}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-1">
                     <Clock className="w-3 h-3 text-slate-400" />
                     <span>{formatThaiDocDate(selectedDocDetailModal.date)}</span>

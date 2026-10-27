@@ -25,6 +25,7 @@ interface Module4Props {
   user: UserSession;
   tasks: TaskItem[];
   members: MemberAccount[];
+  academicYear?: string;
   onSaveTask: (task: TaskItem) => void;
   onDeleteTask: (id: string) => void;
   onCompleteTask: (id: string) => void;
@@ -36,12 +37,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   user,
   tasks,
   members,
+  academicYear,
   onSaveTask,
   onDeleteTask,
   onCompleteTask,
   onReorderTasks,
   onShowToast
 }) => {
+  const currentAcademicYear = academicYear || '2569';
   const [activeSubTab, setActiveSubTab] = useState<'assignment' | 'announcement'>('assignment');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'assignment' | 'announcement'>('assignment');
@@ -158,7 +161,22 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   const schoolMembers = members.filter(m => m.role !== 'admin');
   const totalSchoolMembers = schoolMembers.length || 1;
 
-  const filteredTasks = tasks.filter(t => {
+  const isTaskInYear = (task: TaskItem, yr: string = currentAcademicYear) => {
+    if (task.academicYear) {
+      return task.academicYear === yr;
+    }
+    if (task.dueDate) {
+      if (task.dueDate.includes(yr)) return true;
+      const gregYear = String(Number(yr) - 543);
+      if (!isNaN(Number(yr)) && task.dueDate.includes(gregYear)) return true;
+      return false;
+    }
+    return yr === '2569' || yr === '2568';
+  };
+
+  const yearTasks = tasks.filter(t => isTaskInYear(t, currentAcademicYear));
+
+  const filteredTasks = yearTasks.filter(t => {
     const tType = t.type || 'assignment';
     return tType === activeSubTab;
   });
@@ -353,6 +371,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       title: titleVal.trim(),
       description: descVal.trim(),
       type: modalType,
+      academicYear: editingTask?.academicYear || currentAcademicYear,
       priority: priorityVal,
       dueDate: finalDueDate,
       isCompleted: editingTask ? editingTask.isCompleted : false,
@@ -669,7 +688,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 ? 'bg-purple-700 text-white'
                 : 'bg-purple-100 text-purple-800'
             }`}>
-              {tasks.filter(t => (t.type || 'assignment') === 'assignment').length}
+              {yearTasks.filter(t => (t.type || 'assignment') === 'assignment').length}
             </span>
           </button>
 
@@ -690,24 +709,31 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 ? 'bg-amber-700 text-white'
                 : 'bg-amber-100 text-amber-800'
             }`}>
-              {tasks.filter(t => t.type === 'announcement').length}
+              {yearTasks.filter(t => t.type === 'announcement').length}
             </span>
           </button>
         </div>
 
-        {/* Action Button for Active Tab */}
-        {user.role === 'admin' ? (
-          <button
-            type="button"
-            onClick={() => handleOpenModal()}
-            className={`w-8 h-8 text-white rounded-xl shadow-xs transition-all flex items-center justify-center shrink-0 cursor-pointer active:scale-95 ml-auto ${
-              activeSubTab === 'assignment' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'
-            }`}
-            title={activeSubTab === 'assignment' ? 'สร้างงานมอบหมาย (+)' : 'สร้างประกาศใหม่ (+)'}
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-          </button>
-        ) : null}
+        {/* ปีการศึกษา (แสดงผลตามที่ Admin กำหนดในหน้าตั้งค่า) และปุ่มสร้างรายการ (+) */}
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <div className="flex items-center gap-1.5 bg-white px-2.5 sm:px-3 py-1.5 rounded-xl border border-purple-300/90 shadow-2xs shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+            <span className="text-xs font-bold text-slate-800 whitespace-nowrap">ปีการศึกษา {currentAcademicYear}</span>
+          </div>
+
+          {user.role === 'admin' ? (
+            <button
+              type="button"
+              onClick={() => handleOpenModal()}
+              className={`w-8 h-8 text-white rounded-xl shadow-xs transition-all flex items-center justify-center shrink-0 cursor-pointer active:scale-95 ${
+                activeSubTab === 'assignment' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-amber-600 hover:bg-amber-700'
+              }`}
+              title={activeSubTab === 'assignment' ? 'สร้างงานมอบหมาย (+)' : 'สร้างประกาศใหม่ (+)'}
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* PAGE 1: งานมอบหมาย (ASSIGNMENT PAGE) */}
@@ -715,14 +741,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
         <div className="bg-slate-50/80 p-4 sm:p-5 rounded-3xl border border-slate-200/80 space-y-4">
 
           <div className="space-y-3">
-            {tasks.filter(t => (t.type || 'assignment') === 'assignment').length === 0 ? (
+            {yearTasks.filter(t => (t.type || 'assignment') === 'assignment').length === 0 ? (
               <div className="py-16 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
                 <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
-                <p className="text-sm font-semibold text-slate-600">ไม่มีภาระงานมอบหมายในขณะนี้</p>
-                <p className="text-xs text-slate-400">เมื่อมีงานใหม่จะปรากฏให้ส่งภาระงานที่นี่</p>
+                <p className="text-sm font-semibold text-slate-600">ไม่มีภาระงานมอบหมายในปีการศึกษา {currentAcademicYear}</p>
+                <p className="text-xs text-slate-400">เมื่อมีงานใหม่ในปีการศึกษานี้จะปรากฏให้ส่งภาระงานที่นี่</p>
               </div>
             ) : (
-              [...tasks.filter(t => (t.type || 'assignment') === 'assignment')]
+              [...yearTasks.filter(t => (t.type || 'assignment') === 'assignment')]
                 .sort((a, b) => {
                   const aDone = isTaskDoneForUser(a);
                   const bDone = isTaskDoneForUser(b);
@@ -961,13 +987,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       {activeSubTab === 'announcement' && (
         <div className="bg-slate-50/80 p-4 sm:p-5 rounded-3xl border border-slate-200/80 space-y-4">
           <div className="space-y-3">
-            {tasks.filter(t => t.type === 'announcement').length === 0 ? (
+            {yearTasks.filter(t => t.type === 'announcement').length === 0 ? (
               <div className="py-16 text-center bg-white rounded-2xl border border-slate-200/80 space-y-2">
                 <Megaphone className="w-10 h-10 text-amber-400 mx-auto" />
-                <p className="text-sm font-semibold text-slate-600">ไม่มีประกาศแจ้งให้ทราบในขณะนี้</p>
+                <p className="text-sm font-semibold text-slate-600">ไม่มีประกาศแจ้งให้ทราบในปีการศึกษา {currentAcademicYear}</p>
               </div>
             ) : (
-              tasks.filter(t => t.type === 'announcement').map((task, index) => {
+              yearTasks.filter(t => t.type === 'announcement').map((task, index) => {
                 const isDragging = draggedId === task.id;
                 const isDragOver = dragOverId === task.id;
                 const displayDesc = cleanDescription(task.description);
@@ -1601,6 +1627,9 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     </span>
                     <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md font-mono">
                       {selectedTaskDetailModal.type === 'announcement' ? 'ประกาศข่าวสาร' : 'งานมอบหมาย'}
+                    </span>
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md font-mono">
+                      ปีการศึกษา {selectedTaskDetailModal.academicYear || currentAcademicYear}
                     </span>
                   </div>
                   {selectedTaskDetailModal.dueDate && (

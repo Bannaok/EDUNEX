@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -102,6 +102,8 @@ export const TRAVEL_METHOD_OPTIONS = [
 
 export interface LeaveRequest {
   id: string;
+  userId?: string;
+  username?: string;
   teacherName: string;
   leaveType: string;
   startDate: string;
@@ -110,8 +112,42 @@ export interface LeaveRequest {
   directorName?: string;
   personnelOfficer?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
+  fiscalYear?: number;
+  schoolId?: string;
   createdAt: string;
 }
+
+export const getThaiFiscalYear = (dateStr?: string): number => {
+  if (!dateStr) {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const thaiYear = y > 2400 ? y : y + 543;
+    return m >= 10 ? thaiYear + 1 : thaiYear;
+  }
+  const parts = dateStr.split('-');
+  if (parts.length >= 2) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const thaiYear = y > 2400 ? y : y + 543;
+    return m >= 10 ? thaiYear + 1 : thaiYear;
+  }
+  return 2569;
+};
+
+export const cleanTeacherName = (str?: string): string =>
+  (str || '')
+    .replace(/^(ครู|นาย|นาง|นางสาว|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี|ดร\.)\s*/, '')
+    .trim()
+    .toLowerCase();
+
+export const calculateLeaveDaysCount = (startDate: string, endDate: string): number => {
+  if (!startDate || !endDate) return 1;
+  const s = new Date(startDate);
+  const e = new Date(endDate);
+  const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
+  return isNaN(diff) || diff < 0 ? 1 : diff + 1;
+};
 
 export interface DutyAssignment {
   id: string;
@@ -211,11 +247,45 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       id: 'leave-1',
       teacherName: 'นางสาวสมใจ รักเรียน',
       leaveType: 'ลากิจ',
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date().toISOString().split('T')[0],
-      reason: 'ไปติดต่อราชการด่วน',
+      startDate: '2026-06-15',
+      endDate: '2026-06-16',
+      reason: 'ไปติดต่อราชการด่วนที่อำเภอ',
       status: 'อนุมัติ',
-      createdAt: new Date().toISOString()
+      fiscalYear: 2569,
+      createdAt: '2026-06-15T08:30:00.000Z'
+    },
+    {
+      id: 'leave-2',
+      teacherName: 'นางสาวสมใจ รักเรียน',
+      leaveType: 'ลาป่วย',
+      startDate: '2026-08-10',
+      endDate: '2026-08-11',
+      reason: 'มีอาการไข้หวัด พักผ่อนตามแพทย์สั่ง',
+      status: 'อนุมัติ',
+      fiscalYear: 2569,
+      createdAt: '2026-08-10T08:30:00.000Z'
+    },
+    {
+      id: 'leave-3',
+      teacherName: 'นายวิชัย สุวรรณมาลา',
+      leaveType: 'ลากิจ',
+      startDate: '2026-07-20',
+      endDate: '2026-07-20',
+      reason: 'กิจธุระสำคัญเกี่ยวกับครอบครัว',
+      status: 'อนุมัติ',
+      fiscalYear: 2569,
+      createdAt: '2026-07-20T08:30:00.000Z'
+    },
+    {
+      id: 'leave-prev-1',
+      teacherName: 'นางสาวสมใจ รักเรียน',
+      leaveType: 'ลากิจ',
+      startDate: '2025-05-12',
+      endDate: '2025-05-13',
+      reason: 'ติดต่อธุระส่วนตัวต่างจังหวัด',
+      status: 'อนุมัติ',
+      fiscalYear: 2568,
+      createdAt: '2025-05-12T08:30:00.000Z'
     }
   ];
 
@@ -465,6 +535,163 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     personnelOfficer: ''
   });
 
+  const isAdmin = user.role === 'admin' || user.role === 'developer';
+  const currentFiscalYear = useMemo(() => getThaiFiscalYear(), []);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(() => String(getThaiFiscalYear()));
+  const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('all');
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState<string>('all');
+
+  // Helper to check if a leave request belongs to the current user
+  const isMyLeave = useCallback((req: LeaveRequest) => {
+    if (req.userId && user.id && req.userId === user.id) return true;
+    if (req.username && user.username && req.username.toLowerCase() === user.username.toLowerCase()) return true;
+    const rName = cleanTeacherName(req.teacherName);
+    const uName = cleanTeacherName(user.fullName);
+    if (rName && uName && (rName === uName || rName.includes(uName) || uName.includes(rName))) return true;
+    if (user.username && rName && cleanTeacherName(user.username) === rName) return true;
+    return false;
+  }, [user]);
+
+  // Base list depending on role: Admin sees ALL; Member sees ONLY their own
+  const baseLeaveRequests = useMemo(() => {
+    if (isAdmin) {
+      return leaveRequests;
+    }
+    return leaveRequests.filter(isMyLeave);
+  }, [isAdmin, leaveRequests, isMyLeave]);
+
+  // Unique fiscal years found in data + surrounding years
+  const availableFiscalYears = useMemo(() => {
+    const set = new Set<number>();
+    set.add(currentFiscalYear);
+    set.add(currentFiscalYear - 1);
+    set.add(currentFiscalYear + 1);
+    leaveRequests.forEach(r => {
+      const fy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
+      set.add(fy);
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [currentFiscalYear, leaveRequests]);
+
+  // Filtered list by fiscal year, teacher filter (admin only), and status
+  const visibleLeaveRequests = useMemo(() => {
+    return baseLeaveRequests.filter(req => {
+      if (selectedFiscalYear !== 'all') {
+        const fy = req.fiscalYear || getThaiFiscalYear(req.startDate || req.createdAt);
+        if (fy !== Number(selectedFiscalYear)) return false;
+      }
+      if (isAdmin && selectedTeacherFilter !== 'all') {
+        if (cleanTeacherName(req.teacherName) !== cleanTeacherName(selectedTeacherFilter)) return false;
+      }
+      if (leaveStatusFilter !== 'all') {
+        if (req.status !== leaveStatusFilter) return false;
+      }
+      return true;
+    });
+  }, [baseLeaveRequests, selectedFiscalYear, selectedTeacherFilter, leaveStatusFilter, isAdmin]);
+
+  // Cumulative leave stats for each request within its own fiscal year
+  const getLeaveStatsForRequest = useCallback((req: LeaveRequest) => {
+    const fy = req.fiscalYear || getThaiFiscalYear(req.startDate || req.createdAt);
+    const teacherKey = cleanTeacherName(req.teacherName);
+    
+    // All non-rejected leaves of this teacher in this SAME fiscal year
+    const teacherLeavesInYear = leaveRequests.filter(r => {
+      if (r.status === 'ไม่อนุมัติ') return false;
+      if (cleanTeacherName(r.teacherName) !== teacherKey) return false;
+      const rFy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
+      return rFy === fy;
+    }).sort((a, b) => {
+      const dateA = a.startDate || a.createdAt || '';
+      const dateB = b.startDate || b.createdAt || '';
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return (a.createdAt || '').localeCompare(b.createdAt || '');
+    });
+
+    const reqIndex = teacherLeavesInYear.findIndex(r => r.id === req.id);
+    const priorLeaves = reqIndex !== -1
+      ? teacherLeavesInYear.slice(0, reqIndex)
+      : teacherLeavesInYear.filter(r => (r.startDate || r.createdAt || '') < (req.startDate || req.createdAt || ''));
+
+    let priorDays = 0;
+    let priorSick = 0;
+    let priorPersonal = 0;
+    let priorMaternity = 0;
+    let priorOther = 0;
+
+    priorLeaves.forEach(r => {
+      const days = calculateLeaveDaysCount(r.startDate, r.endDate);
+      priorDays += days;
+      if (r.leaveType.includes('ป่วย')) priorSick += days;
+      else if (r.leaveType.includes('กิจ')) priorPersonal += days;
+      else if (r.leaveType.includes('คลอด')) priorMaternity += days;
+      else priorOther += days;
+    });
+
+    const currentDays = calculateLeaveDaysCount(req.startDate, req.endDate);
+    const roundNumber = (reqIndex !== -1 ? reqIndex : priorLeaves.length) + 1;
+    const totalAccumulated = priorDays + currentDays;
+
+    return {
+      fiscalYear: fy,
+      roundNumber,
+      priorDays,
+      priorSick,
+      priorPersonal,
+      priorMaternity,
+      priorOther,
+      currentDays,
+      totalAccumulated
+    };
+  }, [leaveRequests]);
+
+  // Fiscal Year KPI Summary
+  const fiscalYearSummary = useMemo(() => {
+    const targetYear = selectedFiscalYear === 'all' ? currentFiscalYear : Number(selectedFiscalYear);
+    
+    const yearLeaves = baseLeaveRequests.filter(r => {
+      const fy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
+      if (fy !== targetYear) return false;
+      if (isAdmin && selectedTeacherFilter !== 'all') {
+        if (cleanTeacherName(r.teacherName) !== cleanTeacherName(selectedTeacherFilter)) return false;
+      }
+      return true;
+    });
+
+    let totalDays = 0;
+    let sickDays = 0;
+    let personalDays = 0;
+    let maternityDays = 0;
+    let otherDays = 0;
+    let approvedCount = 0;
+    let pendingCount = 0;
+
+    yearLeaves.forEach(r => {
+      if (r.status === 'ไม่อนุมัติ') return;
+      const days = calculateLeaveDaysCount(r.startDate, r.endDate);
+      totalDays += days;
+      if (r.leaveType.includes('ป่วย')) sickDays += days;
+      else if (r.leaveType.includes('กิจ')) personalDays += days;
+      else if (r.leaveType.includes('คลอด')) maternityDays += days;
+      else otherDays += days;
+
+      if (r.status === 'อนุมัติ') approvedCount++;
+      if (r.status === 'รออนุมัติ') pendingCount++;
+    });
+
+    return {
+      fiscalYear: targetYear,
+      totalRequests: yearLeaves.length,
+      totalDays,
+      sickDays,
+      personalDays,
+      maternityDays,
+      otherDays,
+      approvedCount,
+      pendingCount
+    };
+  }, [baseLeaveRequests, selectedFiscalYear, currentFiscalYear, isAdmin, selectedTeacherFilter]);
+
   const THAI_MONTHS_NAMES = [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
@@ -493,13 +720,6 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     return { day: '1', month: 'มกราคม', year: '2569' };
   };
 
-  const calculateLeaveDaysCount = (startDate: string, endDate: string): number => {
-    if (!startDate || !endDate) return 1;
-    const s = new Date(startDate);
-    const e = new Date(endDate);
-    const diff = Math.round((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24));
-    return isNaN(diff) || diff < 0 ? 1 : diff + 1;
-  };
 
   const [isDutyModalOpen, setIsDutyModalOpen] = useState(false);
   const [dutyForm, setDutyForm] = useState<DutyAssignment>({
@@ -1890,9 +2110,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   placeholder="เช่น บ้านนาออก"
                   className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 font-semibold"
                 />
-                <p className="text-[11px] text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 rounded-xl px-2.5 py-1.5 mt-1.5 leading-normal">
-                  💡 <strong>คำแนะนำ:</strong> ให้ใส่เฉพาะชื่อโรงเรียน ไม่ต้องใส่คำว่า "โรงเรียน" (เช่น ใส่คำว่า <strong>บ้านนาออก</strong> ระบบจะแสดงผลเป็น <strong>โรงเรียนบ้านนาออก</strong> โดยอัตโนมัติ)
-                </p>
+
               </div>
 
               <div>
@@ -3886,12 +4104,29 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       {/* SUBTAB 4: LEAVE SYSTEM */}
       {activeSubTab === 'leave' && (
         <div className="space-y-4">
+          {/* Top Bar with Role Indicator & Action */}
           <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs flex items-center justify-between flex-wrap gap-3">
-            <div>
-              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-blue-600" />
-                <span>ระบบการลาของบุคลากร</span>
-              </h3>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <span>ระบบการลาของบุคลากร</span>
+                </h3>
+                {isAdmin ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                    <span>👑 สิทธิ์ผู้ดูแลระบบ: เห็นรายการของทุกคน</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                    <span>👤 สิทธิ์สมาชิก: เห็นเฉพาะของตนเอง ({user.fullName || 'ผู้ใช้งาน'})</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {isAdmin 
+                  ? 'ผู้ดูแลระบบสามารถตรวจสอบ อนุมัติ และดูสถิติการลาของบุคลากรทุกคนในสถานศึกษาได้'
+                  : 'สมาชิกสามารถยื่นคำขอลา ดูประวัติ และตรวจสอบวันลาสะสมประจำปีงบประมาณของตนเองได้'}
+              </p>
             </div>
             <button
               type="button"
@@ -3925,6 +4160,148 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             </button>
           </div>
 
+          {/* Filter Bar (Fiscal Year & Teacher & Status) */}
+          <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Fiscal Year Filter */}
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] font-bold text-slate-600 shrink-0">รอบปีงบประมาณ:</label>
+                <select
+                  value={selectedFiscalYear}
+                  onChange={(e) => setSelectedFiscalYear(e.target.value)}
+                  className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  {availableFiscalYears.map(fy => (
+                    <option key={fy} value={String(fy)}>
+                      ปีงบประมาณ พ.ศ. {fy} {fy === currentFiscalYear ? '⭐ (ปีปัจจุบัน)' : ''}
+                    </option>
+                  ))}
+                  <option value="all">ทุกปีงบประมาณ</option>
+                </select>
+              </div>
+
+              {/* Admin Teacher Filter */}
+              {isAdmin && (
+                <div className="flex items-center gap-1.5">
+                  <label className="text-[11px] font-bold text-slate-600 shrink-0">บุคลากร:</label>
+                  <select
+                    value={selectedTeacherFilter}
+                    onChange={(e) => setSelectedTeacherFilter(e.target.value)}
+                    className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="all">ทุกคน (บุคลากรทั้งหมด)</option>
+                    {personnel.map(p => {
+                      const pName = `${p.prefix}${p.firstName} ${p.lastName}`;
+                      return (
+                        <option key={p.id} value={pName}>
+                          {pName}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] font-bold text-slate-600 shrink-0">สถานะ:</label>
+                <select
+                  value={leaveStatusFilter}
+                  onChange={(e) => setLeaveStatusFilter(e.target.value)}
+                  className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value="all">ทั้งหมด</option>
+                  <option value="อนุมัติ">อนุมัติแล้ว</option>
+                  <option value="รออนุมัติ">รออนุมัติ</option>
+                  <option value="ไม่อนุมัติ">ไม่อนุมัติ</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-500">
+              พบ <strong className="text-blue-600 font-bold">{visibleLeaveRequests.length}</strong> รายการ
+            </div>
+          </div>
+
+          {/* Fiscal Year Statistics KPI Summary Card */}
+          <div className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+                <h4 className="text-xs font-bold text-slate-800">
+                  สถิติการลาประจำปีงบประมาณ พ.ศ. {fiscalYearSummary.fiscalYear}
+                  {isAdmin && selectedTeacherFilter !== 'all' ? ` (${selectedTeacherFilter})` : !isAdmin ? ` (${user.fullName || 'ตนเอง'})` : ' (ภาพรวมทั้งหมด)'}
+                </h4>
+              </div>
+              <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                รอบปีงบประมาณ 1 ต.ค. - 30 ก.ย. • เมื่องบประมาณใหม่จะเริ่มนับ 1 ใหม่อีกครั้ง
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {/* Card 1: Total days */}
+              <div className="bg-blue-50/80 border border-blue-200/80 rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-blue-700">รวมวันลาสะสม</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-black text-blue-900">{fiscalYearSummary.totalDays}</span>
+                  <span className="text-xs font-bold text-blue-700">วัน</span>
+                </div>
+                <p className="text-[10px] text-blue-600/80 mt-0.5 font-medium">
+                  {fiscalYearSummary.totalRequests} ครั้ง ({fiscalYearSummary.approvedCount} อนุมัติ)
+                </p>
+              </div>
+
+              {/* Card 2: Sick leave */}
+              <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-emerald-700">🏥 ลาป่วยสะสม</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-black text-emerald-900">{fiscalYearSummary.sickDays}</span>
+                  <span className="text-xs font-bold text-emerald-700">วัน</span>
+                </div>
+                <p className="text-[10px] text-emerald-600/80 mt-0.5 font-medium">
+                  สิทธิ์ตามระเบียบ 60 วัน/ปีงบฯ
+                </p>
+              </div>
+
+              {/* Card 3: Personal leave */}
+              <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-amber-700">💼 ลากิจส่วนตัว</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-black text-amber-900">{fiscalYearSummary.personalDays}</span>
+                  <span className="text-xs font-bold text-amber-700">วัน</span>
+                </div>
+                <p className="text-[10px] text-amber-600/80 mt-0.5 font-medium">
+                  สิทธิ์ตามระเบียบ 45 วัน/ปีงบฯ
+                </p>
+              </div>
+
+              {/* Card 4: Maternity leave */}
+              <div className="bg-pink-50/80 border border-pink-200/80 rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-pink-700">🍼 ลาคลอดบุตร</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-black text-pink-900">{fiscalYearSummary.maternityDays}</span>
+                  <span className="text-xs font-bold text-pink-700">วัน</span>
+                </div>
+                <p className="text-[10px] text-pink-600/80 mt-0.5 font-medium">
+                  สิทธิ์ตามระเบียบ 90 วัน
+                </p>
+              </div>
+
+              {/* Card 5: Other leave */}
+              <div className="bg-purple-50/80 border border-purple-200/80 rounded-xl p-3">
+                <p className="text-[11px] font-semibold text-purple-700">📝 ลาประเภทอื่นๆ</p>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xl font-black text-purple-900">{fiscalYearSummary.otherDays}</span>
+                  <span className="text-xs font-bold text-purple-700">วัน</span>
+                </div>
+                <p className="text-[10px] text-purple-600/80 mt-0.5 font-medium">
+                  {fiscalYearSummary.pendingCount > 0 ? `รออนุมัติ ${fiscalYearSummary.pendingCount} รายการ` : 'ข้อมูลปัจจุบัน'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Leave Requests Table */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
@@ -3936,119 +4313,156 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       <span className="hidden sm:inline">ตั้งแต่วันที่ - ถึงวันที่</span>
                       <span className="sm:hidden">จำนวนวันลา</span>
                     </th>
+                    <th className="py-3 px-3 text-center">รอบปีงบฯ & สถิติสะสม</th>
                     <th className="py-3 px-4 hidden sm:table-cell">เหตุผลการลา</th>
                     <th className="py-3 px-3 text-center hidden sm:table-cell">สถานะ</th>
                     <th className="py-3 px-3 text-right">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {leaveRequests.length === 0 ? (
+                  {visibleLeaveRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
-                        ยังไม่มีรายการยื่นคำขอลาในระบบ
+                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Calendar className="w-8 h-8 text-slate-300" />
+                          <p className="font-medium">ไม่พบรายการยื่นคำขอลาในเงื่อนไขที่เลือก</p>
+                          <p className="text-[11px] text-slate-400">
+                            {isAdmin ? 'ยังไม่มีข้อมูลการลาในรอบปีงบประมาณนี้' : 'คุณยังไม่มีประวัติการยื่นลาในรอบปีงบประมาณนี้ สามารถกด "+ ยื่นคำขอลา" ได้เลย'}
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
-                    leaveRequests.map((req) => (
-                      <tr key={req.id} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="py-3 px-4 font-bold text-slate-800">{req.teacherName}</td>
-                        <td className="py-3 px-3 text-center">
-                          <span className="px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-md font-semibold text-[11px] border border-purple-200">
-                            {req.leaveType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-center font-medium text-slate-600">
-                          <span className="hidden sm:inline">{req.startDate} ถึง {req.endDate}</span>
-                          <span className="sm:hidden font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 inline-block">
-                            {calculateLeaveDaysCount(req.startDate, req.endDate)} วัน
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-slate-600 hidden sm:table-cell">{req.reason}</td>
-                        <td className="py-3 px-3 text-center hidden sm:table-cell">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            req.status === 'อนุมัติ'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : req.status === 'ไม่อนุมัติ'
-                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                            {req.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {user.role === 'admin' && req.status === 'รออนุมัติ' && (
-                              <>
+                    visibleLeaveRequests.map((req) => {
+                      const stats = getLeaveStatsForRequest(req);
+                      const isOwner = isMyLeave(req);
+                      const daysCount = calculateLeaveDaysCount(req.startDate, req.endDate);
+
+                      return (
+                        <tr key={req.id} className="hover:bg-blue-50/30 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                              <span>{req.teacherName}</span>
+                              {isOwner && (
+                                <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-md font-medium border border-blue-200">
+                                  ของฉัน
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="px-2.5 py-0.5 bg-purple-50 text-purple-700 rounded-md font-semibold text-[11px] border border-purple-200">
+                              {req.leaveType}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center font-medium text-slate-600">
+                            <span className="hidden sm:inline">{req.startDate} ถึง {req.endDate}</span>
+                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 inline-block ml-1">
+                              {daysCount} วัน
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <div className="flex flex-col items-center gap-0.5">
+                              <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold text-[10px] border border-indigo-200">
+                                ปีงบฯ {stats.fiscalYear}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-700">
+                                ครั้งที่ {stats.roundNumber} • สะสม {stats.totalAccumulated} วัน
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {stats.priorDays === 0 ? '(ครั้งแรกในปีงบฯ)' : `(ก่อนหน้านี้ ${stats.priorDays} วัน)`}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-slate-600 hidden sm:table-cell max-w-xs truncate" title={req.reason}>
+                            {req.reason}
+                          </td>
+                          <td className="py-3 px-3 text-center hidden sm:table-cell">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              req.status === 'อนุมัติ'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : req.status === 'ไม่อนุมัติ'
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                              {req.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {isAdmin && req.status === 'รออนุมัติ' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'อนุมัติ' } : r));
+                                      onShowToast('success', 'อนุมัติสำเร็จ', `อนุมัติการลาของ ${req.teacherName} เรียบร้อยแล้ว`);
+                                    }}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
+                                  >
+                                    อนุมัติ
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'ไม่อนุมัติ' } : r));
+                                      onShowToast('warning', 'ไม่อนุมัติ', `ปฏิเสธคำขอลาของ ${req.teacherName} แล้ว`);
+                                    }}
+                                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
+                                  >
+                                    ปฏิเสธ
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setPreviewLeave(req)}
+                                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors"
+                                title="ดูตัวอย่างแบบใบลาและดาวน์โหลด (A4)"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                              </button>
+                              {(isAdmin || isOwner) && (
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'อนุมัติ' } : r));
-                                    onShowToast('success', 'อนุมัติสำเร็จ', `อนุมัติการลาของ ${req.teacherName} เรียบร้อยแล้ว`);
+                                    setEditingLeaveId(req.id);
+                                    const stdTypes = ['ลากิจ', 'ลาป่วย', 'ลาคลอด', 'อุปสมบท'];
+                                    const isCustom = !stdTypes.includes(req.leaveType);
+                                    setLeaveForm({
+                                      teacherName: req.teacherName,
+                                      leaveType: isCustom ? 'อื่นๆ' : req.leaveType,
+                                      customLeaveType: isCustom ? req.leaveType : '',
+                                      startDate: req.startDate,
+                                      endDate: req.endDate,
+                                      reason: req.reason,
+                                      directorName: req.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน',
+                                      personnelOfficer: req.personnelOfficer || ''
+                                    });
+                                    setIsLeaveModalOpen(true);
                                   }}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                                  className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors"
+                                  title="แก้ไขคำขอลา"
                                 >
-                                  อนุมัติ
+                                  <Edit className="w-3.5 h-3.5" />
                                 </button>
+                              )}
+                              {/* Admin only: Delete leave record */}
+                              {isAdmin && (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'ไม่อนุมัติ' } : r));
-                                    onShowToast('warning', 'ไม่อนุมัติ', `ปฏิเสธคำขอลาของ ${req.teacherName} แล้ว`);
-                                  }}
-                                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                                  onClick={() => setConfirmDeleteLeave(req)}
+                                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                  title="ลบรายการคำขอลา (เฉพาะ Admin)"
                                 >
-                                  ปฏิเสธ
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setPreviewLeave(req)}
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors"
-                              title="ดูตัวอย่างแบบใบลาและดาวน์โหลด (A4)"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                            </button>
-                            {(user.role === 'admin' || req.teacherName === user.fullName) && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingLeaveId(req.id);
-                                  const stdTypes = ['ลากิจ', 'ลาป่วย', 'ลาคลอด', 'อุปสมบท'];
-                                  const isCustom = !stdTypes.includes(req.leaveType);
-                                  setLeaveForm({
-                                    teacherName: req.teacherName,
-                                    leaveType: isCustom ? 'อื่นๆ' : req.leaveType,
-                                    customLeaveType: isCustom ? req.leaveType : '',
-                                    startDate: req.startDate,
-                                    endDate: req.endDate,
-                                    reason: req.reason,
-                                    directorName: req.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน',
-                                    personnelOfficer: req.personnelOfficer || ''
-                                  });
-                                  setIsLeaveModalOpen(true);
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors"
-                                title="แก้ไขคำขอลา"
-                              >
-                                <Edit className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                            {/* Admin only: Delete leave record */}
-                            {user.role === 'admin' && (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteLeave(req)}
-                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                                title="ลบรายการคำขอลา (เฉพาะ Admin)"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -4690,6 +5104,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   return;
                 }
                 const finalLeaveType = leaveForm.leaveType === 'อื่นๆ' ? (leaveForm.customLeaveType.trim() || 'อื่นๆ') : leaveForm.leaveType;
+                const computedFiscalYear = getThaiFiscalYear(leaveForm.startDate);
                 if (editingLeaveId) {
                   setLeaveRequests(prev => prev.map(r => r.id === editingLeaveId ? {
                     ...r,
@@ -4699,12 +5114,15 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     endDate: leaveForm.endDate,
                     reason: leaveForm.reason,
                     directorName: leaveForm.directorName,
-                    personnelOfficer: leaveForm.personnelOfficer
+                    personnelOfficer: leaveForm.personnelOfficer,
+                    fiscalYear: computedFiscalYear
                   } : r));
                   onShowToast('success', 'แก้ไขสำเร็จ', 'อัปเดตข้อมูลคำขอลาเรียบร้อยแล้ว');
                 } else {
                   const newReq: LeaveRequest = {
                     id: 'leave-' + Date.now(),
+                    userId: user.id,
+                    username: user.username,
                     teacherName: leaveForm.teacherName,
                     leaveType: finalLeaveType,
                     startDate: leaveForm.startDate,
@@ -4712,7 +5130,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     reason: leaveForm.reason,
                     directorName: leaveForm.directorName,
                     personnelOfficer: leaveForm.personnelOfficer,
-                    status: user.role === 'admin' ? 'อนุมัติ' : 'รออนุมัติ',
+                    status: isAdmin ? 'อนุมัติ' : 'รออนุมัติ',
+                    fiscalYear: computedFiscalYear,
                     createdAt: new Date().toISOString()
                   };
                   setLeaveRequests(prev => [newReq, ...prev]);
@@ -4724,14 +5143,47 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               className="space-y-4"
             >
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อคุณครู / ผู้ขอลา</label>
-                <input
-                  type="text"
-                  required
-                  value={leaveForm.teacherName}
-                  onChange={(e) => setLeaveForm({ ...leaveForm, teacherName: e.target.value })}
-                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
-                />
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {isAdmin ? 'ชื่อคุณครู / ผู้ขอลา' : 'ชื่อผู้ขอลา'}
+                </label>
+                {isAdmin ? (
+                  <div className="space-y-1.5">
+                    <select
+                      value={personnel.some(p => `${p.prefix}${p.firstName} ${p.lastName}` === leaveForm.teacherName) ? leaveForm.teacherName : ''}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setLeaveForm({ ...leaveForm, teacherName: e.target.value });
+                        }
+                      }}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold cursor-pointer bg-white"
+                    >
+                      <option value="">-- เลือกจากรายชื่อบุคลากร (หรือพิมพ์ด้านล่าง) --</option>
+                      {personnel.map(p => {
+                        const pName = `${p.prefix}${p.firstName} ${p.lastName}`;
+                        return (
+                          <option key={p.id} value={pName}>
+                            {pName} ({p.position})
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <input
+                      type="text"
+                      required
+                      value={leaveForm.teacherName}
+                      onChange={(e) => setLeaveForm({ ...leaveForm, teacherName: e.target.value })}
+                      placeholder="หรือพิมพ์ชื่อ-นามสกุล..."
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-800 flex items-center justify-between">
+                    <span>{user.fullName || leaveForm.teacherName}</span>
+                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold border border-blue-200">
+                      สมาชิกผู้ยื่นลา (ตนเอง)
+                    </span>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">ประเภทการลา</label>
@@ -4798,6 +5250,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </select>
                 </div>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">ตั้งแต่วันที่</label>
@@ -4820,6 +5273,49 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Live Fiscal Year & Cumulative Leave Statistics Box */}
+              {(() => {
+                const modalFiscalYear = getThaiFiscalYear(leaveForm.startDate);
+                const modalDays = calculateLeaveDaysCount(leaveForm.startDate, leaveForm.endDate);
+                const targetTeacherClean = cleanTeacherName(leaveForm.teacherName);
+
+                const priorLeaves = leaveRequests.filter(r => {
+                  if (r.id === editingLeaveId) return false;
+                  if (r.status === 'ไม่อนุมัติ') return false;
+                  if (cleanTeacherName(r.teacherName) !== targetTeacherClean) return false;
+                  const rFy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
+                  return rFy === modalFiscalYear;
+                });
+
+                const priorDays = priorLeaves.reduce((sum, r) => sum + calculateLeaveDaysCount(r.startDate, r.endDate), 0);
+                const priorSick = priorLeaves.filter(r => r.leaveType.includes('ป่วย')).reduce((sum, r) => sum + calculateLeaveDaysCount(r.startDate, r.endDate), 0);
+                const priorPersonal = priorLeaves.filter(r => r.leaveType.includes('กิจ')).reduce((sum, r) => sum + calculateLeaveDaysCount(r.startDate, r.endDate), 0);
+                const roundNumber = priorLeaves.length + 1;
+
+                return (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/90 rounded-2xl p-3 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between font-bold text-slate-800">
+                      <span className="flex items-center gap-1.5 text-blue-900">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        <span>รอบปีงบประมาณ พ.ศ. {modalFiscalYear}</span>
+                      </span>
+                      <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold border border-blue-200">
+                        {priorLeaves.length === 0 ? '✨ ครั้งแรกในปีงบฯ (เริ่มนับ 1 ใหม่)' : `ครั้งที่ ${roundNumber} ในปีงบฯ`}
+                      </span>
+                    </div>
+                    <div className="text-slate-600 text-[11px] flex items-center justify-between">
+                      <span>สถิติสะสมก่อนหน้านี้:</span>
+                      <strong className="text-slate-800">{priorDays} วัน (ป่วย {priorSick} วัน, กิจ {priorPersonal} วัน)</strong>
+                    </div>
+                    <div className="text-blue-900 font-bold text-[11px] flex items-center justify-between pt-1 border-t border-blue-100">
+                      <span>ยื่นลาครั้งนี้ ({modalDays} วัน):</span>
+                      <span className="text-blue-800 font-black text-xs">สะสมรวมจะเป็น {priorDays + modalDays} วัน</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">เหตุผลการลา</label>
                 <textarea
@@ -4873,35 +5369,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const isMaternity = previewLeave.leaveType.includes('คลอด');
         const isOther = !isSick && !isPersonal && !isMaternity;
 
-        // Fiscal year calculation: 1 Oct (month 10) to 30 Sep of the next year
-        const getThaiFiscalYear = (dateStr?: string): number => {
-          if (!dateStr) return 2569;
-          const parts = dateStr.split('T')[0].split('-');
-          if (parts.length === 3) {
-            const y = parseInt(parts[0], 10);
-            const m = parseInt(parts[1], 10);
-            const thaiYear = y > 2400 ? y : y + 543;
-            return m >= 10 ? thaiYear + 1 : thaiYear;
-          }
-          return 2569;
-        };
-
-        const currentLeaveFiscalYear = getThaiFiscalYear(previewLeave.startDate || previewLeave.createdAt);
-
-        // Helper to normalize teacher name for accurate grouping
-        const cleanName = (str?: string) => 
-          (str || '')
-            .replace(/^(ครู|นาย|นาง|นางสาว|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี|ดร\.)\s*/, '')
-            .trim()
-            .toLowerCase();
-
-        const targetTeacherName = cleanName(previewLeave.teacherName);
+        const currentLeaveFiscalYear = previewLeave.fiscalYear || getThaiFiscalYear(previewLeave.startDate || previewLeave.createdAt);
+        const targetTeacherName = cleanTeacherName(previewLeave.teacherName);
 
         // Get all leave records belonging to this teacher in the same fiscal year (excluding rejected)
         const teacherLeavesInYear = leaveRequests.filter(r => {
           if (r.status === 'ไม่อนุมัติ') return false;
-          if (cleanName(r.teacherName) !== targetTeacherName) return false;
-          const rFiscalYear = getThaiFiscalYear(r.startDate || r.createdAt);
+          if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
+          const rFiscalYear = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
           return rFiscalYear === currentLeaveFiscalYear;
         }).sort((a, b) => {
           const dateA = a.startDate || a.createdAt || '';
@@ -4935,7 +5410,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const allPriorLeavesEver = leaveRequests.filter(r => {
           if (r.id === previewLeave.id) return false;
           if (r.status === 'ไม่อนุมัติ') return false;
-          if (cleanName(r.teacherName) !== targetTeacherName) return false;
+          if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
           const rDate = r.startDate || r.createdAt || '';
           const currDate = previewLeave.startDate || previewLeave.createdAt || '';
           return rDate <= currDate;

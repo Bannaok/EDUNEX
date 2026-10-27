@@ -9,6 +9,7 @@ import {
   AttendanceDayConfig,
   SavingsRecord,
   TaskItem,
+  TaskSubmission,
   DocumentItem,
   RecommendedWebsite,
   CalendarEvent,
@@ -193,7 +194,37 @@ function getActiveSchoolId(): string | null {
     if (!raw) return null;
     const session = JSON.parse(raw) as UserSession;
     if (session && session.role !== 'developer') {
-      return normalizeSchoolId(session.schoolId, session.schoolName);
+      const adminsCached = memoryCache.get(KEYS.ADMINS);
+      const adminsRaw = nativeGetItem ? nativeGetItem(KEYS.ADMINS) : localStorage.getItem(KEYS.ADMINS);
+      const admins: SchoolAdminAccount[] = Array.isArray(adminsCached)
+        ? adminsCached
+        : adminsRaw
+        ? JSON.parse(adminsRaw)
+        : INITIAL_ADMINS;
+
+      if (session.role === 'admin') {
+        const matchedAdmin = admins.find(
+          a => a.id === session.id || a.username?.toLowerCase() === session.username?.toLowerCase()
+        );
+        if (matchedAdmin) {
+          return normalizeSchoolId(matchedAdmin.id, matchedAdmin.schoolName, admins);
+        }
+      } else if (session.role === 'member') {
+        const membersCached = memoryCache.get(KEYS.MEMBERS);
+        const membersRaw = nativeGetItem ? nativeGetItem(KEYS.MEMBERS) : localStorage.getItem(KEYS.MEMBERS);
+        const members: MemberAccount[] = Array.isArray(membersCached)
+          ? membersCached
+          : membersRaw
+          ? JSON.parse(membersRaw)
+          : INITIAL_MEMBERS;
+        const matchedMember = members.find(
+          m => m.id === session.id || m.username?.toLowerCase() === session.username?.toLowerCase()
+        );
+        if (matchedMember) {
+          return normalizeSchoolId(matchedMember.schoolId || session.schoolId, matchedMember.schoolName || session.schoolName, admins);
+        }
+      }
+      return normalizeSchoolId(session.schoolId, session.schoolName, admins);
     }
     return null;
   } catch {
@@ -407,6 +438,108 @@ function scheduleTenantKeySyncToSchoolSheet(resolvedKey: string, value: any, tim
   tenantGoogleSyncTimers.set(resolvedKey, timer);
 }
 
+function isTaskStorageKey(key: string): boolean {
+  return key === KEYS.TASKS || key.startsWith(`${KEYS.TASKS}__`);
+}
+
+function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: TaskItem, preferIncomingMeta = true): TaskItem {
+  if (!existingTask) return incomingTask;
+  if (!incomingTask) return existingTask;
+
+  const base: TaskItem = preferIncomingMeta
+    ? { ...existingTask, ...incomingTask }
+    : { ...incomingTask, ...existingTask };
+
+  const deletedMap: Record<string, string> = {
+    ...(existingTask.deletedSubmissionsMap || {}),
+    ...(incomingTask.deletedSubmissionsMap || {})
+  };
+
+  const existingSubs = Array.isArray(existingTask.submissions) ? existingTask.submissions : [];
+  const incomingSubs = Array.isArray(incomingTask.submissions) ? incomingTask.submissions : [];
+
+  const subMap = new Map<string, TaskSubmission>();
+  const getKey = (s: TaskSubmission) => String(s?.memberId || s?.memberName || '').trim();
+
+  for (const s of existingSubs) {
+    const k = getKey(s);
+    if (!k) continue;
+    const delAt = deletedMap[k] || deletedMap[s.memberId] || (s.memberName ? deletedMap[s.memberName] : '');
+    if (delAt && s.submittedAt && new Date(delAt).getTime() >= new Date(s.submittedAt).getTime()) {
+      continue;
+    }
+    subMap.set(k, s);
+  }
+
+  for (const s of incomingSubs) {
+    const k = getKey(s);
+    if (!k) continue;
+    const delAt = deletedMap[k] || deletedMap[s.memberId] || (s.memberName ? deletedMap[s.memberName] : '');
+    if (delAt && s.submittedAt && new Date(delAt).getTime() >= new Date(s.submittedAt).getTime()) {
+      continue;
+    }
+    const prev = subMap.get(k);
+    if (!prev) {
+      subMap.set(k, s);
+    } else {
+      const prevTime = prev.submittedAt ? new Date(prev.submittedAt).getTime() : 0;
+      const nextTime = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
+      const mergedSub: TaskSubmission = nextTime >= prevTime ? { ...prev, ...s } : { ...s, ...prev };
+      // Prefer real Google Drive URL or non-empty fileUrl over stripped empty string
+      const prevUrl = prev.fileUrl || '';
+      const nextUrl = s.fileUrl || '';
+      if (nextUrl.startsWith('http')) {
+        mergedSub.fileUrl = nextUrl;
+      } else if (prevUrl.startsWith('http')) {
+        mergedSub.fileUrl = prevUrl;
+      } else {
+        mergedSub.fileUrl = nextUrl || prevUrl;
+      }
+      subMap.set(k, mergedSub);
+    }
+  }
+
+  const mergedSubmissions = Array.from(subMap.values());
+  return {
+    ...base,
+    submissions: mergedSubmissions,
+    deletedSubmissionsMap: Object.keys(deletedMap).length > 0 ? deletedMap : undefined,
+    attachmentUrl: base.attachmentUrl || existingTask.attachmentUrl || incomingTask.attachmentUrl,
+    submittedFileUrl: base.submittedFileUrl || existingTask.submittedFileUrl || incomingTask.submittedFileUrl
+  };
+}
+
+function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], preferIncomingOrder = true): TaskItem[] {
+  if (!Array.isArray(localList)) return Array.isArray(incomingList) ? incomingList : [];
+  if (!Array.isArray(incomingList)) return localList;
+
+  const localMap = new Map<string, TaskItem>();
+  for (const t of localList) {
+    if (t && t.id) localMap.set(t.id, t);
+  }
+
+  const incomingMap = new Map<string, TaskItem>();
+  for (const t of incomingList) {
+    if (t && t.id) incomingMap.set(t.id, t);
+  }
+
+  const result: TaskItem[] = [];
+  const primaryList = preferIncomingOrder ? incomingList : localList;
+
+  for (const item of primaryList) {
+    if (!item || !item.id) continue;
+    const loc = localMap.get(item.id);
+    const inc = incomingMap.get(item.id);
+    if (loc && inc) {
+      result.push(mergeSingleTaskSubmissionsClient(loc, inc, preferIncomingOrder));
+    } else {
+      result.push(item);
+    }
+  }
+
+  return result;
+}
+
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
@@ -430,12 +563,13 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
   })
     .then(r => {
       if (!r.ok) {
-        pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
+        pushToGoogleCloudKVDirect(resolvedKey, sanitizeValueForSync(value), timestamp);
         return null;
       }
       return r.json();
     })
     .then(data => {
+      locallyModifiedKeys.delete(resolvedKey);
       if (data && typeof data.rev === 'number' && data.rev > lastKnownRev) {
         lastKnownRev = data.rev;
       }
@@ -445,9 +579,18 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
           keyTimestamps.set(resolvedKey, data.serverTime);
         }
       }
+      if (data && data.mergedUpdates && data.mergedUpdates[resolvedKey] !== undefined) {
+        const serverMerged = data.mergedUpdates[resolvedKey];
+        const currentCached = memoryCache.get(resolvedKey);
+        if (JSON.stringify(serverMerged) !== JSON.stringify(currentCached)) {
+          memoryCache.set(resolvedKey, serverMerged);
+          notifySubscribers([resolvedKey]);
+        }
+      }
     })
     .catch(() => {
-      pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
+      locallyModifiedKeys.delete(resolvedKey);
+      pushToGoogleCloudKVDirect(resolvedKey, sanitizeValueForSync(value), timestamp);
     });
 
   // 4. Cloudflare Pages D1 Real-Time State Mirror
@@ -457,7 +600,7 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
     body: JSON.stringify({
       clientId: CLIENT_ID,
       key: resolvedKey,
-      value,
+      value: sanitizeValueForSync(value),
       updatedAt: timestamp
     })
   }).catch(() => {});
@@ -471,13 +614,25 @@ function applyIncomingUpdates(
   const changedKeys: string[] = [];
   const now = Date.now();
 
-  for (const [resolvedKey, value] of Object.entries(updates)) {
+  for (const [resolvedKey, rawValue] of Object.entries(updates)) {
     if (INTERNAL_SKIP_KEYS.has(resolvedKey)) continue;
     const incomingTs = Number(timestamps[resolvedKey]) || now;
     const localTs = keyTimestamps.get(resolvedKey) || 0;
 
-    // Only skip if this browser explicitly modified the key MORE recently than incomingTs
-    if (locallyModifiedKeys.has(resolvedKey) && localTs > incomingTs) {
+    // Auto-expire locallyModifiedKeys after 3.5 seconds so clock skew or stale callbacks never block sync
+    if (locallyModifiedKeys.has(resolvedKey) && now - localTs > 3500) {
+      locallyModifiedKeys.delete(resolvedKey);
+    }
+
+    let value = rawValue;
+
+    // For task keys, always union-merge submissions so Member submissions and Admin updates never overwrite each other
+    if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
+      const currentCachedTasks = memoryCache.get(resolvedKey);
+      if (Array.isArray(currentCachedTasks)) {
+        value = mergeTaskListsClient(currentCachedTasks, value, incomingTs >= localTs);
+      }
+    } else if (locallyModifiedKeys.has(resolvedKey) && localTs > incomingTs) {
       continue;
     }
 
@@ -505,7 +660,7 @@ function applyIncomingUpdates(
         : null;
 
     memoryCache.set(resolvedKey, value);
-    keyTimestamps.set(resolvedKey, incomingTs);
+    keyTimestamps.set(resolvedKey, Math.max(localTs, incomingTs));
 
     if (serializedIncoming !== serializedCurrent) {
       if (!fromStorageEvent && nativeSetItem) {
@@ -513,7 +668,11 @@ function applyIncomingUpdates(
           isInternalStorageWrite = true;
           nativeSetItem(resolvedKey, serializedIncoming);
         } catch {
-          // ignore quota error
+          try {
+            nativeSetItem(resolvedKey, JSON.stringify(sanitizeValueForSync(value)));
+          } catch {
+            // ignore quota error
+          }
         } finally {
           isInternalStorageWrite = false;
         }
@@ -579,18 +738,39 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
     const now = Date.now();
     memoryCache.set(resolvedKey, value);
     keyTimestamps.set(resolvedKey, now);
-    locallyModifiedKeys.add(resolvedKey);
+    if (!skipRemotePush) {
+      locallyModifiedKeys.add(resolvedKey);
+    }
 
-    const serialized = JSON.stringify(value);
-    if (nativeSetItem) {
-      isInternalStorageWrite = true;
-      try {
-        nativeSetItem(resolvedKey, serialized);
-      } finally {
-        isInternalStorageWrite = false;
+    // Write to localStorage inside its own inner try/catch so QuotaExceededError on large files NEVER aborts BroadcastChannel, UI subscribers, or remote server sync
+    try {
+      const serialized = JSON.stringify(value);
+      if (nativeSetItem) {
+        isInternalStorageWrite = true;
+        try {
+          nativeSetItem(resolvedKey, serialized);
+        } finally {
+          isInternalStorageWrite = false;
+        }
+      } else {
+        localStorage.setItem(resolvedKey, serialized);
       }
-    } else {
-      localStorage.setItem(resolvedKey, serialized);
+    } catch {
+      try {
+        const compactSerialized = JSON.stringify(sanitizeValueForSync(value));
+        if (nativeSetItem) {
+          isInternalStorageWrite = true;
+          try {
+            nativeSetItem(resolvedKey, compactSerialized);
+          } finally {
+            isInternalStorageWrite = false;
+          }
+        } else {
+          localStorage.setItem(resolvedKey, compactSerialized);
+        }
+      } catch {
+        // Ignore localStorage quota overflow; memoryCache & remote server still hold full data
+      }
     }
 
     // 1. Instant 0ms Cross-Tab Broadcast in same browser
@@ -987,12 +1167,10 @@ export const StorageService = {
 
     connectSSE();
 
-    // 6. Fast lightweight delta check every 3 seconds & on focus/visibility/online
+    // 6. Fast lightweight delta check every 1.2 seconds & on focus/visibility/online
     setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        this.pullRemoteState(false);
-      }
-    }, 3000);
+      this.pullRemoteState(false);
+    }, 1200);
 
     window.addEventListener('focus', () => {
       this.pullRemoteState(false);
@@ -1959,21 +2137,61 @@ export const StorageService = {
   saveTask(task: TaskItem): TaskItem[] {
     const list = this.getTasks();
     const idx = list.findIndex(t => t.id === task.id);
+    let mergedTask = task;
     let updated: TaskItem[];
     if (idx >= 0) {
+      mergedTask = mergeSingleTaskSubmissionsClient(list[idx], task, true);
       updated = [...list];
-      updated[idx] = task;
+      updated[idx] = mergedTask;
     } else {
-      updated = [task, ...list];
+      updated = [mergedTask, ...list];
     }
     setLocal(KEYS.TASKS, updated);
-    this.syncPostToGoogle('saveTask', { task }).then(res => {
+
+    // Background upload any base64 member submission files to Google Drive so Drive links sync across all devices & Firestore
+    if (Array.isArray(mergedTask.submissions)) {
+      mergedTask.submissions.forEach(sub => {
+        if (sub && sub.fileUrl && sub.fileUrl.startsWith('data:')) {
+          this.uploadFileToGoogleDrive(
+            sub.fileUrl,
+            sub.fileName || `submission_${sub.memberId}`,
+            `TaskSubmissions_${mergedTask.academicYear || '2569'}`
+          )
+            .then(driveUrl => {
+              if (driveUrl && driveUrl.startsWith('http')) {
+                const latestTasks = this.getTasks();
+                const tIndex = latestTasks.findIndex(t => t.id === mergedTask.id);
+                if (tIndex >= 0) {
+                  const target = latestTasks[tIndex];
+                  const nextSubs = (target.submissions || []).map(s =>
+                    s.memberId === sub.memberId && s.submittedAt === sub.submittedAt
+                      ? { ...s, fileUrl: driveUrl }
+                      : s
+                  );
+                  const nextTask: TaskItem = {
+                    ...target,
+                    submissions: nextSubs,
+                    submittedFileUrl:
+                      target.submittedBy === sub.memberId ? driveUrl : target.submittedFileUrl
+                  };
+                  const nextList = [...latestTasks];
+                  nextList[tIndex] = nextTask;
+                  setLocal(KEYS.TASKS, nextList);
+                }
+              }
+            })
+            .catch(() => {});
+        }
+      });
+    }
+
+    this.syncPostToGoogle('saveTask', { task: mergedTask }).then(res => {
       if (res && res.task && typeof res.task === 'object') {
         const curTasks = this.getTasks();
-        const tIdx = curTasks.findIndex(t => t.id === task.id);
+        const tIdx = curTasks.findIndex(t => t.id === mergedTask.id);
         if (tIdx >= 0) {
           const nextTasks = [...curTasks];
-          nextTasks[tIdx] = { ...nextTasks[tIdx], ...res.task };
+          nextTasks[tIdx] = mergeSingleTaskSubmissionsClient(nextTasks[tIdx], res.task, false);
           setLocal(KEYS.TASKS, nextTasks, true);
         }
       }
@@ -2269,48 +2487,115 @@ export const StorageService = {
     deletedTasks?: number;
     deletedDocuments?: number;
   } {
-    D1Service.deleteYear(year).catch(() => {});
+    const targetYear = String(year).trim();
+    const gregorianYear = String(Number(targetYear) - 543);
+    D1Service.deleteYear(targetYear).catch(() => {});
+
     // 1. Remove year from list
     const currentYears = this.getAcademicYears();
-    const updatedYears = currentYears.filter(y => y !== year);
+    const updatedYears = currentYears.filter(y => y !== targetYear);
+    const fallbackYear = updatedYears[0] || '2568';
     setLocal(KEYS.ACADEMIC_YEARS, updatedYears.length > 0 ? updatedYears : ['2568']);
 
-    // Helper to match date string (YYYY-MM-DD or Buddhist year) against target academic year
+    // Helper to match date string (YYYY-MM-DD, DD-MM-YYYY, or Buddhist/Gregorian year) against target academic year
     const isDateInYear = (dateStr?: string) => {
       if (!dateStr) return false;
-      if (dateStr.includes(year)) return true;
-      const gregorianYear = String(Number(year) - 543);
-      return dateStr.includes(gregorianYear);
+      const s = String(dateStr);
+      return s.includes(targetYear) || (!isNaN(Number(targetYear)) && s.includes(gregorianYear));
+    };
+
+    const isItemInYear = (item: any): boolean => {
+      if (!item || typeof item !== 'object') return false;
+      if (item.academicYear && String(item.academicYear).trim() === targetYear) return true;
+      if (item.fiscalYear && String(item.fiscalYear).trim() === targetYear) return true;
+      if (item.year && String(item.year).trim() === targetYear) return true;
+      if (!item.academicYear) {
+        if (item.date && isDateInYear(item.date)) return true;
+        if (item.dueDate && isDateInYear(item.dueDate)) return true;
+        if (item.startDate && isDateInYear(item.startDate)) return true;
+      }
+      return false;
+    };
+
+    // Collect all Google Drive file URLs & IDs belonging to this academic year so GAS can trash them in Google Drive
+    const fileUrlsToTrash = new Set<string>();
+    const driveFileIdsToTrash = new Set<string>();
+    const collectFilesFromItem = (item: any) => {
+      if (!item || typeof item !== 'object') return;
+      const urlFields = ['attachmentUrl', 'submittedFileUrl', 'fileUrl', 'documentUrl'];
+      for (const f of urlFields) {
+        if (typeof item[f] === 'string' && item[f].startsWith('http')) {
+          fileUrlsToTrash.add(item[f]);
+        }
+      }
+      if (typeof item.driveFileId === 'string' && item.driveFileId.trim()) {
+        driveFileIdsToTrash.add(item.driveFileId.trim());
+      }
+      if (Array.isArray(item.submissions)) {
+        for (const sub of item.submissions) {
+          if (sub?.fileUrl && typeof sub.fileUrl === 'string' && sub.fileUrl.startsWith('http')) {
+            fileUrlsToTrash.add(sub.fileUrl);
+          }
+          if (sub?.driveFileId && typeof sub.driveFileId === 'string') {
+            driveFileIdsToTrash.add(sub.driveFileId);
+          }
+        }
+      }
     };
 
     // If current school year was this year, fall back to another available year
     const schoolInfo = this.getSchoolInfo();
-    if (schoolInfo.academicYear === year) {
-      schoolInfo.academicYear = updatedYears[0] || '2568';
+    if (schoolInfo.academicYear === targetYear) {
+      schoolInfo.academicYear = fallbackYear;
       this.setSchoolInfo(schoolInfo);
     }
 
     // 2. Wipe grades stored in that academic year
     const grades = this.getGrades();
-    const remainingGrades = grades.filter(g => g.academicYear !== year);
+    const remainingGrades = grades.filter(g => g.academicYear !== targetYear);
     const deletedGrades = grades.length - remainingGrades.length;
     setLocal(KEYS.GRADES, remainingGrades);
 
-    // 3. Wipe attendance stored in that academic year
+    // 3. Wipe attendance & 100-day attendance configs stored in that academic year
     const attendance = this.getAttendance();
-    const remainingAttendance = attendance.filter(a => a.academicYear !== year && !isDateInYear(a.date));
+    const remainingAttendance = attendance.filter(a => a.academicYear !== targetYear && !isDateInYear(a.date));
     const deletedAttendance = attendance.length - remainingAttendance.length;
     setLocal(KEYS.ATTENDANCE, remainingAttendance);
 
+    const attConfigs = { ...this.getAttendanceConfigsByTerm() };
+    let attConfigsChanged = false;
+    Object.keys(attConfigs).forEach(k => {
+      if (k.endsWith(`_${targetYear}`) || attConfigs[k]?.academicYear === targetYear) {
+        delete attConfigs[k];
+        attConfigsChanged = true;
+      }
+    });
+    if (attConfigsChanged) {
+      setLocal(KEYS.ATTENDANCE_CONFIGS_BY_TERM, attConfigs);
+    }
+
+    // Wipe locked semesters for that academic year
+    const lockedMap = { ...this.getLockedSemesters() };
+    let lockedChanged = false;
+    Object.keys(lockedMap).forEach(k => {
+      if (k.startsWith(`${targetYear}_`)) {
+        delete lockedMap[k];
+        lockedChanged = true;
+      }
+    });
+    if (lockedChanged) {
+      setLocal(KEYS.LOCKED_SEMESTERS, lockedMap);
+    }
+
     // 4. Wipe savings stored in that academic year
     const savings = this.getSavings();
-    const remainingSavings = savings.filter(s => s.academicYear !== year && !isDateInYear(s.date));
+    const remainingSavings = savings.filter(s => s.academicYear !== targetYear && !isDateInYear(s.date));
     const deletedSavings = savings.length - remainingSavings.length;
     setLocal(KEYS.SAVINGS, remainingSavings);
 
     // 5. Wipe subjects stored in that academic year
-    const subjects = this.getSubjects();
-    const remainingSubjects = subjects.filter(s => s.academicYear !== year);
+    const subjects = getLocal<Subject[]>(KEYS.SUBJECTS, INITIAL_SUBJECTS);
+    const remainingSubjects = subjects.filter(s => s.academicYear !== targetYear);
     const deletedSubjects = subjects.length - remainingSubjects.length;
     setLocal(KEYS.SUBJECTS, remainingSubjects);
 
@@ -2320,37 +2605,143 @@ export const StorageService = {
     const deletedDailyTracking = dailyTracking.length - remainingDaily.length;
     setLocal(KEYS.DAILY_TRACKING, remainingDaily);
 
-    // 7. Wipe tasks & submissions for that academic year (Cascade Delete)
+    // 7. Wipe tasks & submissions for that academic year (and collect their Drive files)
     const tasks = this.getTasks();
-    const remainingTasks = tasks.filter(t => (t as any).academicYear !== year && !isDateInYear(t.dueDate));
+    tasks.filter(t => isItemInYear(t)).forEach(collectFilesFromItem);
+    const remainingTasks = tasks.filter(t => !isItemInYear(t));
     const deletedTasks = tasks.length - remainingTasks.length;
     setLocal(KEYS.TASKS, remainingTasks);
 
-    // 8. Wipe documents for that academic year (Cascade Delete)
+    // 8. Wipe documents for that academic year (and collect their Drive files)
     const docs = this.getDocuments();
-    const remainingDocs = docs.filter(d => (d as any).academicYear !== year && !isDateInYear(d.date));
+    docs.filter(d => isItemInYear(d)).forEach(collectFilesFromItem);
+    const remainingDocs = docs.filter(d => !isItemInYear(d));
     const deletedDocuments = docs.length - remainingDocs.length;
     setLocal(KEYS.DOCUMENTS, remainingDocs);
 
-    // 9. Cascade delete across all Multi-Tenant school keys in localStorage & real-time server
+    // 9. Wipe Calendar Events, Comment Sessions, Behavior Evaluations, Leave Requests, Duty Logs, 3 Booklets, Reading/Writing, Weight/Height
+    const calendarEvents = this.getCalendarEvents();
+    const remainingCalendar = calendarEvents.filter(e => !isItemInYear(e));
+    if (remainingCalendar.length !== calendarEvents.length) {
+      setLocal(KEYS.CALENDAR, remainingCalendar);
+    }
+
+    const commentSessions = this.getCommentSessions();
+    const removedSessionIds = new Set(
+      commentSessions.filter(cs => cs.academicYear === targetYear || isDateInYear(cs.date)).map(cs => cs.id)
+    );
+    const remainingSessions = commentSessions.filter(cs => !removedSessionIds.has(cs.id));
+    if (remainingSessions.length !== commentSessions.length) {
+      setLocal(KEYS.COMMENT_SESSIONS, remainingSessions);
+    }
+
+    const evaluationsMap = { ...this.getBehaviorEvaluations() };
+    let evalsChanged = false;
+    Object.entries(evaluationsMap).forEach(([k, ev]) => {
+      if (
+        k.includes(`_${targetYear}_`) ||
+        (ev && (ev.academicYear === targetYear || Boolean(ev.sessionId && removedSessionIds.has(ev.sessionId)) || isItemInYear(ev)))
+      ) {
+        delete evaluationsMap[k];
+        evalsChanged = true;
+      }
+    });
+    if (evalsChanged) {
+      setLocal(KEYS.BEHAVIOR_EVALUATIONS, evaluationsMap);
+    }
+
+    const leaves = this.getLeaveRequests();
+    leaves.filter(l => isItemInYear(l)).forEach(collectFilesFromItem);
+    const remainingLeaves = leaves.filter(l => !isItemInYear(l));
+    if (remainingLeaves.length !== leaves.length) {
+      setLocal(KEYS.LEAVE_REQUESTS, remainingLeaves);
+    }
+
+    const dutyLogs = getLocal<any[]>(KEYS.DUTY_LOGS, []);
+    const remainingDuty = dutyLogs.filter((d: any) => !isItemInYear(d));
+    if (remainingDuty.length !== dutyLogs.length) {
+      setLocal(KEYS.DUTY_LOGS, remainingDuty);
+    }
+
+    // 10. Cascade delete across all keys (both base keys & Multi-Tenant __<schoolId> keys) in memoryCache, localStorage & real-time server
     if (typeof window !== 'undefined') {
       const now = Date.now();
+      const allCandidateKeys = new Set<string>();
       for (let i = 0; i < localStorage.length; i++) {
-        const storageKey = localStorage.key(i);
-        if (!storageKey || !storageKey.includes('__')) continue;
+        const k = localStorage.key(i);
+        if (k) allCandidateKeys.add(k);
+      }
+      memoryCache.forEach((_v, k) => allCandidateKeys.add(k));
+
+      for (const storageKey of allCandidateKeys) {
+        if (!storageKey || GLOBAL_KEYS.has(storageKey) || INTERNAL_SKIP_KEYS.has(storageKey)) continue;
+        const baseKey = storageKey.includes('__') ? storageKey.split('__')[0] : storageKey;
+        if (
+          baseKey === KEYS.STUDENTS ||
+          baseKey === KEYS.PERSONNEL
+        ) {
+          continue;
+        }
+
+        // Delete keys whose name explicitly embeds the deleted academic year (e.g. pp6_2568, ams_cleared_1_2568)
+        if (storageKey.includes(targetYear)) {
+          memoryCache.delete(storageKey);
+          keyTimestamps.set(storageKey, now);
+          try {
+            window.localStorage.removeItem(storageKey);
+          } catch {
+            // ignore
+          }
+          pushToRemoteServer(storageKey, null, now);
+          continue;
+        }
+
         try {
-          const parsed = JSON.parse(localStorage.getItem(storageKey) || 'null');
-          if (Array.isArray(parsed)) {
-            const filtered = parsed.filter((item: any) => {
-              if (item?.academicYear === year) return false;
-              if (item?.date && isDateInYear(item.date)) return false;
-              if (item?.dueDate && isDateInYear(item.dueDate)) return false;
-              return true;
-            });
-            memoryCache.set(storageKey, filtered);
+          const cachedVal = memoryCache.has(storageKey)
+            ? memoryCache.get(storageKey)
+            : JSON.parse((nativeGetItem ? nativeGetItem(storageKey) : localStorage.getItem(storageKey)) || 'null');
+          if (!cachedVal) continue;
+
+          if (baseKey === KEYS.SCHOOL_INFO && typeof cachedVal === 'object' && cachedVal.academicYear === targetYear) {
+            const updatedInfo = { ...cachedVal, academicYear: fallbackYear };
+            memoryCache.set(storageKey, updatedInfo);
             keyTimestamps.set(storageKey, now);
-            localStorage.setItem(storageKey, JSON.stringify(filtered));
-            pushToRemoteServer(storageKey, filtered, now);
+            try {
+              if (nativeSetItem) nativeSetItem(storageKey, JSON.stringify(updatedInfo));
+            } catch {}
+            pushToRemoteServer(storageKey, updatedInfo, now);
+            continue;
+          }
+
+          if (Array.isArray(cachedVal)) {
+            cachedVal.filter(isItemInYear).forEach(collectFilesFromItem);
+            const filtered = cachedVal.filter(item => !isItemInYear(item));
+            if (filtered.length !== cachedVal.length) {
+              memoryCache.set(storageKey, filtered);
+              keyTimestamps.set(storageKey, now);
+              try {
+                if (nativeSetItem) nativeSetItem(storageKey, JSON.stringify(filtered));
+              } catch {}
+              pushToRemoteServer(storageKey, filtered, now);
+            }
+          } else if (typeof cachedVal === 'object') {
+            let objChanged = false;
+            const nextObj: Record<string, any> = { ...cachedVal };
+            for (const [k, v] of Object.entries(nextObj)) {
+              if (k.includes(targetYear) || isItemInYear(v)) {
+                collectFilesFromItem(v);
+                delete nextObj[k];
+                objChanged = true;
+              }
+            }
+            if (objChanged) {
+              memoryCache.set(storageKey, nextObj);
+              keyTimestamps.set(storageKey, now);
+              try {
+                if (nativeSetItem) nativeSetItem(storageKey, JSON.stringify(nextObj));
+              } catch {}
+              pushToRemoteServer(storageKey, nextObj, now);
+            }
           }
         } catch {
           // ignore
@@ -2358,7 +2749,44 @@ export const StorageService = {
       }
     }
 
-    this.syncPostToGoogle('deleteAcademicYearCascade', { academicYear: year });
+    // 11. Cascade delete in Google Sheets & Google Drive across Master Spreadsheet AND every School Admin's Spreadsheet & Drive folder
+    const fileUrlsArr = Array.from(fileUrlsToTrash);
+    const driveFileIdsArr = Array.from(driveFileIdsToTrash);
+
+    this.syncPostToGoogle('deleteAcademicYearCascade', {
+      academicYear: targetYear,
+      fileUrls: fileUrlsArr,
+      driveFileIds: driveFileIdsArr
+    });
+
+    const config = this.getGoogleConfig();
+    const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+    if (gasUrl) {
+      const admins = this.getAdmins();
+      const targetSpreadsheets = new Set<string>([MASTER_SPREADSHEET_ID]);
+      admins.forEach(adm => {
+        if (adm.googleSheetId && !adm.googleSheetId.startsWith('sheet_')) {
+          targetSpreadsheets.add(adm.googleSheetId);
+        }
+      });
+
+      targetSpreadsheets.forEach(sheetId => {
+        const matchedAdmin = admins.find(a => a.googleSheetId === sheetId);
+        fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'deleteAcademicYearCascade',
+            academicYear: targetYear,
+            spreadsheetId: sheetId,
+            schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
+            driveFolderId: config.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9',
+            fileUrls: fileUrlsArr,
+            driveFileIds: driveFileIdsArr
+          })
+        }).catch(() => {});
+      });
+    }
 
     return {
       years: updatedYears,

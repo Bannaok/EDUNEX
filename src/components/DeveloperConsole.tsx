@@ -487,8 +487,8 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
       setYearToDelete('');
       onShowToast(
         'success', 
-        'ลบปีการศึกษาและล้างข้อมูลสำเร็จ', 
-        `ลบปีการศึกษา ${yearToDelete} เรียบร้อยแล้ว (ล้างเกรด ${result.deletedGrades} รายการ, เวลาเรียน ${result.deletedAttendance} รายการ, สุขภาพ ${result.deletedDailyTracking} รายการ, เงินออม ${result.deletedSavings} รายการ)`
+        'ลบปีการศึกษาและล้างข้อมูลทั้งระบบสำเร็จ', 
+        `ลบข้อมูลปีการศึกษา ${yearToDelete} ทั้งหมดบนเว็บ รวมถึงไฟล์ที่อัปโหลดใน Google Drive และข้อมูลใน Google Sheets เรียบร้อยแล้ว (เกรด ${result.deletedGrades}, เวลาเรียน ${result.deletedAttendance}, สุขภาพ ${result.deletedDailyTracking}, เงินออม ${result.deletedSavings}, งานมอบหมาย ${result.deletedTasks || 0}, เอกสาร ${result.deletedDocuments || 0} รายการ)`
       );
     } catch {
       onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถลบปีการศึกษาได้');
@@ -1056,7 +1056,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                   <span>จัดการปีการศึกษา & การล้างข้อมูลประจำปี</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Developer มีสิทธิ์ลบปีการศึกษา โดยข้อมูลผลการเรียน เวลาเรียน สุขภาพ และเงินออมที่บันทึกในปีการศึกษานั้นจะหายหมดอย่างถาวร
+                  Developer มีสิทธิ์ลบปีการศึกษา โดยข้อมูลทุกอย่างในเว็บรวมถึงไฟล์ต่างๆ ที่ได้อัปโหลดในปีการศึกษานั้นๆ ใน Google Drive และ Google Sheets จะถูกลบอัตโนมัติอย่างถาวร
                 </p>
               </div>
 
@@ -1115,8 +1115,8 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                   <span>คำเตือนสำคัญเกี่ยวกับการลบปีการศึกษา:</span>
                 </div>
                 <p className="text-xs text-rose-300/80 leading-relaxed">
-                  เมื่อ Developer สั่งลบปีการศึกษาใด ข้อมูลทั้งหมดที่บันทึกในปีการศึกษานั้นจะถูกล้างทิ้งอย่างสมบูรณ์ทันที ได้แก่:
-                  ผลการเรียนและคะแนน (Grades), สถิติเวลาเรียน (Attendance), ข้อมูลสุขภาพการดื่มนมและการแปรงฟัน (Daily Tracking), ข้อมูลเงินฝากออมทรัพย์ (Savings) และวิชาเรียน (Subjects) ในปีนั้น
+                  เมื่อ Developer สั่งลบปีการศึกษาใด ข้อมูลทุกอย่างในเว็บรวมถึงไฟล์ต่างๆ ที่ได้อัปโหลดในปีการศึกษานั้นๆ ที่อยู่ใน Google Drive และ Google Sheets จะถูกลบอัตโนมัติอย่างสมบูรณ์ทันที ได้แก่:
+                  ผลการเรียนและคะแนน (Grades), สถิติเวลาเรียน (Attendance), ข้อมูลสุขภาพการดื่มนมและการแปรงฟัน (Daily Tracking), ข้อมูลเงินฝากออมทรัพย์ (Savings), วิชาเรียน (Subjects), งานมอบหมายและไฟล์งานที่สมาชิกส่ง (Assignments & Submissions), หนังสือคำสั่งและศูนย์เอกสาร (Documents), การประเมินพัฒนาการ/ปพ.6 และรายการลาในปีการศึกษานั้น
                 </p>
               </div>
             </div>
@@ -2194,14 +2194,15 @@ pages_build_output_dir = "dist"`}
 
             <div className="p-3.5 bg-rose-950/30 border border-rose-800/60 rounded-xl space-y-2 text-xs text-slate-300">
               <p className="font-semibold text-rose-200">
-                ระบบจะล้างข้อมูลประจำปีการศึกษา {yearToDelete} ทั้งหมด ได้แก่:
+                ระบบจะลบข้อมูลทุกอย่างในเว็บรวมถึงไฟล์ที่อัปโหลดในปีการศึกษา {yearToDelete} ใน Google Drive และ Google Sheets อัตโนมัติ ได้แก่:
               </p>
               <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px]">
-                <li>คะแนนและผลการเรียนทั้งหมด (Grades)</li>
-                <li>สถิติการเช็กชื่อเวลาเรียน (Attendance)</li>
-                <li>บันทึกสุขภาพ การดื่มนม แปรงฟัน (Daily Tracking)</li>
-                <li>ข้อมูลเงินฝากออมทรัพย์นักเรียน (Savings)</li>
-                <li>รายวิชาเรียนที่สอนในปีนี้ (Subjects)</li>
+                <li>คะแนนและผลการเรียนทั้งหมด (Grades) และรายวิชาเรียน (Subjects)</li>
+                <li>สถิติการเช็กชื่อเวลาเรียน (Attendance) และข้อมูลเงินออมทรัพย์ (Savings)</li>
+                <li>บันทึกสุขภาพ การดื่มนม แปรงฟัน น้ำหนักส่วนสูง และสมุดประเมิน</li>
+                <li>งานมอบหมาย ประกาศ และไฟล์งานที่สมาชิกอัปโหลดส่งทั้งหมด</li>
+                <li>หนังสือคำสั่ง เอกสาร และการยื่นลาในปีการศึกษานี้ทั้งหมด</li>
+                <li>ไฟล์แนบทั้งหมดในปีการศึกษานี้ที่อยู่ใน Google Drive และแถวข้อมูลใน Google Sheets</li>
               </ul>
             </div>
 

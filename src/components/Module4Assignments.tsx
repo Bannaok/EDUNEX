@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TaskItem, UserSession, MemberAccount, TaskSubmission } from '../types';
 import { 
   ClipboardList, 
@@ -20,6 +20,7 @@ import {
   FileCheck
 } from 'lucide-react';
 import { downloadRealFile, isWordFile, isExcelFile } from '../services/fileDownloadHelper';
+import { StorageService } from '../services/storage';
 
 interface Module4Props {
   user: UserSession;
@@ -161,6 +162,21 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   const schoolMembers = members.filter(m => m.role !== 'admin');
   const totalSchoolMembers = schoolMembers.length || 1;
 
+  // Keep Admin and Member assignments & submissions continuously synchronized in real time
+  useEffect(() => {
+    StorageService.pullRemoteState(false).catch(() => {});
+    const timer = setInterval(() => {
+      StorageService.pullRemoteState(false).catch(() => {});
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (statusTaskModal) {
+      StorageService.pullRemoteState(false).catch(() => {});
+    }
+  }, [statusTaskModal?.id]);
+
   const isTaskInYear = (task: TaskItem, yr: string = currentAcademicYear) => {
     if (task.academicYear) {
       return task.academicYear === yr;
@@ -181,22 +197,36 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return tType === activeSubTab;
   });
 
-  // Robust matcher for finding a member's submission in a task (handles ID, username, and fullName)
+  const normalizePersonName = (name?: string) => {
+    if (!name) return '';
+    return name
+      .replace(/^(นาย|นางสาว|นาง|ด\.ช\.|ด\.ญ\.|ครู|ผอ\.|ดร\.|ว่าที่ร้อยตรี|ว่าที่\s*ร\.ต\.)/g, '')
+      .replace(/\s+/g, '')
+      .trim()
+      .toLowerCase();
+  };
+
+  // Robust matcher for finding a member's submission in a task (handles ID, username, fullName, and prefix-stripped name)
   const findMemberSubmission = (task: TaskItem, member: MemberAccount): TaskSubmission | undefined => {
     if (!task) return undefined;
     const subs = task.submissions || [];
-    const found = subs.find(s => 
-      s.memberId === member.id || 
-      (member.username && s.memberId === member.username) ||
-      (member.fullName && s.memberName === member.fullName)
-    );
+    const normMemberName = normalizePersonName(member.fullName);
+    const found = subs.find(s => {
+      if (!s) return false;
+      if (s.memberId === member.id) return true;
+      if (member.username && s.memberId?.toLowerCase() === member.username.toLowerCase()) return true;
+      if (member.fullName && s.memberName === member.fullName) return true;
+      if (normMemberName && normalizePersonName(s.memberName) === normMemberName) return true;
+      return false;
+    });
     if (found) return found;
 
     if (
       task.submittedFileUrl &&
       (task.submittedBy === member.id ||
-       task.submittedBy === member.username ||
-       (member.fullName && task.submittedByName === member.fullName))
+       (member.username && task.submittedBy?.toLowerCase() === member.username.toLowerCase()) ||
+       (member.fullName && task.submittedByName === member.fullName) ||
+       (normMemberName && normalizePersonName(task.submittedByName) === normMemberName))
     ) {
       return {
         memberId: member.id,
@@ -214,18 +244,23 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   const getMySubmission = (task: TaskItem): TaskSubmission | undefined => {
     if (!task) return undefined;
     const subs = task.submissions || [];
-    const found = subs.find(s => 
-      s.memberId === user.id ||
-      (user.username && s.memberId === user.username) ||
-      (user.fullName && s.memberName === user.fullName)
-    );
+    const normMyName = normalizePersonName(user.fullName);
+    const found = subs.find(s => {
+      if (!s) return false;
+      if (s.memberId === user.id) return true;
+      if (user.username && s.memberId?.toLowerCase() === user.username.toLowerCase()) return true;
+      if (user.fullName && s.memberName === user.fullName) return true;
+      if (normMyName && normalizePersonName(s.memberName) === normMyName) return true;
+      return false;
+    });
     if (found) return found;
 
     if (
       task.submittedFileUrl &&
       (task.submittedBy === user.id ||
-       task.submittedBy === user.username ||
-       (user.fullName && task.submittedByName === user.fullName))
+       (user.username && task.submittedBy?.toLowerCase() === user.username.toLowerCase()) ||
+       (user.fullName && task.submittedByName === user.fullName) ||
+       (normMyName && normalizePersonName(task.submittedByName) === normMyName))
     ) {
       return {
         memberId: user.id,
@@ -240,8 +275,18 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return undefined;
   };
 
+  const getTaskSubmittedCount = (task: TaskItem): number => {
+    const matchedIds = new Set<string>();
+    schoolMembers.forEach(m => {
+      const sub = findMemberSubmission(task, m);
+      if (sub) matchedIds.add(m.id);
+    });
+    const rawSubsCount = (task.submissions || []).filter(s => s && (s.memberId || s.memberName)).length;
+    return Math.max(matchedIds.size, rawSubsCount);
+  };
+
   const isTaskDoneForUser = (task: TaskItem) => {
-    const subsCount = schoolMembers.filter(m => !!findMemberSubmission(task, m)).length;
+    const subsCount = getTaskSubmittedCount(task);
     const isFull =
       (totalSchoolMembers > 0 && subsCount >= totalSchoolMembers) ||
       Boolean(task.isManualCompleted) ||
@@ -429,37 +474,47 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
+    const nowIso = new Date().toISOString();
     const newSub: TaskSubmission = {
       memberId: user.id,
       memberName: user.fullName,
       fileUrl: submittedFile.url,
       fileName: submittedFile.name,
       fileSize: submittedFile.size,
-      submittedAt: new Date().toISOString()
+      submittedAt: nowIso
     };
 
+    const normMyName = normalizePersonName(user.fullName);
     const currentSubs = task.submissions || [];
     const updatedSubs = [
       ...currentSubs.filter(s => 
         s.memberId !== user.id && 
-        s.memberId !== user.username && 
-        s.memberName !== user.fullName
+        (!user.username || s.memberId?.toLowerCase() !== user.username.toLowerCase()) && 
+        s.memberName !== user.fullName &&
+        (!normMyName || normalizePersonName(s.memberName) !== normMyName)
       ),
       newSub
     ];
+
+    const nextDeletedMap = { ...(task.deletedSubmissionsMap || {}) };
+    delete nextDeletedMap[user.id];
+    if (user.username) delete nextDeletedMap[user.username];
+    if (user.fullName) delete nextDeletedMap[user.fullName];
 
     const isAllMembersDone = updatedSubs.length >= totalSchoolMembers;
 
     const updatedTask: TaskItem = {
       ...task,
       submissions: updatedSubs,
+      deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isAllMembersDone,
-      submittedFileUrl: submittedFile.url,
+      // Avoid duplicating large base64 data URLs twice in the same TaskItem object
+      submittedFileUrl: submittedFile.url.startsWith('http') ? submittedFile.url : undefined,
       submittedFileName: submittedFile.name,
       submittedFileSize: submittedFile.size,
       submittedBy: user.id,
       submittedByName: user.fullName,
-      submittedAt: new Date().toISOString()
+      submittedAt: nowIso
     };
 
     onSaveTask(updatedTask);
@@ -468,7 +523,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     onShowToast(
       'success',
       'ส่งงานสำเร็จ 🎉',
-      'ส่งภาระงานเรียบร้อยแล้ว รายการถูกย้ายไปแสดงด้านล่างสุด (สีเขียว)'
+      'ส่งภาระงานเรียบร้อยแล้ว ระบบซิงค์ข้อมูลไปยังหน้าผู้ดูแลระบบ (Admin) ทันที'
     );
   };
 
@@ -476,14 +531,25 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   const handleMemberRemoveOldFile = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
+    const normMyName = normalizePersonName(user.fullName);
     const updatedSubs = (task.submissions || []).filter(s => 
       s.memberId !== user.id && 
-      s.memberId !== user.username && 
-      s.memberName !== user.fullName
+      (!user.username || s.memberId?.toLowerCase() !== user.username.toLowerCase()) && 
+      s.memberName !== user.fullName &&
+      (!normMyName || normalizePersonName(s.memberName) !== normMyName)
     );
+    const delIso = new Date().toISOString();
+    const nextDeletedMap: Record<string, string> = {
+      ...(task.deletedSubmissionsMap || {}),
+      [user.id]: delIso
+    };
+    if (user.username) nextDeletedMap[user.username] = delIso;
+    if (user.fullName) nextDeletedMap[user.fullName] = delIso;
+
     const updatedTask: TaskItem = {
       ...task,
       submissions: updatedSubs,
+      deletedSubmissionsMap: nextDeletedMap,
       isCompleted: false,
       isManualCompleted: false,
       submittedFileUrl: undefined,
@@ -501,15 +567,31 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
     const mem = members.find(m => m.id === memberId || m.username === memberId);
+    const normMemName = normalizePersonName(mem?.fullName);
     const updatedSubs = (task.submissions || []).filter(s => 
       s.memberId !== memberId && 
-      (!mem || (s.memberId !== mem.username && s.memberName !== mem.fullName))
+      (!mem || (
+        s.memberId !== mem.username &&
+        s.memberName !== mem.fullName &&
+        (!normMemName || normalizePersonName(s.memberName) !== normMemName)
+      ))
     );
-    const isStillSubmittedByThisMember = task.submittedBy === memberId || (mem && (task.submittedBy === mem.username || task.submittedByName === mem.fullName));
+    const isStillSubmittedByThisMember =
+      task.submittedBy === memberId ||
+      (mem && (task.submittedBy === mem.username || task.submittedByName === mem.fullName));
+
+    const delIso = new Date().toISOString();
+    const nextDeletedMap: Record<string, string> = {
+      ...(task.deletedSubmissionsMap || {}),
+      [memberId]: delIso
+    };
+    if (mem?.username) nextDeletedMap[mem.username] = delIso;
+    if (mem?.fullName) nextDeletedMap[mem.fullName] = delIso;
 
     const updatedTask: TaskItem = {
       ...task,
       submissions: updatedSubs,
+      deletedSubmissionsMap: nextDeletedMap,
       isCompleted: updatedSubs.length >= totalSchoolMembers,
       isManualCompleted: false,
       submittedFileUrl: isStillSubmittedByThisMember ? undefined : task.submittedFileUrl,
@@ -761,7 +843,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   const isHigh = task.priority === 'high';
                   const isDragging = draggedId === task.id;
                   const isDragOver = dragOverId === task.id;
-                  const submittedCount = schoolMembers.filter(m => !!findMemberSubmission(task, m)).length;
+                  const submittedCount = getTaskSubmittedCount(task);
                   const isFullySubmitted =
                     (totalSchoolMembers > 0 && submittedCount >= totalSchoolMembers) ||
                     Boolean(task.isManualCompleted) ||
@@ -820,6 +902,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
                             </span>
 
+                            {user.role === 'admin' && submittedCount > 0 && !isGreenCompleted && (
+                              <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg shrink-0 flex items-center gap-1 bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                ✓ ส่งแล้ว {submittedCount}/{totalSchoolMembers} คน
+                              </span>
+                            )}
+
                             {task.dueDate && (
                               <span className={`text-[10px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border flex items-center gap-1 whitespace-nowrap shrink-0 ${
                                 isGreenCompleted 
@@ -877,13 +965,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                               type="button"
                               onClick={() => setStatusTaskModal(task)}
                               className={`h-7 px-1.5 sm:h-auto sm:px-2.5 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-bold inline-flex items-center justify-center gap-1 cursor-pointer border shrink-0 ${
-                                isFullySubmitted
+                                isFullySubmitted || submittedCount > 0
                                   ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border-emerald-300'
                                   : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200'
                               }`}
                               title="สถานะการส่งงาน"
                             >
-                              <Users className={`w-3.5 h-3.5 shrink-0 ${isFullySubmitted ? 'text-emerald-700' : 'text-purple-600'}`} />
+                              <Users className={`w-3.5 h-3.5 shrink-0 ${isFullySubmitted || submittedCount > 0 ? 'text-emerald-700' : 'text-purple-600'}`} />
                               <span className="font-mono">({submittedCount}/{totalSchoolMembers})</span>
                             </button>
                           </>

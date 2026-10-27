@@ -190,20 +190,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return;
     }
 
+    const nowIso = new Date().toISOString();
     const newSub: TaskSubmission = {
       memberId: user.id,
       memberName: user.fullName || user.username,
       fileUrl: submitFile.url,
       fileName: submitFile.name,
       fileSize: submitFile.size,
-      submittedAt: new Date().toISOString()
+      submittedAt: nowIso
     };
 
     const currentSubs = taskToSubmit.submissions || [];
     const updatedSubs = [
-      ...currentSubs.filter(s => s.memberId !== user.id),
+      ...currentSubs.filter(
+        s =>
+          s.memberId !== user.id &&
+          (!user.username || s.memberId?.toLowerCase() !== user.username.toLowerCase()) &&
+          s.memberName !== user.fullName
+      ),
       newSub
     ];
+
+    const nextDeletedMap = { ...(taskToSubmit.deletedSubmissionsMap || {}) };
+    delete nextDeletedMap[user.id];
+    if (user.username) delete nextDeletedMap[user.username];
+    if (user.fullName) delete nextDeletedMap[user.fullName];
 
     const schoolMembers = (members || []).filter(m => m.role !== 'admin');
     const totalMembersCountForSubmit = schoolMembers.length > 0 ? schoolMembers.length : 1;
@@ -212,13 +223,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const updatedTask: TaskItem = {
       ...taskToSubmit,
       submissions: updatedSubs,
+      deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isNowAllSubmitted,
-      submittedFileUrl: submitFile.url,
+      submittedFileUrl: submitFile.url.startsWith('http') ? submitFile.url : undefined,
       submittedFileName: submitFile.name,
       submittedFileSize: submitFile.size,
       submittedBy: user.id,
       submittedByName: user.fullName || user.username,
-      submittedAt: new Date().toISOString()
+      submittedAt: nowIso
     };
 
     if (onSaveTask) {

@@ -388,6 +388,7 @@ export interface TaskItem {
   submittedByName?: string;
   submittedAt?: string;
   submissions?: TaskSubmission[];
+  deletedSubmissionsMap?: Record<string, string>;
   isManualCompleted?: boolean;
   order?: number;
   calendarEventId?: string;

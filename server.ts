@@ -364,9 +364,124 @@ function getGasWebAppUrl(): string {
   return DEFAULT_GAS_URL;
 }
 
+function sanitizeForCloudKv(val: any): any {
+  if (!val) return val;
+  if (typeof val === 'string') {
+    if (val.startsWith('data:') && val.length > 30000) {
+      return '';
+    }
+    return val;
+  }
+  if (Array.isArray(val)) {
+    return val.map(item => sanitizeForCloudKv(item));
+  }
+  if (typeof val === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      out[k] = sanitizeForCloudKv(v);
+    }
+    return out;
+  }
+  return val;
+}
+
+function normalizeSubKeyServer(sub: any): string {
+  if (!sub) return '';
+  const idPart = String(sub.memberId || '').trim().toLowerCase();
+  if (idPart) return idPart;
+  return String(sub.memberName || '').trim().toLowerCase();
+}
+
+function mergeSingleTaskSubmissionsServer(existingTask: any, incomingTask: any): any {
+  if (!existingTask || typeof existingTask !== 'object') return incomingTask;
+  if (!incomingTask || typeof incomingTask !== 'object') return incomingTask;
+
+  const deletedMap: Record<string, string> = {
+    ...(existingTask.deletedSubmissionsMap || {}),
+    ...(incomingTask.deletedSubmissionsMap || {})
+  };
+
+  const exSubs: any[] = Array.isArray(existingTask.submissions) ? existingTask.submissions : [];
+  const incSubs: any[] = Array.isArray(incomingTask.submissions) ? incomingTask.submissions : [];
+
+  const mergedSubsMap = new Map<string, any>();
+
+  const considerSub = (sub: any) => {
+    if (!sub || typeof sub !== 'object') return;
+    const key = normalizeSubKeyServer(sub);
+    if (!key) return;
+    const subTime = String(sub.submittedAt || '');
+    const delById = sub.memberId ? deletedMap[String(sub.memberId).trim().toLowerCase()] : undefined;
+    const delByName = sub.memberName ? deletedMap[String(sub.memberName).trim().toLowerCase()] : undefined;
+    const delTime = delById && delByName ? (delById > delByName ? delById : delByName) : (delById || delByName);
+    if (delTime && (!subTime || delTime >= subTime)) {
+      return;
+    }
+
+    const prev = mergedSubsMap.get(key);
+    if (!prev) {
+      mergedSubsMap.set(key, { ...sub });
+    } else {
+      const prevTime = String(prev.submittedAt || '');
+      const newer = subTime >= prevTime ? { ...prev, ...sub } : { ...sub, ...prev };
+      // Preserve non-empty fileUrl (prefer http Drive URL over data:, and data: over empty string)
+      const prevUrl = String(prev.fileUrl || '');
+      const subUrl = String(sub.fileUrl || '');
+      if (subUrl.startsWith('http')) {
+        newer.fileUrl = subUrl;
+      } else if (prevUrl.startsWith('http') && subTime <= prevTime) {
+        newer.fileUrl = prevUrl;
+      } else if (!newer.fileUrl && (subUrl || prevUrl)) {
+        newer.fileUrl = subUrl || prevUrl;
+      }
+      mergedSubsMap.set(key, newer);
+    }
+  };
+
+  exSubs.forEach(considerSub);
+  incSubs.forEach(considerSub);
+
+  const mergedSubmissions = Array.from(mergedSubsMap.values());
+  const result: any = {
+    ...existingTask,
+    ...incomingTask,
+    submissions: mergedSubmissions
+  };
+  if (Object.keys(deletedMap).length > 0) {
+    result.deletedSubmissionsMap = deletedMap;
+  }
+  return result;
+}
+
+function mergeTaskListsServer(existingList: any, incomingList: any): any {
+  if (!Array.isArray(incomingList)) return incomingList;
+  if (!Array.isArray(existingList) || existingList.length === 0) return incomingList;
+
+  const existingById = new Map<string, any>();
+  for (const t of existingList) {
+    if (t && t.id) {
+      existingById.set(String(t.id), t);
+    }
+  }
+
+  return incomingList.map(incTask => {
+    if (!incTask || !incTask.id) return incTask;
+    const exTask = existingById.get(String(incTask.id));
+    if (!exTask) return incTask;
+    return mergeSingleTaskSubmissionsServer(exTask, incTask);
+  });
+}
+
+function isTaskKeyName(key: string): boolean {
+  return key === 'ams_tasks' || key.startsWith('ams_tasks__');
+}
+
 function buildCloudKvRow(key: string, value: any, updatedAt: number): Record<string, any> | null {
   try {
-    const serialized = JSON.stringify(value);
+    let serialized = JSON.stringify(value);
+    if (serialized && serialized.length > CHUNK_SIZE * MAX_CHUNKS) {
+      serialized = JSON.stringify(sanitizeForCloudKv(value));
+    }
     if (!serialized || serialized.length > CHUNK_SIZE * MAX_CHUNKS) {
       return null;
     }
@@ -504,14 +619,15 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
 
       const localTs = Number(state.timestamps[key]) || 0;
+      const nextValue = isTaskKeyName(key) ? mergeTaskListsServer(state.store[key], value) : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
-      const cloudSerialized = JSON.stringify(value);
+      const cloudSerialized = JSON.stringify(nextValue);
 
       if (!(key in state.store) || updatedAt > localTs) {
-        state.store[key] = value;
+        state.store[key] = nextValue;
         state.timestamps[key] = updatedAt || Date.now();
         if (localSerialized !== cloudSerialized) {
-          appliedUpdates[key] = value;
+          appliedUpdates[key] = nextValue;
           appliedTimestamps[key] = state.timestamps[key];
           appliedCount++;
         }
@@ -636,13 +752,17 @@ async function startServer() {
       const effectiveTs = isInitialSeed ? incomingTs : Math.max(now, existingTs + 1, incomingTs);
 
       if (!isInitialSeed || effectiveTs >= existingTs || !(key in state.store)) {
+        let finalValue = value;
         if (value === null || value === undefined) {
           delete state.store[key];
         } else {
-          state.store[key] = value;
+          if (isTaskKeyName(key) && key in state.store) {
+            finalValue = mergeTaskListsServer(state.store[key], value);
+          }
+          state.store[key] = finalValue;
         }
         state.timestamps[key] = effectiveTs;
-        appliedUpdates[key] = value;
+        appliedUpdates[key] = finalValue;
         appliedTimestamps[key] = effectiveTs;
       }
     }
@@ -659,6 +779,7 @@ async function startServer() {
       status: 'success',
       rev: state.rev,
       appliedCount: updatedKeys.length,
+      mergedUpdates: appliedUpdates,
       serverTime: now
     });
   });
@@ -710,11 +831,13 @@ async function startServer() {
       if (action === 'saveRealtimeState') {
         const { key, value, updatedAt = now, clientId = 'd1-client' } = body;
         if (key) {
-          state.store[key] = value;
-          state.timestamps[key] = updatedAt;
+          const finalVal = isTaskKeyName(key) && key in state.store ? mergeTaskListsServer(state.store[key], value) : value;
+          const effTs = Math.max(now, Number(state.timestamps[key]) + 1 || 0, Number(updatedAt) || 0);
+          state.store[key] = finalVal;
+          state.timestamps[key] = effTs;
           state.rev += 1;
           scheduleDiskSave();
-          broadcastDelta(clientId, { [key]: value }, { [key]: updatedAt });
+          broadcastDelta(clientId, { [key]: finalVal }, { [key]: effTs });
           scheduleCloudKvPush([key]);
         }
         res.json({ status: 'success', rev: state.rev });
@@ -851,15 +974,102 @@ async function startServer() {
       }
 
       if (action === 'deleteYear') {
+        const targetYear = String(body.year || '').trim();
+        const gregorianYear = String(Number(targetYear) - 543);
         const years: string[] = Array.isArray(state.store['ams_academic_years']) ? state.store['ams_academic_years'] : ['2568', '2569'];
-        const nextYears = years.filter(y => y !== body.year);
-        state.store['ams_academic_years'] = nextYears;
+        const nextYears = years.filter(y => y !== targetYear);
+        const fallbackYear = nextYears[nextYears.length - 1] || '2568';
+
+        const deltaUpdates: Record<string, any> = {
+          ams_academic_years: nextYears.length > 0 ? nextYears : ['2568']
+        };
+        const deltaTimestamps: Record<string, number> = {
+          ams_academic_years: now
+        };
+
+        state.store['ams_academic_years'] = deltaUpdates.ams_academic_years;
         state.timestamps['ams_academic_years'] = now;
+
+        const isDateMatchingYear = (d?: string) => {
+          if (!d || typeof d !== 'string') return false;
+          if (d.includes(targetYear)) return true;
+          if (!isNaN(Number(targetYear)) && d.includes(gregorianYear)) return true;
+          return false;
+        };
+
+        // Sweep all keys in state.store across all school tenants
+        for (const [k, v] of Object.entries(state.store)) {
+          if (!k || k === 'ams_academic_years' || k === 'ams_school_admins' || k === 'ams_members' || k === 'ams_developer_account') continue;
+          const baseKey = k.includes('__') ? k.split('__')[0] : k;
+
+          if (baseKey === 'ams_school_info' && v && typeof v === 'object') {
+            if (v.academicYear === targetYear) {
+              const nextInfo = { ...v, academicYear: fallbackYear };
+              state.store[k] = nextInfo;
+              state.timestamps[k] = now;
+              deltaUpdates[k] = nextInfo;
+              deltaTimestamps[k] = now;
+            }
+          } else if (Array.isArray(v)) {
+            if (
+              baseKey === 'ams_students' ||
+              baseKey === 'ams_personnel' ||
+              baseKey === 'ams_websites' ||
+              baseKey === 'ams_custom_buttons' ||
+              baseKey === 'ams_custom_pages' ||
+              baseKey === 'ams_duty_assignments_v1'
+            ) {
+              continue;
+            }
+            const filtered = v.filter((item: any) => {
+              if (!item || typeof item !== 'object') return true;
+              if (String(item.academicYear || '') === targetYear) return false;
+              if (item.date && isDateMatchingYear(item.date)) return false;
+              if (item.dueDate && isDateMatchingYear(item.dueDate)) return false;
+              if (item.startDate && isDateMatchingYear(item.startDate)) return false;
+              if (baseKey === 'ams_documents' && item.docNumber && String(item.docNumber).endsWith('/' + targetYear)) return false;
+              return true;
+            });
+            if (filtered.length !== v.length) {
+              state.store[k] = filtered;
+              state.timestamps[k] = now;
+              deltaUpdates[k] = filtered;
+              deltaTimestamps[k] = now;
+            }
+          } else if (v && typeof v === 'object') {
+            if (
+              baseKey === 'ams_behavior_evaluations' ||
+              baseKey === 'ams_attendance_configs_by_term' ||
+              baseKey === 'ams_reading_writing_config_v2' ||
+              baseKey === 'ams_assessment_3_booklets_v2' ||
+              baseKey.startsWith('pp6_')
+            ) {
+              let modified = false;
+              const nextObj: Record<string, any> = {};
+              for (const [subK, subV] of Object.entries(v)) {
+                const keyHasYear = subK.includes(targetYear);
+                const valHasYear = subV && typeof subV === 'object' && String((subV as any).academicYear || '') === targetYear;
+                if (keyHasYear || valHasYear) {
+                  modified = true;
+                } else {
+                  nextObj[subK] = subV;
+                }
+              }
+              if (modified) {
+                state.store[k] = nextObj;
+                state.timestamps[k] = now;
+                deltaUpdates[k] = nextObj;
+                deltaTimestamps[k] = now;
+              }
+            }
+          }
+        }
+
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_academic_years: nextYears }, { ams_academic_years: now });
-        scheduleCloudKvPush(['ams_academic_years']);
-        res.json({ status: 'success', message: 'Deleted academic year' });
+        broadcastDelta('server-d1', deltaUpdates, deltaTimestamps);
+        scheduleCloudKvPush(Object.keys(deltaUpdates));
+        res.json({ status: 'success', message: 'Deleted academic year and cascaded all store keys' });
         return;
       }
     }

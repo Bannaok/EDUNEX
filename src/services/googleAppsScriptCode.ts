@@ -2130,45 +2130,151 @@ function handleDeleteAcademicYearCascade(academicYear, payload) {
   var ss = getTargetSpreadsheet(payload);
   var yearStr = String(academicYear).trim();
   var gregorianStr = String(Number(yearStr) - 543);
-  var targetSheets = ['Subjects', 'Grades', 'Attendance', 'Savings', 'DailyTracking', 'Tasks', 'Documents', 'LeaveRequests', 'DailyDutyLogs'];
   var deletedCount = 0;
+  var deletedDriveFilesCount = 0;
 
-  targetSheets.forEach(function(sheetName) {
-    var sheet = ss.getSheetByName(sheetName);
-    if (!sheet || sheet.getLastRow() <= 1) return;
-    var data = sheet.getDataRange().getValues();
-    var headers = data[0].map(function(h) { return String(h).trim(); });
-    var yearIdx = headers.indexOf('academicYear');
-    var dateIdx = headers.indexOf('date');
-    var dueDateIdx = headers.indexOf('dueDate');
+  // 1. ลบไฟล์ใน Google Drive ที่ส่งมาจากฝั่งเว็บโดยตรง (ทั้งจาก fileUrls และ driveFileIds)
+  if (payload && Array.isArray(payload.fileUrls)) {
+    payload.fileUrls.forEach(function(u) {
+      if (u && deleteDriveFileByUrlOrId(u, payload)) {
+        deletedDriveFilesCount++;
+      }
+    });
+  }
+  if (payload && Array.isArray(payload.driveFileIds)) {
+    payload.driveFileIds.forEach(function(fid) {
+      if (fid && deleteDriveFileByUrlOrId(fid, payload)) {
+        deletedDriveFilesCount++;
+      }
+    });
+  }
 
-    for (var i = data.length - 1; i >= 1; i--) {
-      var matchYear = (yearIdx >= 0 && String(data[i][yearIdx]) === yearStr);
-      var rowDate = dateIdx >= 0 ? String(data[i][dateIdx]) : (dueDateIdx >= 0 ? String(data[i][dueDateIdx]) : '');
-      var matchDate = rowDate && (rowDate.indexOf(yearStr) !== -1 || rowDate.indexOf(gregorianStr) !== -1);
-      if (matchYear || matchDate) {
-        // สแกนลบไฟล์ใน Google Drive ของแถวนี้ด้วย
+  var targetSheets = [
+    'Subjects',
+    'Grades',
+    'Attendance',
+    'AttendanceConfig',
+    'Savings',
+    'DailyTracking',
+    'Tasks',
+    'TaskSubmissions',
+    'Documents',
+    'Calendar',
+    'LeaveRequests',
+    'DailyDutyLogs',
+    'BehaviorEvaluations',
+    'CommentSessions',
+    'PhorPhor6',
+    'Assessment3Booklets',
+    'ReadingWriting',
+    'WeightHeight',
+    'DriveFiles'
+  ];
+
+  function purgeYearFromSpreadsheet(targetSs) {
+    if (!targetSs) return;
+    targetSheets.forEach(function(sheetName) {
+      var sheet = targetSs.getSheetByName(sheetName);
+      if (!sheet || sheet.getLastRow() <= 1) return;
+      var data = sheet.getDataRange().getValues();
+      var headers = data[0].map(function(h) { return String(h).trim(); });
+      var yearIdx = headers.indexOf('academicYear');
+      var fiscalIdx = headers.indexOf('fiscalYear');
+      var dateIdx = headers.indexOf('date');
+      var dueDateIdx = headers.indexOf('dueDate');
+      var startDateIdx = headers.indexOf('startDate');
+      var catIdx = headers.indexOf('category');
+
+      for (var i = data.length - 1; i >= 1; i--) {
         var row = data[i];
-        for (var c = 0; c < headers.length; c++) {
-          var val = row[c];
-          if (val && typeof val === 'string') {
-            var extractedId = extractDriveFileId(val);
-            if (extractedId) {
-              deleteDriveFileByUrlOrId(extractedId, payload);
-            } else if (val.indexOf('{') !== -1 || val.indexOf('[') !== -1) {
+        var matchYear =
+          (yearIdx >= 0 && String(row[yearIdx]).trim() === yearStr) ||
+          (fiscalIdx >= 0 && String(row[fiscalIdx]).trim() === yearStr) ||
+          (catIdx >= 0 && String(row[catIdx]).indexOf(yearStr) !== -1);
+        var rowDate =
+          dateIdx >= 0
+            ? String(row[dateIdx])
+            : dueDateIdx >= 0
+            ? String(row[dueDateIdx])
+            : startDateIdx >= 0
+            ? String(row[startDateIdx])
+            : '';
+        var hasExplicitOtherYear =
+          yearIdx >= 0 && String(row[yearIdx]).trim() !== '' && String(row[yearIdx]).trim() !== yearStr;
+        var matchDate =
+          !hasExplicitOtherYear &&
+          rowDate &&
+          (rowDate.indexOf(yearStr) !== -1 || (!isNaN(Number(yearStr)) && rowDate.indexOf(gregorianStr) !== -1));
+
+        if (matchYear || matchDate) {
+          // สแกนลบไฟล์ใน Google Drive ของแถวนี้ทั้งหมด
+          for (var c = 0; c < headers.length; c++) {
+            var val = row[c];
+            if (val && typeof val === 'string') {
+              var extractedId = extractDriveFileId(val);
+              if (extractedId) {
+                if (deleteDriveFileByUrlOrId(extractedId, payload)) {
+                  deletedDriveFilesCount++;
+                }
+              } else if (val.indexOf('{') !== -1 || val.indexOf('[') !== -1) {
+                try {
+                  scanAndTrashDriveFilesInObject(JSON.parse(val), payload);
+                } catch (errJson) {}
+              }
+            }
+          }
+          sheet.deleteRow(i + 1);
+          deletedCount++;
+        }
+      }
+    });
+
+    // อัปเดตตาราง SchoolDataKV และ RealtimeCloudKV หากมีคีย์ที่เป็นของปีการศึกษานั้น
+    ['SchoolDataKV', 'RealtimeCloudKV'].forEach(function(kvSheetName) {
+      var kvSheet = targetSs.getSheetByName(kvSheetName);
+      if (!kvSheet || kvSheet.getLastRow() <= 1) return;
+      var kvData = kvSheet.getDataRange().getValues();
+      for (var r = kvData.length - 1; r >= 1; r--) {
+        var kId = String(kvData[r][0] || '');
+        if (kId.indexOf(yearStr) !== -1) {
+          kvSheet.deleteRow(r + 1);
+          deletedCount++;
+        }
+      }
+    });
+  }
+
+  purgeYearFromSpreadsheet(ss);
+
+  // หากเรียกที่ Master Spreadsheet ให้ตามไปลบใน Google Sheet ของทุกโรงเรียนในตาราง Admins ด้วยอัตโนมัติ
+  if (!payload || !payload.skipCascadeSchools) {
+    try {
+      var adminsSheet = ss.getSheetByName('Admins');
+      if (adminsSheet && adminsSheet.getLastRow() > 1) {
+        var admData = adminsSheet.getDataRange().getValues();
+        var admHeaders = admData[0].map(function(h) { return String(h).trim(); });
+        var gSheetIdx = admHeaders.indexOf('googleSheetId');
+        if (gSheetIdx >= 0) {
+          for (var a = 1; a < admData.length; a++) {
+            var schoolSheetId = String(admData[a][gSheetIdx] || '').trim();
+            if (schoolSheetId && schoolSheetId.indexOf('sheet_') !== 0 && schoolSheetId !== ss.getId()) {
               try {
-                scanAndTrashDriveFilesInObject(JSON.parse(val), payload);
-              } catch (errJson) {}
+                var schoolSs = SpreadsheetApp.openById(schoolSheetId);
+                purgeYearFromSpreadsheet(schoolSs);
+              } catch (eSchool) {}
             }
           }
         }
-        sheet.deleteRow(i + 1);
-        deletedCount++;
       }
-    }
-  });
+    } catch (eCascade) {}
+  }
 
-  return { status: 'success', message: 'ลบข้อมูลปีการศึกษา ' + yearStr + ' จำนวน ' + deletedCount + ' แถว พร้อมลบไฟล์ใน Google Drive เรียบร้อยแล้ว' };
+  return {
+    status: 'success',
+    deletedRows: deletedCount,
+    deletedDriveFiles: deletedDriveFilesCount,
+    message: 'ลบข้อมูลปีการศึกษา ' + yearStr + ' จำนวน ' + deletedCount + ' แถว และลบไฟล์ใน Google Drive เรียบร้อยแล้ว'
+  };
 }
 
 function getAllDataFromSheets(payload) {

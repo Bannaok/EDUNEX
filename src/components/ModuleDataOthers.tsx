@@ -42,8 +42,10 @@ import {
   GraduationCap,
   ChevronLeft,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  CreditCard
 } from 'lucide-react';
+import { StudentCardBatchModal } from './StudentCardBatchModal';
 
 export const RELIGION_OPTIONS = ['พุทธ', 'อิสลาม', 'คริสต์', 'พราหมณ์-ฮินดู', 'ซิกข์', 'ไม่มีศาสนา', 'อื่นๆ'];
 
@@ -657,6 +659,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const [selectedGrade, setSelectedGrade] = useState<string>('ประถม');
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Student ID Card Batch Modal state
+  const [studentCardModalState, setStudentCardModalState] = useState<{
+    isOpen: boolean;
+    side: 'front' | 'back';
+    grade: string;
+  }>({
+    isOpen: false,
+    side: 'front',
+    grade: 'all'
+  });
+
   // Grade options
   const primaryGrades: GradeLevel[] = ['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'];
   const secondaryGrades: GradeLevel[] = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
@@ -1245,20 +1258,50 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               </div>
             </div>
 
-            {user.role === 'admin' ? (
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
               <button
-                onClick={handleOpenAddStudent}
-                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs shrink-0 active:scale-95 cursor-pointer"
+                type="button"
+                onClick={() => setStudentCardModalState({
+                  isOpen: true,
+                  side: 'front',
+                  grade: selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'all'
+                })}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+                title="ดาวน์โหลดหน้าบัตรนักเรียน (ขนาด 85.6 × 54 มม. แนวนอน บนกระดาษ A4)"
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>เพิ่ม</span>
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>ดาวน์โหลดหน้าบัตร</span>
               </button>
-            ) : (
-              <div className="px-2.5 py-1 bg-slate-50 text-slate-500 text-[11px] rounded-xl border border-slate-200 flex items-center gap-1 shrink-0">
-                <Shield className="w-3.5 h-3.5 text-slate-400" />
-                <span>View Only</span>
-              </div>
-            )}
+
+              <button
+                type="button"
+                onClick={() => setStudentCardModalState({
+                  isOpen: true,
+                  side: 'back',
+                  grade: selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'all'
+                })}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+                title="ดาวน์โหลดหลังบัตรนักเรียน (ขนาด 85.6 × 54 มม. แนวนอน บนกระดาษ A4)"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>ดาวน์โหลดหลังบัตร</span>
+              </button>
+
+              {user.role === 'admin' ? (
+                <button
+                  onClick={handleOpenAddStudent}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs shrink-0 active:scale-95 cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>เพิ่ม</span>
+                </button>
+              ) : (
+                <div className="px-2.5 py-1 bg-slate-50 text-slate-500 text-[11px] rounded-xl border border-slate-200 flex items-center gap-1 shrink-0">
+                  <Shield className="w-3.5 h-3.5 text-slate-400" />
+                  <span>View Only</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Header row with count & hint */}
@@ -6119,6 +6162,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           </div>
         </div>
       )}
+      {/* MODAL: BATCH STUDENT ID CARDS DOWNLOAD (A4 PORTRAIT) */}
+      <StudentCardBatchModal
+        isOpen={studentCardModalState.isOpen}
+        onClose={() => setStudentCardModalState(prev => ({ ...prev, isOpen: false }))}
+        students={students}
+        schoolInfo={schoolInfo}
+        initialSide={studentCardModalState.side}
+        initialGrade={studentCardModalState.grade}
+        onShowToast={onShowToast}
+      />
     </div>
   );
 };

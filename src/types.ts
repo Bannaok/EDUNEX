@@ -67,6 +67,7 @@ export interface Student {
   birthDate?: string; // YYYY-MM-DD (ไม่บังคับ)
   age?: number;
   religion?: string; // ศาสนา
+  bloodGroup?: string; // หมู่เลือด (ไม่บังคับ)
   gradeLevel: GradeLevel; // ระดับชั้น (บังคับ)
   room?: string;
   chronicDisease?: string; // โรคประจำตัว / แพ้อาหาร / ยา

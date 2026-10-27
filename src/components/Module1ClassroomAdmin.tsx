@@ -14,6 +14,7 @@ import {
   Save, 
   Plus,
   Trash2,
+  ChevronLeft,
   ChevronRight,
   ArrowLeft,
   Calendar,
@@ -27,7 +28,8 @@ import {
   Check,
   Printer,
   FileText,
-  ChevronDown
+  ChevronDown,
+  MoreVertical
 } from 'lucide-react';
 
 interface Module1Props {
@@ -724,40 +726,46 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
   return (
     <div className="space-y-4">
       {/* Sub-tab Navigation */}
-      <div className="flex items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-slate-200/90 shadow-2xs flex-wrap">
-        <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-xl border border-slate-200/80">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 bg-white p-2 rounded-2xl border border-slate-200/90 shadow-2xs w-full overflow-hidden">
+        {/* Equal width sub-tab grid for Mobile (3 columns, 100% width, no horizontal scroll) */}
+        <div className="grid grid-cols-3 gap-1 sm:gap-2 bg-slate-100/90 p-1 sm:p-1.5 rounded-xl border border-slate-200/80 w-full sm:w-auto sm:flex sm:items-center">
           <button
+            type="button"
             onClick={() => setAdminSubTab('weight')}
-            className={`flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`w-full flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-2 px-1 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
               adminSubTab === 'weight'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-200/60'
+                ? 'bg-blue-600 text-white shadow-xs font-extrabold'
+                : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-900'
             }`}
           >
-            <span>⚖️</span>
-            <span>น้ำหนัก/ส่วนสูง</span>
+            <span className="text-xs sm:text-sm shrink-0">⚖️</span>
+            <span className="truncate leading-tight">น้ำหนัก/ส่วนสูง</span>
           </button>
+
           <button
+            type="button"
             onClick={() => setAdminSubTab('milkTeeth')}
-            className={`flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`w-full flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-2 px-1 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
               adminSubTab === 'milkTeeth'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-200/60'
+                ? 'bg-blue-600 text-white shadow-xs font-extrabold'
+                : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-900'
             }`}
           >
-            <span>🥛🪥</span>
-            <span>ดื่มนมและแปรงฟัน</span>
+            <span className="text-xs sm:text-sm shrink-0">🥛🪥</span>
+            <span className="truncate leading-tight">ดื่มนม-แปรงฟัน</span>
           </button>
+
           <button
+            type="button"
             onClick={() => setAdminSubTab('comments')}
-            className={`flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`w-full flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-2 px-1 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
               adminSubTab === 'comments'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-slate-600 hover:bg-slate-200/60'
+                ? 'bg-purple-600 text-white shadow-xs font-extrabold'
+                : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-900'
             }`}
           >
-            <span>💬</span>
-            <span>ความคิดเห็น (8 ด้าน)</span>
+            <span className="text-xs sm:text-sm shrink-0">💬</span>
+            <span className="truncate leading-tight">ความคิดเห็น (8 ด้าน)</span>
           </button>
         </div>
 
@@ -766,7 +774,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           <button
             type="button"
             onClick={handleOpenCreateSessionModal}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+            className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
             title="สร้างรายการที่จะกรอกน้ำหนัก/ส่วนสูงใหม่"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
@@ -776,29 +784,27 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
 
         {/* Top-Right Download Buttons for Milk & Teeth */}
         {adminSubTab === 'milkTeeth' && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
             <button
               type="button"
               onClick={() => handleOpenMilkTeethReport('milk')}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+              className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
               title="ดาวน์โหลดรายงานการดื่มนมโรงเรียน"
             >
               <Download className="w-4 h-4" />
-              <span>ดื่มนม</span>
+              <span>รายงานดื่มนม</span>
             </button>
             <button
               type="button"
               onClick={() => handleOpenMilkTeethReport('teeth')}
-              className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0"
+              className="w-full sm:w-auto px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
               title="ดาวน์โหลดรายงานการแปรงฟันหลังอาหาร"
             >
               <Download className="w-4 h-4" />
-              <span>แปรงฟัน</span>
+              <span>รายงานแปรงฟัน</span>
             </button>
           </div>
         )}
-
-
       </div>
 
       {/* SUB-TAB 1: WEIGHT & HEIGHT TRACKING */}
@@ -904,95 +910,40 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                       return (
                         <div
                           key={sess.id}
-                          className="p-3.5 sm:p-4 hover:bg-blue-50/40 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                          className="p-2.5 sm:p-4 hover:bg-blue-50/40 transition-colors flex items-center justify-between gap-2 border-b border-slate-100 last:border-b-0"
                         >
-                          <div className="flex items-center gap-3.5">
-                            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 font-extrabold text-sm flex items-center justify-center border border-blue-200 shrink-0">
+                          <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-blue-50 text-blue-700 font-extrabold text-xs sm:text-sm flex items-center justify-center border border-blue-200 shrink-0">
                               {idx + 1}
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
-                                  รายการที่ {idx + 1}
-                                </span>
-                                <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h4 className="text-xs sm:text-base font-extrabold text-slate-900 truncate">
                                   วันที่ {formatThaiDate(sess.date)}
                                 </h4>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                                <span>
-                                  บันทึกแล้ว <strong className="text-slate-800 font-mono">{recCount}</strong> / {targetStudentsForSess.length} คน
-                                </span>
                                 {gradeFilter !== 'ALL' && (
-                                  <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded font-bold text-[11px] border border-blue-200">
+                                  <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 rounded font-bold text-[10px] border border-blue-200 shrink-0">
                                     ชั้น {gradeFilter}
                                   </span>
                                 )}
+                              </div>
+                              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5 truncate">
+                                บันทึกแล้ว <strong className="text-slate-800 font-mono">{recCount}</strong> / {targetStudentsForSess.length} คน
                               </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                            {/* Mobile Manage Dropdown Button */}
-                            <div className="sm:hidden relative">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Mobile Single Action Icon Button */}
+                            <div className="sm:hidden">
                               <button
                                 type="button"
-                                onClick={() => setOpenManageMenuSessionId(prev => prev === sess.id ? null : sess.id)}
-                                className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                                onClick={() => setOpenManageMenuSessionId(sess.id)}
+                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-95"
+                                title="เมนูกิจกรรม"
                               >
-                                <span>จัดการ</span>
-                                <ChevronDown className="w-3.5 h-3.5" />
+                                <MoreVertical className="w-4 h-4 text-slate-700" />
                               </button>
-
-                              {openManageMenuSessionId === sess.id && (
-                                <div className="absolute right-0 mt-1.5 w-48 bg-white rounded-2xl border border-slate-200 shadow-xl p-1.5 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveSessionMode({ id: sess.id, mode: 'view' });
-                                      setOpenManageMenuSessionId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-bold text-slate-700 hover:bg-slate-100 rounded-xl flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Eye className="w-4 h-4 text-slate-500" />
-                                    <span>ดูข้อมูล</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveSessionMode({ id: sess.id, mode: 'edit' });
-                                      setOpenManageMenuSessionId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-bold text-blue-700 hover:bg-blue-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Pencil className="w-4 h-4 text-blue-600" />
-                                    <span>แก้ไข / กรอกคะแนน</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setPdfPreviewSession(sess);
-                                      setPdfPreviewGradeFilter(gradeFilter);
-                                      setOpenManageMenuSessionId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-bold text-emerald-700 hover:bg-emerald-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Download className="w-4 h-4 text-emerald-600" />
-                                    <span>ดาวน์โหลด PDF</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setSessionToDelete(sess);
-                                      setOpenManageMenuSessionId(null);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl flex items-center gap-2 cursor-pointer"
-                                  >
-                                    <Trash2 className="w-4 h-4 text-rose-500" />
-                                    <span>ลบรายการ</span>
-                                  </button>
-                                </div>
-                              )}
                             </div>
 
                             {/* Desktop normal 4 buttons */}
@@ -1042,6 +993,97 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     })}
                   </div>
                 )}
+
+                {/* Mobile Action Pop-up Modal */}
+                {openManageMenuSessionId && (() => {
+                  const targetSess = sessions.find(s => s.id === openManageMenuSessionId);
+                  if (!targetSess) return null;
+
+                  return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+                      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xs w-full p-5 space-y-4 animate-in zoom-in-95 duration-150">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                          <div>
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
+                              เมนูจัดการรายการ
+                            </span>
+                            <h3 className="text-sm font-extrabold text-slate-900 mt-1">
+                              วันที่ {formatThaiDate(targetSess.date)}
+                            </h3>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOpenManageMenuSessionId(null)}
+                            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
+                          >
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveSessionMode({ id: targetSess.id, mode: 'edit' });
+                              setOpenManageMenuSessionId(null);
+                            }}
+                            className="w-full py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition-all active:scale-95 cursor-pointer"
+                          >
+                            <Pencil className="w-4 h-4" />
+                            <span>กรอก / แก้ไขคะแนน</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveSessionMode({ id: targetSess.id, mode: 'view' });
+                              setOpenManageMenuSessionId(null);
+                            }}
+                            className="w-full py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer border border-slate-200"
+                          >
+                            <Eye className="w-4 h-4 text-slate-600" />
+                            <span>ดูข้อมูล (อ่านอย่างเดียว)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPdfPreviewSession(targetSess);
+                              setPdfPreviewGradeFilter(gradeFilter);
+                              setOpenManageMenuSessionId(null);
+                            }}
+                            className="w-full py-3 px-4 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs flex items-center justify-center gap-2 border border-emerald-200 transition-all active:scale-95 cursor-pointer"
+                          >
+                            <Download className="w-4 h-4 text-emerald-600" />
+                            <span>ดาวน์โหลดรายงาน PDF</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSessionToDelete(targetSess);
+                              setOpenManageMenuSessionId(null);
+                            }}
+                            className="w-full py-3 px-4 rounded-2xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 border border-rose-200 transition-all active:scale-95 cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4 text-rose-600" />
+                            <span>ลบรายการนี้</span>
+                          </button>
+                        </div>
+
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setOpenManageMenuSessionId(null)}
+                            className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-700 text-center cursor-pointer"
+                          >
+                            ยกเลิก
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
           ) : (
             /* VIEW 2: STUDENT TABLE FOR SELECTED SESSION (EDIT or VIEW ONLY) */
@@ -1147,17 +1189,17 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 </div>
               </div>
 
-              {/* CLEAN STUDENT TABLE (WITH GRADE COLUMN DISPLAYED AS STATIC TEXT/BADGE) */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200">
+              {/* CLEAN STUDENT TABLE (RESPONSIVE MOBILE VIEW: GRADE COLUMN HIDDEN ON MOBILE) */}
+              <div className="overflow-x-hidden sm:overflow-x-auto">
+                <table className="w-full table-fixed sm:table-auto text-left text-xs border-collapse">
+                  <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200 text-[11px] sm:text-xs">
                     <tr>
-                      <th className="py-3 px-3 text-center w-14">เลขที่</th>
-                      <th className="py-3 px-3 text-center w-20">ชั้น</th>
-                      <th className="py-3 px-4 min-w-[200px]">ชื่อ - นามสกุล</th>
-                      <th className="py-3 px-4 text-center w-36">น้ำหนัก (kg)</th>
-                      <th className="py-3 px-4 text-center w-36">ส่วนสูง (cm)</th>
-                      <th className="py-3 px-4 text-center w-52">ค่า BMI / ภาวะโภชนาการ (กรมอนามัย)</th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-9 sm:w-14">เลขที่</th>
+                      <th className="py-2.5 px-2 text-center w-16 hidden sm:table-cell">ชั้น</th>
+                      <th className="py-2.5 px-1.5 sm:px-4">ชื่อ - นามสกุล</th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36">น้ำหนัก<span className="hidden sm:inline"> (kg)</span></th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36">ส่วนสูง<span className="hidden sm:inline"> (cm)</span></th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-52">BMI / ภาวะโภชนาการ<span className="hidden sm:inline"> (กรมอนามัย)</span></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1215,7 +1257,24 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           ? students
           : students.filter(s => s.gradeLevel === milkTeethGradeFilter);
 
-        // Check if all students in target are recorded for milk & teeth on milkTeethDate
+        const currentMilkDateIdx = schoolDaysList.findIndex(d => d.date === milkTeethDate);
+
+        const handlePrevMilkDate = () => {
+          if (currentMilkDateIdx > 0) {
+            setMilkTeethDate(schoolDaysList[currentMilkDateIdx - 1].date);
+          } else if (currentMilkDateIdx === -1 && schoolDaysList.length > 0) {
+            setMilkTeethDate(schoolDaysList[0].date);
+          }
+        };
+
+        const handleNextMilkDate = () => {
+          if (currentMilkDateIdx !== -1 && currentMilkDateIdx < schoolDaysList.length - 1) {
+            setMilkTeethDate(schoolDaysList[currentMilkDateIdx + 1].date);
+          } else if (currentMilkDateIdx === -1 && schoolDaysList.length > 0) {
+            setMilkTeethDate(schoolDaysList[0].date);
+          }
+        };
+
         const handleSaveAllMilkTeeth = () => {
           targetStudents.forEach(st => {
             const existing = dailyTracking.find(d => d.date === milkTeethDate && d.studentId === st.id);
@@ -1239,9 +1298,9 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
 
         return (
           <div className="space-y-4">
-            {/* 100 School Days Calendar Widget (Compact Small Button + Pop-up Modal) */}
+            {/* 100 School Days Calendar Widget & Combined Filter Bar */}
             <div className="bg-sky-50/90 p-3.5 rounded-2xl border border-sky-200 shadow-xs flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => {
@@ -1255,7 +1314,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     }
                     setIsMilkCalendarModalOpen(true);
                   }}
-                  className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
+                  className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
                   title="คลิกเพื่อเปิดปฏิทิน 100 วัน"
                 >
                   <Calendar className="w-4 h-4" />
@@ -1263,48 +1322,59 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Unified Filter Button Group: Year + Semester + Grade */}
+              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-sky-200 text-xs font-bold text-slate-700 shadow-2xs flex-wrap">
                 {user.role === 'admin' && (
-                  <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-xl border border-sky-200 text-xs font-bold text-slate-700 shadow-2xs">
-                    <span className="text-[11px] text-slate-500">ปีการศึกษา:</span>
-                    <select
-                      value={selectedAcademicYear}
-                      onChange={(e) => setSelectedAcademicYear(e.target.value)}
-                      className="bg-sky-50 text-sky-900 font-bold px-2 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
-                    >
-                      <option value="2570">2570</option>
-                      <option value="2569">2569</option>
-                      <option value="2568">2568</option>
-                      <option value="2567">2567</option>
-                    </select>
-                    <span className="text-[11px] text-slate-500 ml-1">ภาคเรียน:</span>
-                    <select
-                      value={selectedSemester}
-                      onChange={(e) => setSelectedSemester(e.target.value)}
-                      className="bg-sky-50 text-sky-900 font-bold px-2 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
-                    >
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                    </select>
-                  </div>
+                  <>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-slate-500 font-medium">ปี:</span>
+                      <select
+                        value={selectedAcademicYear}
+                        onChange={(e) => setSelectedAcademicYear(e.target.value)}
+                        className="bg-sky-50 text-sky-900 font-bold px-1.5 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
+                      >
+                        <option value="2570">2570</option>
+                        <option value="2569">2569</option>
+                        <option value="2568">2568</option>
+                        <option value="2567">2567</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <span className="text-[11px] text-slate-500 font-medium">ภาค:</span>
+                      <select
+                        value={selectedSemester}
+                        onChange={(e) => setSelectedSemester(e.target.value)}
+                        className="bg-sky-50 text-sky-900 font-bold px-1.5 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
+                      >
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                      </select>
+                    </div>
+
+                    <div className="h-3.5 w-px bg-slate-200 mx-0.5 hidden sm:block" />
+                  </>
                 )}
 
                 {user.role === 'admin' ? (
-                  <select
-                    value={milkTeethGradeFilter}
-                    onChange={(e) => setMilkTeethGradeFilter(e.target.value)}
-                    className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1.5 rounded-xl border border-emerald-200 focus:outline-none cursor-pointer shadow-2xs"
-                  >
-                    <option value="ALL">ทุกระดับชั้น ({students.length} คน)</option>
-                    {availableGradeLevels.map(g => (
-                      <option key={g} value={g}>
-                        ชั้น {g} ({students.filter(s => (s.gradeLevel || '').trim() === g).length} คน)
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] text-emerald-700 font-medium">ชั้น:</span>
+                    <select
+                      value={milkTeethGradeFilter}
+                      onChange={(e) => setMilkTeethGradeFilter(e.target.value)}
+                      className="text-xs font-bold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value="ALL">ทุกระดับชั้น ({students.length} คน)</option>
+                      {availableGradeLevels.map(g => (
+                        <option key={g} value={g}>
+                          ชั้น {g} ({students.filter(s => (s.gradeLevel || '').trim() === g).length} คน)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 ) : (
-                  <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold shadow-2xs">
-                    ชั้น {user.assignedGrade || 'ป.1'} (ครูประจำชั้น)
+                  <span className="text-xs font-bold text-emerald-800">
+                    ชั้น {user.assignedGrade || 'ป.1'}
                   </span>
                 )}
               </div>
@@ -1562,8 +1632,8 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                   </div>
                 </div>
 
-                <div className="text-xs font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
-                  วันที่เลือก: {formatThaiDate(milkTeethDate)} | ปีการศึกษา {selectedAcademicYear} ภาคเรียนที่ {selectedSemester}
+                <div className="text-xs font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200 shadow-2xs">
+                  วันที่เลือก: {formatThaiDate(milkTeethDate)} {currentMilkDateIdx !== -1 && `(ว.${schoolDaysList[currentMilkDateIdx]?.dayNumber})`}
                 </div>
               </div>
 
@@ -1606,15 +1676,48 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 </table>
               </div>
 
-              {/* BOTTOM RIGHT CORNER "บันทึกทั้งหมด" BUTTON */}
-              <div className="p-4 bg-sky-100/80 border-t border-sky-200 flex items-center justify-end">
+              {/* BOTTOM BAR: DATE STEPPER (LEFT) & "บันทึกทั้งหมด" BUTTON (RIGHT) */}
+              <div className="p-3.5 sm:p-4 bg-sky-50/90 border-t border-sky-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                {/* Date Stepper in Bottom Row */}
+                <div className="flex items-center bg-white rounded-xl border border-sky-300 shadow-2xs overflow-hidden w-full sm:w-auto justify-between sm:justify-start">
+                  <button
+                    type="button"
+                    onClick={handlePrevMilkDate}
+                    disabled={currentMilkDateIdx <= 0}
+                    className="px-3 py-2 text-sky-800 hover:bg-sky-100 active:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer border-r border-sky-200 flex items-center gap-1 text-xs font-bold"
+                    title="วันเรียนก่อนหน้า"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-sky-700" />
+                    <span>วันก่อนหน้า</span>
+                  </button>
+                  <div className="px-3.5 py-2 text-xs font-black text-sky-950 flex items-center gap-2 bg-sky-50/80">
+                    <span>📅 {formatThaiDate(milkTeethDate)}</span>
+                    {currentMilkDateIdx !== -1 && (
+                      <span className="text-[10px] px-2 py-0.5 bg-sky-200 text-sky-900 rounded font-bold whitespace-nowrap">
+                        ว.{schoolDaysList[currentMilkDateIdx]?.dayNumber}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleNextMilkDate}
+                    disabled={currentMilkDateIdx === -1 || currentMilkDateIdx >= schoolDaysList.length - 1}
+                    className="px-3 py-2 text-sky-800 hover:bg-sky-100 active:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all cursor-pointer border-l border-sky-200 flex items-center gap-1 text-xs font-bold"
+                    title="วันเรียนถัดไป"
+                  >
+                    <span>วันถัดไป</span>
+                    <ChevronRight className="w-4 h-4 text-sky-700" />
+                  </button>
+                </div>
+
+                {/* Save All Button */}
                 <button
                   type="button"
                   onClick={handleSaveAllMilkTeeth}
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
                 >
                   <Save className="w-4 h-4" />
-                  <span>บันทึกทั้งหมด</span>
+                  <span>บันทึกทั้งหมด (วันที่ {formatThaiDate(milkTeethDate)})</span>
                 </button>
               </div>
             </div>
@@ -2554,28 +2657,28 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
   };
 
   return (
-    <tr className="hover:bg-slate-50/80 transition-colors">
-      <td className="py-2.5 px-3 text-center font-bold">
-        <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200 shadow-2xs">
+    <tr className="hover:bg-slate-50/80 transition-colors border-b border-slate-100">
+      <td className="py-2 px-1 sm:px-3 text-center font-bold">
+        <span className="inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-blue-50 text-blue-700 font-bold text-[11px] sm:text-xs border border-blue-200 shadow-2xs">
           {index}
         </span>
       </td>
-      <td className="py-2.5 px-3 text-center">
+      <td className="py-2 px-2 text-center hidden sm:table-cell">
         <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-200">
           {student.gradeLevel}
         </span>
       </td>
-      <td className="py-2.5 px-4">
-        <div className="flex items-center gap-2">
-          <span className="font-bold text-slate-800 text-xs">
+      <td className="py-2 px-1.5 sm:px-4">
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold text-slate-800 text-[11px] sm:text-xs leading-snug break-words">
             {student.prefix}{student.firstName} {student.lastName}
           </span>
         </div>
       </td>
-      <td className="py-2.5 px-4 text-center">
+      <td className="py-2 px-1 sm:px-3 text-center">
         {isViewOnly ? (
-          <span className="font-mono font-bold text-xs text-slate-800">
-            {weight > 0 ? `${weight} กก.` : '-'}
+          <span className="font-mono font-bold text-[11px] sm:text-xs text-slate-800">
+            {weight > 0 ? `${weight}` : '-'}
           </span>
         ) : (
           <input
@@ -2584,14 +2687,14 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
             value={weight || ''}
             onChange={(e) => handleWeightChange(e.target.value)}
             placeholder="กก."
-            className="w-20 text-center text-xs px-2 py-1.5 rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
+            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
           />
         )}
       </td>
-      <td className="py-2.5 px-4 text-center">
+      <td className="py-2 px-1 sm:px-3 text-center">
         {isViewOnly ? (
-          <span className="font-mono font-bold text-xs text-slate-800">
-            {height > 0 ? `${height} ซม.` : '-'}
+          <span className="font-mono font-bold text-[11px] sm:text-xs text-slate-800">
+            {height > 0 ? `${height}` : '-'}
           </span>
         ) : (
           <input
@@ -2600,24 +2703,26 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
             value={height || ''}
             onChange={(e) => handleHeightChange(e.target.value)}
             placeholder="ซม."
-            className="w-20 text-center text-xs px-2 py-1.5 rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
+            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
           />
         )}
       </td>
-      <td className="py-2.5 px-4 text-center">
-        <span className="font-mono font-bold tabular-nums text-slate-700 text-sm">
-          {bmiVal > 0 ? bmiVal : '-'}
-        </span>
-        {bmiVal > 0 && (
-          <span className={`ml-2 px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-            bmiStatus === 'สมส่วน' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-            bmiStatus === 'ผอม' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
-            bmiStatus === 'ท้วม' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-            'bg-rose-50 text-rose-700 border border-rose-200'
-          }`} title={`ประเมินตามเกณฑ์อ้างอิงการเจริญเติบโตของเด็กไทย กรมอนามัย (${gender})`}>
-            {bmiStatus}
+      <td className="py-2 px-1 sm:px-3 text-center">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5">
+          <span className="font-mono font-bold tabular-nums text-slate-700 text-[11px] sm:text-sm">
+            {bmiVal > 0 ? bmiVal : '-'}
           </span>
-        )}
+          {bmiVal > 0 && (
+            <span className={`px-1 py-0.2 sm:px-2 sm:py-0.5 rounded text-[9px] sm:text-[10px] font-bold ${
+              bmiStatus === 'สมส่วน' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+              bmiStatus === 'ผอม' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
+              bmiStatus === 'ท้วม' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+              'bg-rose-50 text-rose-700 border border-rose-200'
+            }`} title={`ประเมินตามเกณฑ์กรมอนามัย (${gender})`}>
+              {bmiStatus}
+            </span>
+          )}
+        </div>
       </td>
     </tr>
   );

@@ -224,62 +224,66 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
   return (
     <div className="space-y-6 animate-fadeIn pb-12">
       {/* Action Bar & Filters */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          {/* Semester & Year Selector */}
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-            <Calendar className="w-4 h-4 text-indigo-600" />
-            <span className="text-xs font-bold text-slate-700">ปี:</span>
-            <select
-              value={academicYear}
-              onChange={(e) => setAcademicYear(e.target.value)}
-              disabled={user.role === 'member'}
-              className="bg-transparent text-slate-800 font-bold text-xs focus:outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
-              title={user.role === 'member' ? 'ปีการศึกษาถูกกำหนดโดย Admin โรงเรียน' : ''}
-            >
-              <option value="2569">2569</option>
-              <option value="2568">2568</option>
-              <option value="2570">2570</option>
-            </select>
+      <div className="bg-white rounded-2xl p-2.5 sm:p-5 shadow-xs border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+          {/* Mobile Single-Row Compact Bar (ปี | เทอม | ชั้น) & Desktop Filters */}
+          <div className="grid grid-cols-3 gap-1.5 bg-slate-50 border border-slate-200 p-1.5 rounded-xl w-full sm:w-auto sm:flex sm:items-center sm:gap-3 sm:bg-transparent sm:border-0 sm:p-0">
+            {/* Year Selector */}
+            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+              <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0 hidden sm:block" />
+              <span className="shrink-0 font-bold">ปี:</span>
+              <select
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                disabled={user.role === 'member'}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                title={user.role === 'member' ? 'ปีการศึกษาถูกกำหนดโดย Admin โรงเรียน' : ''}
+              >
+                <option value="2570">2570</option>
+                <option value="2569">2569</option>
+                <option value="2568">2568</option>
+              </select>
+            </div>
+
+            {/* Semester Selector */}
+            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+              <span className="shrink-0 font-bold">เทอม:</span>
+              <select
+                value={semester}
+                onChange={(e) => setSemester(e.target.value)}
+                disabled={user.role === 'member'}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                title={user.role === 'member' ? 'ภาคเรียนถูกกำหนดโดย Admin โรงเรียน' : ''}
+              >
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+
+            {/* Grade Level Selector */}
+            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+              <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden sm:block" />
+              <span className="shrink-0 font-bold">ชั้น:</span>
+              <select
+                value={gradeFilter}
+                onChange={(e) => {
+                  if (user.role === 'member') return;
+                  setGradeFilter(e.target.value);
+                }}
+                disabled={user.role === 'member'}
+                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed max-w-[65px] sm:max-w-none truncate"
+                title={user.role === 'member' ? 'ระดับชั้นถูกกำหนดตามครูประจำชั้น' : ''}
+              >
+                {user.role !== 'member' && <option value="ALL">ทั้งหมด</option>}
+                {availableGradeLevels.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-            <span className="text-xs font-bold text-slate-700">ภาคเรียนที่:</span>
-            <select
-              value={semester}
-              onChange={(e) => setSemester(e.target.value)}
-              disabled={user.role === 'member'}
-              className="bg-transparent text-slate-800 font-bold text-xs focus:outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
-              title={user.role === 'member' ? 'ภาคเรียนถูกกำหนดโดย Admin โรงเรียน' : ''}
-            >
-              <option value="1">1</option>
-              <option value="2">2</option>
-            </select>
-          </div>
-
-          {/* Grade Filter */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-bold text-slate-600">ระดับชั้น:</span>
-            <select
-              value={gradeFilter}
-              onChange={(e) => {
-                if (user.role === 'member') return;
-                setGradeFilter(e.target.value);
-              }}
-              disabled={user.role === 'member'}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
-              title={user.role === 'member' ? 'ระดับชั้นถูกกำหนดตามครูประจำชั้น ไม่สามารถเปลี่ยนได้' : ''}
-            >
-              {user.role !== 'member' && <option value="ALL">ทุกระดับชั้น</option>}
-              {availableGradeLevels.map(g => (
-                <option key={g} value={g}>{g}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Search Input */}
-          <div className="relative flex-1 sm:w-64">
+          {/* Search Input (Hidden on Mobile, Visible on Desktop) */}
+          <div className="hidden sm:relative sm:flex sm:flex-1 sm:w-64">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -297,13 +301,13 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
               </button>
             )}
           </div>
-        </div>
 
-        {user.role !== 'member' && (
-          <div className="text-[11px] font-semibold text-slate-400">
-            โหมดผู้ดูแลระบบ
-          </div>
-        )}
+          {user.role !== 'member' && (
+            <div className="hidden md:block text-[11px] font-semibold text-slate-400 shrink-0">
+              โหมดผู้ดูแลระบบ
+            </div>
+          )}
+        </div>
       </div>
 
       {/* STUDENT TABLE DIRECTLY DISPLAYED */}

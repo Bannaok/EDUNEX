@@ -84,7 +84,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
         )}
 
         {/* Login Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} autoComplete="off" data-form-type="other" className="space-y-4">
           {/* ID Input */}
           <div>
             <label 
@@ -99,6 +99,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               </div>
               <input
                 id="login-id"
+                name="auth_uid"
                 type="text"
                 value={username}
                 onChange={(e) => {
@@ -106,7 +107,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
                   if (errorMessage) setErrorMessage('');
                 }}
                 autoFocus
-                autoComplete="username"
+                autoComplete="off"
+                data-lpignore="true"
+                data-form-type="other"
+                spellCheck={false}
                 placeholder="กรอกชื่อผู้ใช้งาน"
                 className="w-full py-2.5 pr-4 text-sm bg-transparent text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />
@@ -127,13 +131,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLogin }) => {
               </div>
               <input
                 id="login-password"
+                name="auth_code"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
                   if (errorMessage) setErrorMessage('');
                 }}
-                autoComplete="current-password"
+                autoComplete="new-password"
+                data-lpignore="true"
+                data-form-type="other"
                 placeholder="••••••"
                 className="w-full py-2.5 pr-10 text-sm bg-transparent text-slate-900 placeholder:text-slate-400 focus:outline-none"
               />

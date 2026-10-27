@@ -98,7 +98,26 @@ export function getMimeTypeByExtension(fileName?: string, fallback: string = 'ap
 }
 
 /**
- * ดาวน์โหลดไฟล์จริงทุกประเภท (โดยเฉพาะไฟล์ Word ให้เป็นไฟล์ Word แท้ๆ ไม่เพี้ยน)
+ * สร้าง URL สำหรับแสดงผลตัวอย่างไฟล์ (รูปภาพ / PDF / ไฟล์ที่ฝากบนเซิร์ฟเวอร์หรือ Google Drive)
+ */
+export function getPreviewableFileUrl(urlOrData?: string, fileName?: string): string {
+  if (!urlOrData || urlOrData === '#') return '';
+  if (urlOrData.startsWith('data:') || urlOrData.startsWith('blob:')) {
+    return urlOrData;
+  }
+  if (urlOrData.startsWith('/api/files/')) {
+    return urlOrData;
+  }
+  const driveId = extractDriveFileId(urlOrData);
+  if (driveId) {
+    const safeName = (fileName || 'file').trim();
+    return `/api/files/download?url=${encodeURIComponent(urlOrData)}&name=${encodeURIComponent(safeName)}&inline=1`;
+  }
+  return urlOrData;
+}
+
+/**
+ * ดาวน์โหลดไฟล์จริงทุกประเภท (โดยเฉพาะไฟล์ Word ให้เป็นไฟล์ Word แท้ๆ ไม่เพี้ยน รวมถึงรูปภาพและ PDF)
  */
 export function downloadRealFile(
   urlOrData?: string,
@@ -154,15 +173,14 @@ export function downloadRealFile(
     }
   }
 
-  // 2. กรณีเป็นลิงก์ Google Drive
+  // 2. กรณีเป็นไฟล์ที่ฝากบนเซิร์ฟเวอร์ (/api/files/...) หรือลิงก์ Google Drive
+  // ใช้ /api/files/download เพื่อส่ง Header Content-Disposition: attachment พร้อมชื่อไฟล์ภาษาไทยที่ถูกต้องโดยไม่ถูกบล็อกใน iframe
   const driveId = extractDriveFileId(urlOrData);
-  if (driveId) {
-    const directUrl = `https://drive.google.com/uc?export=download&id=${driveId}`;
+  if (urlOrData.startsWith('/api/files/') || driveId) {
+    const proxyDownloadUrl = `/api/files/download?url=${encodeURIComponent(urlOrData)}&name=${encodeURIComponent(safeName)}`;
     const link = document.createElement('a');
-    link.href = directUrl;
+    link.href = proxyDownloadUrl;
     link.download = safeName;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -180,3 +198,4 @@ export function downloadRealFile(
   document.body.removeChild(link);
   return true;
 }
+

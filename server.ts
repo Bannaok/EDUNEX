@@ -30,6 +30,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, '.data');
+const FILES_DIR = path.join(DATA_DIR, 'files');
 const STORE_FILE = path.join(DATA_DIR, 'realtime-store.json');
 const FIREBASE_CONFIG_FILE = path.join(__dirname, 'firebase-applet-config.json');
 
@@ -81,12 +82,42 @@ interface PersistedState {
   timestamps: Record<string, number>;
 }
 
-// Ensure .data directory exists
-if (!fs.existsSync(DATA_DIR)) {
+// Ensure .data and .data/files directories exist
+for (const dir of [DATA_DIR, FILES_DIR]) {
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function saveServerHostedFile(fileId: string, fileName: string, dataUrl: string): string {
+  const safeId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (!safeId || !dataUrl || !dataUrl.startsWith('data:')) return '';
   try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+    const filePath = path.join(FILES_DIR, `${safeId}.json`);
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({ id: safeId, fileName: fileName || safeId, dataUrl, updatedAt: Date.now() }),
+      'utf-8'
+    );
+    return `/api/files/${safeId}`;
   } catch {
-    // ignore
+    return '';
+  }
+}
+
+function loadServerHostedFile(fileId: string): { id: string; fileName: string; dataUrl: string } | null {
+  const safeId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (!safeId) return null;
+  try {
+    const filePath = path.join(FILES_DIR, `${safeId}.json`);
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
   }
 }
 
@@ -164,8 +195,11 @@ function sanitizeDocKey(rawKey: string): string {
 async function pushKeyToFirestoreServer(rawKey: string, value: any, updatedAt: number): Promise<void> {
   if (!firestoreDb || serverFirestoreUnavailable || !rawKey || rawKey === 'ams_session') return;
   const docId = sanitizeDocKey(rawKey);
-  const serialized = JSON.stringify(value ?? null);
+  let serialized = JSON.stringify(value ?? null);
   if (!serialized) return;
+  if (serialized.length > SINGLE_DOC_MAX_CHARS * MAX_FIRESTORE_CHUNKS) {
+    serialized = JSON.stringify(sanitizeForCloudKv(value));
+  }
   if (lastServerFirestoreSerialized.get(docId) === serialized) return;
 
   const safeUpdatedAt = Number(updatedAt) > 0 ? Number(updatedAt) : Date.now();
@@ -251,6 +285,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
     const remoteTimestamps = new Map<string, number>();
     const appliedUpdates: Record<string, any> = {};
     const appliedTimestamps: Record<string, number> = {};
+    const keysToPushBack: string[] = [];
 
     const tasks: Promise<{ key: string; value: any; updatedAt: number } | null>[] = [];
     snap.forEach(docSnap => {
@@ -263,17 +298,24 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
       remoteTimestamps.set(item.key, item.updatedAt);
 
       const localTs = Number(state.timestamps[item.key]) || 0;
+      const isTask = isTaskKeyName(item.key);
+      const nextValue = isTask && item.key in state.store ? mergeTaskListsServer(state.store[item.key], item.value) : item.value;
       const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
       const remoteSerialized = JSON.stringify(item.value);
+      const nextSerialized = JSON.stringify(nextValue);
 
-      if (!(item.key in state.store) || item.updatedAt > localTs) {
-        state.store[item.key] = item.value;
-        state.timestamps[item.key] = item.updatedAt;
-        if (localSerialized !== remoteSerialized) {
-          appliedUpdates[item.key] = item.value;
-          appliedTimestamps[item.key] = item.updatedAt;
+      if (!(item.key in state.store) || item.updatedAt > localTs || (isTask && nextSerialized !== localSerialized)) {
+        const effTs = Math.max(localTs, item.updatedAt || Date.now());
+        state.store[item.key] = nextValue;
+        state.timestamps[item.key] = effTs;
+        if (localSerialized !== nextSerialized) {
+          appliedUpdates[item.key] = nextValue;
+          appliedTimestamps[item.key] = effTs;
           appliedCount++;
         }
+      }
+      if (isTask && nextSerialized !== remoteSerialized) {
+        keysToPushBack.push(item.key);
       }
     }
 
@@ -281,6 +323,10 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
       state.rev += 1;
       scheduleDiskSave();
       broadcastDelta('firestore-cloud', appliedUpdates, appliedTimestamps);
+    }
+
+    if (keysToPushBack.length > 0) {
+      scheduleCloudKvPush(keysToPushBack);
     }
 
     if (seedMissingLocalToFirestore && !serverFirestoreUnavailable) {
@@ -324,15 +370,22 @@ function startServerFirestoreListener() {
             if (!resolved) continue;
 
             const localTs = Number(state.timestamps[resolved.key]) || 0;
-            if (!(resolved.key in state.store) || resolved.updatedAt > localTs) {
-              const prevSerialized =
-                resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
-              const nextSerialized = JSON.stringify(resolved.value);
-              state.store[resolved.key] = resolved.value;
-              state.timestamps[resolved.key] = resolved.updatedAt;
+            const isTask = isTaskKeyName(resolved.key);
+            const nextValue =
+              isTask && resolved.key in state.store
+                ? mergeTaskListsServer(state.store[resolved.key], resolved.value)
+                : resolved.value;
+            const prevSerialized =
+              resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
+            const nextSerialized = JSON.stringify(nextValue);
+
+            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || (isTask && prevSerialized !== nextSerialized)) {
+              const effTs = Math.max(localTs, resolved.updatedAt || Date.now());
+              state.store[resolved.key] = nextValue;
+              state.timestamps[resolved.key] = effTs;
               if (prevSerialized !== nextSerialized) {
-                appliedUpdates[resolved.key] = resolved.value;
-                appliedTimestamps[resolved.key] = resolved.updatedAt;
+                appliedUpdates[resolved.key] = nextValue;
+                appliedTimestamps[resolved.key] = effTs;
               }
             }
           }
@@ -364,6 +417,115 @@ function getGasWebAppUrl(): string {
   return DEFAULT_GAS_URL;
 }
 
+function getDriveFolderId(): string {
+  const cfg = state.store['ams_google_config'];
+  if (cfg && typeof cfg.driveFolderId === 'string' && cfg.driveFolderId.trim()) {
+    return cfg.driveFolderId.trim();
+  }
+  return '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9';
+}
+
+const inFlightDriveUploads = new Set<string>();
+
+function ensureTaskFilesHostedAndUploaded(key: string, tasksList: any): any {
+  if (!isTaskKeyName(key) || !Array.isArray(tasksList)) return tasksList;
+  const schoolId = key.includes('__') ? key.split('__').slice(1).join('__') : 'admin-school-01';
+  const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+  const matchedAdmin = admins.find(a => a && a.id === schoolId);
+  const schoolName = matchedAdmin?.schoolName || schoolId;
+
+  for (const task of tasksList) {
+    if (!task || typeof task !== 'object') continue;
+    const subs: any[] = Array.isArray(task.submissions) ? task.submissions : [];
+    for (const sub of subs) {
+      if (!sub || typeof sub !== 'object') continue;
+      const rawUrl = String(sub.fileUrl || '');
+      if (rawUrl.startsWith('data:')) {
+        const subIdClean = String(sub.memberId || sub.memberName || 'member').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const taskIdClean = String(task.id || 'task').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const fileId = `sub_${taskIdClean}_${subIdClean}`;
+        // Save locally immediately so /api/files/:fileId works with 0ms latency
+        const hostedPath = saveServerHostedFile(fileId, sub.fileName || 'submission', rawUrl);
+        if (hostedPath) {
+          sub.localHostedUrl = hostedPath;
+        }
+
+        // Upload to Google Drive in background so cross-container (ais-dev <-> ais-pre) & Google Sheets get a permanent Drive link
+        const uploadLockKey = `${key}::${task.id}::${sub.memberId}::${sub.submittedAt || ''}`;
+        if (!inFlightDriveUploads.has(uploadLockKey)) {
+          inFlightDriveUploads.add(uploadLockKey);
+          fetch(getGasWebAppUrl(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'uploadDriveFile',
+              spreadsheetId: matchedAdmin?.googleSheetId || '',
+              schoolId,
+              schoolName,
+              schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
+              driveFolderId: getDriveFolderId(),
+              category: `TaskSubmissions_${task.academicYear || '2569'}`,
+              fileName: sub.fileName || `submission_${sub.memberId}`,
+              fileBase64: rawUrl,
+              uploadedBy: sub.memberName || sub.memberId || ''
+            })
+          })
+            .then(r => r.json())
+            .then((resData: any) => {
+              if (resData && resData.status === 'success' && resData.fileUrl) {
+                const driveUrl = String(resData.fileUrl);
+                const curList = state.store[key];
+                if (Array.isArray(curList)) {
+                  let updatedAny = false;
+                  const nextList = curList.map((t: any) => {
+                    if (!t || t.id !== task.id) return t;
+                    const nextSubs = (Array.isArray(t.submissions) ? t.submissions : []).map((s: any) => {
+                      if (
+                        s &&
+                        (s.memberId === sub.memberId || s.memberName === sub.memberName) &&
+                        (!s.fileUrl || String(s.fileUrl).startsWith('data:') || String(s.fileUrl).startsWith('/api/files/'))
+                      ) {
+                        updatedAny = true;
+                        return {
+                          ...s,
+                          fileUrl: driveUrl,
+                          driveFileId: resData.fileId || s.driveFileId,
+                          downloadUrl: resData.downloadUrl || s.downloadUrl
+                        };
+                      }
+                      return s;
+                    });
+                    return {
+                      ...t,
+                      submissions: nextSubs,
+                      submittedFileUrl:
+                        t.submittedBy === sub.memberId ? driveUrl : t.submittedFileUrl
+                    };
+                  });
+
+                  if (updatedAny) {
+                    const nowTs = Date.now();
+                    state.store[key] = nextList;
+                    state.timestamps[key] = Math.max(nowTs, (Number(state.timestamps[key]) || 0) + 1);
+                    state.rev += 1;
+                    scheduleDiskSave();
+                    broadcastDelta('server-drive-sync', { [key]: nextList }, { [key]: state.timestamps[key] });
+                    scheduleCloudKvPush([key]);
+                  }
+                }
+              }
+            })
+            .catch(() => {})
+            .finally(() => {
+              inFlightDriveUploads.delete(uploadLockKey);
+            });
+        }
+      }
+    }
+  }
+  return tasksList;
+}
+
 function sanitizeForCloudKv(val: any): any {
   if (!val) return val;
   if (typeof val === 'string') {
@@ -378,7 +540,11 @@ function sanitizeForCloudKv(val: any): any {
   if (typeof val === 'object') {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
-      out[k] = sanitizeForCloudKv(v);
+      if (k === 'fileUrl' && typeof v === 'string' && v.startsWith('data:') && v.length > 30000 && val.localHostedUrl) {
+        out[k] = val.localHostedUrl;
+      } else {
+        out[k] = sanitizeForCloudKv(v);
+      }
     }
     return out;
   }
@@ -424,12 +590,16 @@ function mergeSingleTaskSubmissionsServer(existingTask: any, incomingTask: any):
     } else {
       const prevTime = String(prev.submittedAt || '');
       const newer = subTime >= prevTime ? { ...prev, ...sub } : { ...sub, ...prev };
-      // Preserve non-empty fileUrl (prefer http Drive URL over data:, and data: over empty string)
+      // Preserve non-empty fileUrl (prefer http Drive URL over /api/files/ over data: over empty string)
       const prevUrl = String(prev.fileUrl || '');
       const subUrl = String(sub.fileUrl || '');
       if (subUrl.startsWith('http')) {
         newer.fileUrl = subUrl;
       } else if (prevUrl.startsWith('http') && subTime <= prevTime) {
+        newer.fileUrl = prevUrl;
+      } else if (subUrl.startsWith('/api/files/') && !prevUrl.startsWith('http')) {
+        newer.fileUrl = subUrl;
+      } else if (prevUrl.startsWith('/api/files/') && !subUrl.startsWith('http') && subTime <= prevTime) {
         newer.fileUrl = prevUrl;
       } else if (!newer.fileUrl && (subUrl || prevUrl)) {
         newer.fileUrl = subUrl || prevUrl;
@@ -541,7 +711,7 @@ function scheduleCloudKvPush(keys: string[]) {
   if (cloudPushTimer) clearTimeout(cloudPushTimer);
   cloudPushTimer = setTimeout(() => {
     flushCloudKvPush();
-  }, 250);
+  }, 200);
 }
 
 async function flushCloudKvPush() {
@@ -610,6 +780,7 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
 
     const appliedUpdates: Record<string, any> = {};
     const appliedTimestamps: Record<string, number> = {};
+    const keysToPushBack: string[] = [];
 
     for (const rawRow of json.data) {
       const parsed = parseCloudKvRow(rawRow);
@@ -619,18 +790,25 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
 
       const localTs = Number(state.timestamps[key]) || 0;
-      const nextValue = isTaskKeyName(key) ? mergeTaskListsServer(state.store[key], value) : value;
+      const isTask = isTaskKeyName(key);
+      const nextValue = isTask ? mergeTaskListsServer(state.store[key], value) : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
+      const remoteSerialized = JSON.stringify(value);
       const cloudSerialized = JSON.stringify(nextValue);
 
-      if (!(key in state.store) || updatedAt > localTs) {
+      if (!(key in state.store) || updatedAt > localTs || (isTask && localSerialized !== cloudSerialized)) {
+        const effTs = Math.max(localTs, updatedAt || Date.now());
         state.store[key] = nextValue;
-        state.timestamps[key] = updatedAt || Date.now();
+        state.timestamps[key] = effTs;
         if (localSerialized !== cloudSerialized) {
           appliedUpdates[key] = nextValue;
-          appliedTimestamps[key] = state.timestamps[key];
+          appliedTimestamps[key] = effTs;
           appliedCount++;
         }
+      }
+
+      if (isTask && cloudSerialized !== remoteSerialized) {
+        keysToPushBack.push(key);
       }
     }
 
@@ -639,6 +817,10 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       scheduleDiskSave();
       broadcastDelta('cloud-kv', appliedUpdates, appliedTimestamps);
     }
+
+    if (keysToPushBack.length > 0) {
+      scheduleCloudKvPush(keysToPushBack);
+    }
   } catch {
     // ignore transient network errors
   } finally {
@@ -646,6 +828,52 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
   }
 
   return appliedCount;
+}
+
+function getMimeByFilename(fileName: string, fallback = 'application/octet-stream'): string {
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  switch (ext) {
+    case 'docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'doc':
+      return 'application/msword';
+    case 'xlsx':
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'xls':
+      return 'application/vnd.ms-excel';
+    case 'pptx':
+      return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    case 'ppt':
+      return 'application/vnd.ms-powerpoint';
+    case 'pdf':
+      return 'application/pdf';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'zip':
+      return 'application/zip';
+    default:
+      return fallback;
+  }
+}
+
+function extractDriveIdServer(urlOrId: string): string {
+  if (!urlOrId) return '';
+  const m1 = urlOrId.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m1 && m1[1]) return m1[1];
+  const m2 = urlOrId.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m2 && m2[1]) return m2[1];
+  const m3 = urlOrId.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+  if (m3 && m3[1]) return m3[1];
+  return '';
 }
 
 async function startServer() {
@@ -666,6 +894,74 @@ async function startServer() {
       return;
     }
     next();
+  });
+
+  // 0. Universal File Proxy & Hosted File Download/Preview Endpoint
+  app.get('/api/files/download', async (req, res) => {
+    const rawUrl = String(req.query.url || '');
+    const rawName = String(req.query.name || 'download').trim() || 'download';
+    const isInline = req.query.inline === '1';
+    const encodedName = encodeURIComponent(rawName);
+    const disposition = `${isInline ? 'inline' : 'attachment'}; filename="download"; filename*=UTF-8''${encodedName}`;
+
+    try {
+      if (rawUrl.startsWith('/api/files/')) {
+        const fileId = rawUrl.replace('/api/files/', '').split('?')[0];
+        const record = loadServerHostedFile(fileId);
+        if (record && record.dataUrl) {
+          const parts = record.dataUrl.split(';base64,');
+          const mime = getMimeByFilename(rawName, parts[0].replace('data:', '') || 'application/octet-stream');
+          const buf = Buffer.from(parts[1] || '', 'base64');
+          res.setHeader('Content-Type', mime);
+          res.setHeader('Content-Disposition', disposition);
+          res.send(buf);
+          return;
+        }
+      }
+
+      const driveId = extractDriveIdServer(rawUrl);
+      const targetFetchUrl = driveId
+        ? `https://drive.google.com/uc?export=download&id=${driveId}`
+        : rawUrl;
+
+      if (targetFetchUrl.startsWith('http')) {
+        const upstream = await fetch(targetFetchUrl);
+        if (upstream.ok) {
+          const arrayBuf = await upstream.arrayBuffer();
+          const buf = Buffer.from(arrayBuf);
+          const upstreamMime = upstream.headers.get('content-type') || 'application/octet-stream';
+          const mime = getMimeByFilename(rawName, upstreamMime);
+          res.setHeader('Content-Type', mime);
+          res.setHeader('Content-Disposition', disposition);
+          res.send(buf);
+          return;
+        }
+      }
+
+      res.redirect(rawUrl);
+    } catch {
+      res.redirect(rawUrl);
+    }
+  });
+
+  app.get('/api/files/:fileId', (req, res) => {
+    const fileId = String(req.params.fileId || '');
+    const record = loadServerHostedFile(fileId);
+    if (!record || !record.dataUrl) {
+      res.status(404).json({ status: 'error', message: 'File not found' });
+      return;
+    }
+    const parts = record.dataUrl.split(';base64,');
+    const mime = getMimeByFilename(record.fileName, parts[0].replace('data:', '') || 'application/octet-stream');
+    const buf = Buffer.from(parts[1] || '', 'base64');
+    const isDownload = req.query.download === '1';
+    const encodedName = encodeURIComponent(record.fileName || 'file');
+    res.setHeader('Content-Type', mime);
+    res.setHeader(
+      'Content-Disposition',
+      `${isDownload ? 'attachment' : 'inline'}; filename="file"; filename*=UTF-8''${encodedName}`
+    );
+    res.send(buf);
   });
 
   // 1. Server-Sent Events (SSE) Real-Time Stream
@@ -756,8 +1052,11 @@ async function startServer() {
         if (value === null || value === undefined) {
           delete state.store[key];
         } else {
-          if (isTaskKeyName(key) && key in state.store) {
-            finalValue = mergeTaskListsServer(state.store[key], value);
+          if (isTaskKeyName(key)) {
+            if (key in state.store) {
+              finalValue = mergeTaskListsServer(state.store[key], value);
+            }
+            finalValue = ensureTaskFilesHostedAndUploaded(key, finalValue);
           }
           state.store[key] = finalValue;
         }
@@ -1098,14 +1397,20 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
+    // Ensure any persisted task submissions with base64 data URLs are hosted & uploaded to Google Drive
+    for (const [k, v] of Object.entries(state.store)) {
+      if (isTaskKeyName(k)) {
+        state.store[k] = ensureTaskFilesHostedAndUploaded(k, v);
+      }
+    }
     // Initial global cloud sync
     syncWithFirestoreServer(false).catch(() => {});
     startServerFirestoreListener();
     pullFromCloudKV(false).catch(() => {});
-    // Continuous background cloud KV reconciliation every 6 seconds
+    // Continuous background cloud KV reconciliation every 2.5 seconds
     setInterval(() => {
       pullFromCloudKV(false).catch(() => {});
-    }, 6000);
+    }, 2500);
   });
 }
 

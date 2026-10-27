@@ -19,7 +19,7 @@ import {
   X,
   FileCheck
 } from 'lucide-react';
-import { downloadRealFile, isWordFile, isExcelFile } from '../services/fileDownloadHelper';
+import { downloadRealFile, getPreviewableFileUrl, isWordFile, isExcelFile, isImageFile, isPdfFile } from '../services/fileDownloadHelper';
 import { StorageService } from '../services/storage';
 
 interface Module4Props {
@@ -275,14 +275,54 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return undefined;
   };
 
-  const getTaskSubmittedCount = (task: TaskItem): number => {
-    const matchedIds = new Set<string>();
+  const getTaskEffectiveSubmissions = (task: TaskItem): TaskSubmission[] => {
+    if (!task) return [];
+    const result: TaskSubmission[] = [];
+    const seenKeys = new Set<string>();
+
+    const addSub = (s: TaskSubmission, fallbackName?: string) => {
+      if (!s) return;
+      const key = String(s.memberId || s.memberName || '').trim().toLowerCase();
+      if (!key || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      const effectiveUrl = s.fileUrl || (s as any).localHostedUrl || task.submittedFileUrl || '';
+      result.push({
+        ...s,
+        memberName: fallbackName || s.memberName || s.memberId || 'สมาชิก',
+        fileUrl: effectiveUrl,
+        fileName: s.fileName || task.submittedFileName || 'ไฟล์งานที่ส่ง'
+      });
+    };
+
     schoolMembers.forEach(m => {
       const sub = findMemberSubmission(task, m);
-      if (sub) matchedIds.add(m.id);
+      if (sub) {
+        addSub(sub, m.fullName);
+      }
     });
-    const rawSubsCount = (task.submissions || []).filter(s => s && (s.memberId || s.memberName)).length;
-    return Math.max(matchedIds.size, rawSubsCount);
+
+    (task.submissions || []).forEach(s => {
+      if (s && (s.memberId || s.memberName)) {
+        addSub(s);
+      }
+    });
+
+    if (result.length === 0 && task.submittedFileUrl && (task.submittedBy || task.submittedByName)) {
+      addSub({
+        memberId: task.submittedBy || 'member',
+        memberName: task.submittedByName || task.submittedBy || 'สมาชิก',
+        fileUrl: task.submittedFileUrl,
+        fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
+        fileSize: task.submittedFileSize || '1.0 MB',
+        submittedAt: task.submittedAt || new Date().toISOString()
+      });
+    }
+
+    return result;
+  };
+
+  const getTaskSubmittedCount = (task: TaskItem): number => {
+    return getTaskEffectiveSubmissions(task).length;
   };
 
   const isTaskDoneForUser = (task: TaskItem) => {
@@ -460,7 +500,19 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       setSubmittedFile({ name: file.name, url: base64, size: sizeStr });
-      onShowToast('info', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) กดยืนยันส่งงานเพื่อบันทึกลง Google Drive`);
+      onShowToast('info', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) กดยืนยันการส่งงานได้เลย`);
+      // Pre-upload to Google Drive in background so when Member clicks submit, Drive URL is ready immediately
+      StorageService.uploadFileToGoogleDrive(
+        base64,
+        file.name,
+        `TaskSubmissions_${currentAcademicYear}`
+      )
+        .then(driveUrl => {
+          if (driveUrl && driveUrl.startsWith('http')) {
+            setSubmittedFile(prev => (prev && prev.name === file.name ? { ...prev, url: driveUrl } : prev));
+          }
+        })
+        .catch(() => {});
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -902,7 +954,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
                             </span>
 
-                            {user.role === 'admin' && submittedCount > 0 && !isGreenCompleted && (
+                            {user.role === 'admin' && submittedCount > 0 && (
                               <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg shrink-0 flex items-center gap-1 bg-emerald-100 text-emerald-800 border border-emerald-300">
                                 ✓ ส่งแล้ว {submittedCount}/{totalSchoolMembers} คน
                               </span>
@@ -936,6 +988,51 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             >
                               {displayDesc}
                             </p>
+                          )}
+
+                          {/* สำหรับผู้ดูแลระบบ (Admin): แสดงรายชื่อสมาชิกที่ส่งงานแล้ว พร้อมปุ่ม ดูไฟล์ / ดาวน์โหลด ทันทีบนแถวรายการ */}
+                          {user.role === 'admin' && submittedCount > 0 && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-1.5 flex flex-wrap items-center gap-1.5"
+                            >
+                              {getTaskEffectiveSubmissions(task).map((sub, sIdx) => (
+                                <div
+                                  key={`${sub.memberId || sub.memberName}-${sIdx}`}
+                                  className="inline-flex items-center gap-1.5 bg-white/95 border border-emerald-300 rounded-xl px-2 py-1 text-[11px] shadow-2xs max-w-full"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="font-bold text-emerald-900 truncate max-w-[110px] sm:max-w-[160px]">
+                                    {sub.memberName}
+                                  </span>
+                                  <span className="text-slate-500 truncate max-w-[90px] sm:max-w-[150px]" title={sub.fileName}>
+                                    ({sub.fileName})
+                                  </span>
+                                  {sub.fileUrl && (
+                                    <div className="flex items-center gap-1 shrink-0 ml-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewFileModal({ url: sub.fileUrl, name: sub.fileName })}
+                                        className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                                        title={`ดูไฟล์ของ ${sub.memberName}`}
+                                      >
+                                        <Eye className="w-3 h-3" />
+                                        <span>ดูไฟล์</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDownloadUrl(sub.fileUrl, sub.fileName)}
+                                        className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
+                                        title={`ดาวน์โหลดไฟล์ของ ${sub.memberName}`}
+                                      >
+                                        <Download className="w-3 h-3" />
+                                        <span>ดาวน์โหลด</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1221,93 +1318,145 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             </div>
 
             <div className="overflow-y-auto space-y-2.5 flex-1 pr-1">
-              {schoolMembers.length === 0 ? (
+              {schoolMembers.length === 0 && getTaskEffectiveSubmissions(liveStatusTask).length === 0 ? (
                 <div className="py-8 text-center text-xs text-slate-400">ไม่มีสมาชิกในระบบ</div>
               ) : (
-                schoolMembers.map((mem, idx) => {
-                  const submission = findMemberSubmission(liveStatusTask, mem);
-                  const hasSubmitted = !!submission;
-                  const overdue = isOverdue(liveStatusTask.dueDate);
+                <>
+                  {schoolMembers.map((mem, idx) => {
+                    const submission = findMemberSubmission(liveStatusTask, mem);
+                    const hasSubmitted = !!submission;
+                    const effectiveFileUrl = submission?.fileUrl || (submission as any)?.localHostedUrl || '';
+                    const overdue = isOverdue(liveStatusTask.dueDate);
 
-                  return (
-                    <div 
-                      key={mem.id}
-                      className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                        hasSubmitted ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50/70 border-slate-200'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="w-7 h-7 rounded-xl bg-white border border-slate-200 font-mono font-bold text-xs text-slate-700 flex items-center justify-center shrink-0">
-                          {idx + 1}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="font-bold text-xs sm:text-sm text-slate-800 truncate">
-                            {mem.fullName} ({mem.position})
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {hasSubmitted ? (
-                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                                ส่งแล้ว ({submission.fileName})
-                              </span>
-                            ) : (
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                                  ยังไม่ส่งงาน
+                    return (
+                      <div 
+                        key={mem.id}
+                        className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
+                          hasSubmitted ? 'bg-emerald-50/70 border-emerald-300' : 'bg-slate-50/70 border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-7 h-7 rounded-xl bg-white border border-slate-200 font-mono font-bold text-xs text-slate-700 flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-bold text-xs sm:text-sm text-slate-800 truncate">
+                              {mem.fullName} {mem.position ? `(${mem.position})` : ''}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {hasSubmitted ? (
+                                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md truncate max-w-[220px]">
+                                  ✓ ส่งแล้ว ({submission.fileName})
                                 </span>
-                                {overdue && (
-                                  <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">
-                                    เลยกำหนด
+                              ) : (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                                    ยังไม่ส่งงาน
                                   </span>
-                                )}
-                              </div>
-                            )}
+                                  {overdue && (
+                                    <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded">
+                                      เลยกำหนด
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
+
+                        {hasSubmitted && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* View file button */}
+                            <button
+                              type="button"
+                              onClick={() => setPreviewFileModal({ url: effectiveFileUrl, name: submission.fileName })}
+                              className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                              title="ดูไฟล์งานที่สมาชิกส่ง"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>ดูไฟล์</span>
+                            </button>
+
+                            {/* Download button */}
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadUrl(effectiveFileUrl, submission.fileName)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                              title="ดาวน์โหลดไฟล์"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>ดาวน์โหลด</span>
+                            </button>
+
+                            {/* Delete submission icon */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConfirmDeleteModal({
+                                  type: 'submission',
+                                  id: liveStatusTask.id,
+                                  memberId: mem.id,
+                                  title: `งานที่ส่งของ ${mem.fullName}`
+                                });
+                              }}
+                              className="p-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                              title="ลบงานที่ส่ง"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
 
-                      {hasSubmitted && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* Eye icon for viewing file */}
-                          <button
-                            type="button"
-                            onClick={() => setPreviewFileModal({ url: submission.fileUrl, name: submission.fileName })}
-                            className="p-2 bg-white hover:bg-indigo-50 text-indigo-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
-                            title="ดูไฟล์งานที่สมาชิกส่ง"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-
-                          {/* Download icon */}
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadUrl(submission.fileUrl, submission.fileName)}
-                            className="p-2 bg-white hover:bg-emerald-50 text-emerald-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
-                            title="ดาวน์โหลดไฟล์"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete submission icon */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setConfirmDeleteModal({
-                                type: 'submission',
-                                id: liveStatusTask.id,
-                                memberId: mem.id,
-                                title: `งานที่ส่งของ ${mem.fullName}`
-                              });
-                            }}
-                            className="p-2 bg-white hover:bg-rose-50 text-rose-600 border border-slate-200 rounded-xl transition-colors cursor-pointer shadow-2xs"
-                            title="ลบงานที่ส่ง"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                  {/* แสดงรายการส่งงานเพิ่มเติมหากมีสมาชิกที่ส่งเข้ามาแต่ไม่ได้อยู่ในรายการ schoolMembers */}
+                  {(liveStatusTask.submissions || [])
+                    .filter(s => s && !schoolMembers.some(m => findMemberSubmission(liveStatusTask, m)?.memberId === s.memberId || findMemberSubmission(liveStatusTask, m)?.memberName === s.memberName))
+                    .map((sub, extraIdx) => {
+                      const effectiveFileUrl = sub.fileUrl || (sub as any).localHostedUrl || '';
+                      return (
+                        <div
+                          key={`extra-${sub.memberId}-${extraIdx}`}
+                          className="p-3 rounded-2xl border bg-emerald-50/70 border-emerald-300 flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="w-7 h-7 rounded-xl bg-white border border-slate-200 font-mono font-bold text-xs text-slate-700 flex items-center justify-center shrink-0">
+                              {schoolMembers.length + extraIdx + 1}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-xs sm:text-sm text-slate-800 truncate">
+                                {sub.memberName || sub.memberId}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md truncate max-w-[220px]">
+                                  ✓ ส่งแล้ว ({sub.fileName})
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewFileModal({ url: effectiveFileUrl, name: sub.fileName })}
+                              className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>ดูไฟล์</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDownloadUrl(effectiveFileUrl, sub.fileName)}
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>ดาวน์โหลด</span>
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })
+                      );
+                    })}
+                </>
               )}
             </div>
 
@@ -1326,10 +1475,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       })()}
 
       {/* MODAL: Preview File Modal */}
-      {previewFileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+      {previewFileModal && (() => {
+        const previewSrc = getPreviewableFileUrl(previewFileModal.url, previewFileModal.name);
+        const showImage = isImageFile(previewFileModal.name) || previewFileModal.url?.startsWith('data:image/');
+        const showPdf = isPdfFile(previewFileModal.name) || previewFileModal.url?.startsWith('data:application/pdf');
+        return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
               <h3 className="text-sm font-bold text-slate-800 truncate">
                 ตัวอย่างไฟล์: {previewFileModal.name}
               </h3>
@@ -1342,8 +1495,25 @@ export const Module4Assignments: React.FC<Module4Props> = ({
               </button>
             </div>
 
-            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
-              <FileText className="w-12 h-12 text-purple-600 mx-auto" />
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3 overflow-y-auto flex-1">
+              {showImage && previewSrc ? (
+                <div className="bg-white p-2 rounded-xl border border-slate-200 inline-block max-w-full">
+                  <img
+                    src={previewSrc}
+                    alt={previewFileModal.name}
+                    className="max-h-[52vh] w-auto mx-auto rounded-lg object-contain"
+                  />
+                </div>
+              ) : showPdf && previewSrc ? (
+                <iframe
+                  src={previewSrc}
+                  title={previewFileModal.name}
+                  className="w-full h-[52vh] rounded-xl border border-slate-200 bg-white"
+                />
+              ) : (
+                <FileText className="w-12 h-12 text-purple-600 mx-auto" />
+              )}
+
               <p className="text-xs font-bold text-slate-800 break-words">{previewFileModal.name}</p>
               
               {isWordFile(previewFileModal.name) && (
@@ -1370,7 +1540,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: Create (แบ่งหน้า งานใหม่ กับ ประกาศใหม่) */}
       {isModalOpen && (
@@ -1811,25 +1982,67 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 );
               })()}
 
-              {/* Admin Actions: Toggle Complete, Submission Status */}
-              {user.role === 'admin' && selectedTaskDetailModal.type !== 'announcement' && (
+              {/* Admin Actions: View Member Submitted Files Directly + Toggle Complete + Submission Status */}
+              {user.role === 'admin' && selectedTaskDetailModal.type !== 'announcement' && (() => {
+                const liveDetailTask = tasks.find(t => t.id === selectedTaskDetailModal.id) || selectedTaskDetailModal;
+                const detailSubs = getTaskEffectiveSubmissions(liveDetailTask);
+                return (
                 <div className="space-y-2">
+                  {detailSubs.length > 0 && (
+                    <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-2 max-h-44 overflow-y-auto">
+                      <div className="text-[11px] font-bold text-emerald-900 flex items-center justify-between">
+                        <span>รายการไฟล์ที่สมาชิกส่งแล้ว ({detailSubs.length}/{totalSchoolMembers} คน)</span>
+                      </div>
+                      {detailSubs.map((sub, idx) => (
+                        <div
+                          key={`detail-sub-${sub.memberId}-${idx}`}
+                          className="p-2 bg-white border border-emerald-200 rounded-xl flex items-center justify-between gap-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-800 truncate">{sub.memberName}</div>
+                            <div className="text-[11px] text-emerald-700 truncate">{sub.fileName}</div>
+                          </div>
+                          {sub.fileUrl && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewFileModal({ url: sub.fileUrl, name: sub.fileName })}
+                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>ดูไฟล์</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadUrl(sub.fileUrl, sub.fileName)}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>ดาวน์โหลด</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Complete Checkmark Toggle */}
                   <button
                     type="button"
                     onClick={() => {
-                      handleToggleManualComplete(selectedTaskDetailModal);
+                      handleToggleManualComplete(liveDetailTask);
                       setSelectedTaskDetailModal(null);
                     }}
                     className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer border transition-all ${
-                      selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= totalSchoolMembers
+                      liveDetailTask.isManualCompleted || detailSubs.length >= totalSchoolMembers
                         ? 'bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700'
                         : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                     }`}
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>
-                      {selectedTaskDetailModal.isManualCompleted || (selectedTaskDetailModal.submissions || []).length >= totalSchoolMembers
+                      {liveDetailTask.isManualCompleted || detailSubs.length >= totalSchoolMembers
                         ? 'ยกเลิกเครื่องหมายส่งครบ' 
                         : 'ทำเครื่องหมายว่าส่งครบแล้ว'}
                     </span>
@@ -1839,16 +2052,17 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      setStatusTaskModal(selectedTaskDetailModal);
+                      setStatusTaskModal(liveDetailTask);
                       setSelectedTaskDetailModal(null);
                     }}
                     className="w-full py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
                     <Users className="w-4 h-4 text-purple-600" />
-                    <span>ดูสถานะการส่งงาน ({(selectedTaskDetailModal.submissions || []).length}/{totalSchoolMembers} คน)</span>
+                    <span>ดูสถานะการส่งงาน ({detailSubs.length}/{totalSchoolMembers} คน)</span>
                   </button>
                 </div>
-              )}
+                );
+              })()}
 
               {/* Edit & Delete in 2 columns (Admin only) */}
               {user.role === 'admin' && (

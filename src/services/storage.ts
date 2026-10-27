@@ -288,7 +288,10 @@ function notifySubscribers(changedKeys: string[]) {
 
 function buildCloudKvRowClient(key: string, value: any, updatedAt: number): Record<string, any> | null {
   try {
-    const serialized = JSON.stringify(value);
+    let serialized = JSON.stringify(value);
+    if (serialized && serialized.length > CLOUD_CHUNK_SIZE * CLOUD_MAX_CHUNKS) {
+      serialized = JSON.stringify(sanitizeValueForSync(value));
+    }
     if (!serialized || serialized.length > CLOUD_CHUNK_SIZE * CLOUD_MAX_CHUNKS) {
       return null;
     }
@@ -485,12 +488,16 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
       const prevTime = prev.submittedAt ? new Date(prev.submittedAt).getTime() : 0;
       const nextTime = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
       const mergedSub: TaskSubmission = nextTime >= prevTime ? { ...prev, ...s } : { ...s, ...prev };
-      // Prefer real Google Drive URL or non-empty fileUrl over stripped empty string
-      const prevUrl = prev.fileUrl || '';
-      const nextUrl = s.fileUrl || '';
+      // Prefer real Google Drive URL or server-hosted /api/files/ URL or non-empty fileUrl over stripped empty string
+      const prevUrl = prev.fileUrl || (prev as any).localHostedUrl || '';
+      const nextUrl = s.fileUrl || (s as any).localHostedUrl || '';
       if (nextUrl.startsWith('http')) {
         mergedSub.fileUrl = nextUrl;
       } else if (prevUrl.startsWith('http')) {
+        mergedSub.fileUrl = prevUrl;
+      } else if (nextUrl.startsWith('/api/files/')) {
+        mergedSub.fileUrl = nextUrl;
+      } else if (prevUrl.startsWith('/api/files/')) {
         mergedSub.fileUrl = prevUrl;
       } else {
         mergedSub.fileUrl = nextUrl || prevUrl;
@@ -540,6 +547,8 @@ function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], p
   return result;
 }
 
+let lastDirectCloudPullTime = 0;
+
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
@@ -549,13 +558,18 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
   // 2. Automatic Per-School Google Sheets Sync for every piece of data filled by Member or Admin
   scheduleTenantKeySyncToSchoolSheet(resolvedKey, value, timestamp);
 
+  // 3. For task keys, also push directly to RealtimeCloudKV so cross-container (ais-dev <-> ais-pre) syncs immediately
+  if (isTaskStorageKey(resolvedKey)) {
+    pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
+  }
+
   const payload = {
     clientId: CLIENT_ID,
     updates: { [resolvedKey]: value },
     timestamps: { [resolvedKey]: timestamp }
   };
 
-  // 3. Real-Time Express Server Mutation (triggers instant SSE broadcast + .data disk persistence)
+  // 4. Real-Time Express Server Mutation (triggers instant SSE broadcast + .data disk persistence + server Drive upload)
   fetch('/api/realtime/mutate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -591,19 +605,18 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
     .catch(() => {
       locallyModifiedKeys.delete(resolvedKey);
       pushToGoogleCloudKVDirect(resolvedKey, sanitizeValueForSync(value), timestamp);
+      // Fallback for static Cloudflare Pages D1 when Express /api/realtime/mutate is unavailable
+      fetch('/api/d1?action=saveRealtimeState', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: CLIENT_ID,
+          key: resolvedKey,
+          value: sanitizeValueForSync(value),
+          updatedAt: timestamp
+        })
+      }).catch(() => {});
     });
-
-  // 4. Cloudflare Pages D1 Real-Time State Mirror
-  fetch('/api/d1?action=saveRealtimeState', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientId: CLIENT_ID,
-      key: resolvedKey,
-      value: sanitizeValueForSync(value),
-      updatedAt: timestamp
-    })
-  }).catch(() => {});
 }
 
 function applyIncomingUpdates(
@@ -976,6 +989,11 @@ export const StorageService = {
     }
 
     if (serverData && serverData.status === 'up_to_date') {
+      const nowMs = Date.now();
+      if (nowMs - lastDirectCloudPullTime > 3500) {
+        lastDirectCloudPullTime = nowMs;
+        this.pullFromGoogleCloudKV().catch(() => {});
+      }
       return false;
     }
 

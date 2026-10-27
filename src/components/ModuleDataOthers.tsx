@@ -698,6 +698,37 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const [personnelCustomDepartment, setPersonnelCustomDepartment] = useState<string>('');
   const [personnelAvatarUrl, setPersonnelAvatarUrl] = useState<string>('');
   const personnelFileInputRef = useRef<HTMLInputElement>(null);
+  const [personnelSignatureUrl, setPersonnelSignatureUrl] = useState<string>('');
+  const personnelSignatureInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePersonnelSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_W = 500;
+        const MAX_H = 200;
+        let w = img.width;
+        let h = img.height;
+        if (w > MAX_W) { h *= MAX_W / w; w = MAX_W; }
+        if (h > MAX_H) { w *= MAX_H / h; h = MAX_H; }
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, w, h);
+          const dataUrl = file.type === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
+          setPersonnelSignatureUrl(dataUrl);
+          onShowToast('success', 'อัปโหลดสำเร็จ', 'อัปโหลดลายเซ็นบุคลากรเรียบร้อยแล้ว');
+        }
+      };
+      img.src = ev.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handlePersonnelImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -733,6 +764,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     setPersonnelDepartment('วิชาการ');
     setPersonnelCustomDepartment('');
     setPersonnelAvatarUrl('');
+    setPersonnelSignatureUrl('');
     setIsPersonnelModalOpen(true);
   };
 
@@ -751,6 +783,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       setPersonnelCustomDepartment('');
     }
     setPersonnelAvatarUrl(person.avatarUrl || '');
+    setPersonnelSignatureUrl(person.signatureUrl || '');
     setIsPersonnelModalOpen(true);
   };
 
@@ -1095,7 +1128,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       major: formData.get('major') as string,
       phone: formData.get('phone') as string,
       email: formData.get('email') as string,
-      avatarUrl: personnelAvatarUrl
+      avatarUrl: personnelAvatarUrl,
+      signatureUrl: personnelSignatureUrl
     };
 
     onSavePersonnel(person);
@@ -1927,6 +1961,39 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 onChange={(e) => setEditingSchoolInfo({ ...editingSchoolInfo, address: e.target.value })}
                 className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  เบอร์โทรศัพท์สถานศึกษา / ช่องทางติดต่อ
+                </label>
+                <input
+                  type="text"
+                  disabled={user.role !== 'admin'}
+                  value={editingSchoolInfo.phone || ''}
+                  onChange={(e) => setEditingSchoolInfo({ ...editingSchoolInfo, phone: e.target.value })}
+                  placeholder="เช่น 075-123456 หรือ 081-2345678"
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  เบอร์นี้จะแสดงบนหลังบัตรนักเรียนและเอกสารทางการของโรงเรียน
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  อีเมลสถานศึกษา / เว็บไซต์ติดต่อ
+                </label>
+                <input
+                  type="text"
+                  disabled={user.role !== 'admin'}
+                  value={editingSchoolInfo.email || ''}
+                  onChange={(e) => setEditingSchoolInfo({ ...editingSchoolInfo, email: e.target.value })}
+                  placeholder="เช่น school@example.ac.th"
+                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
+                />
+              </div>
             </div>
 
             {/* Dynamic Custom Fields */}
@@ -3738,6 +3805,58 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         className="px-2.5 py-1 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 text-xs font-medium rounded-xl transition-colors cursor-pointer block"
                       >
                         ลบรูป
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>ลายเซ็นดิจิทัล / ลายเซ็นผู้บริหาร (สำหรับประทับบัตรนักเรียนและเอกสาร)</span>
+                </label>
+                <input
+                  type="file"
+                  ref={personnelSignatureInputRef}
+                  accept="image/*"
+                  onChange={handlePersonnelSignatureChange}
+                  className="hidden"
+                />
+                <div className="flex items-center gap-3 pt-1">
+                  <div
+                    onClick={() => personnelSignatureInputRef.current?.click()}
+                    className="w-36 h-16 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300 hover:border-blue-500 overflow-hidden flex items-center justify-center cursor-pointer transition-all shrink-0 group relative shadow-2xs p-1"
+                  >
+                    {personnelSignatureUrl ? (
+                      <>
+                        <img src={personnelSignatureUrl} alt="ลายเซ็น" className="max-w-full max-h-full object-contain" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[9px] font-semibold">
+                          เปลี่ยน
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center px-1">
+                        <Upload className="w-4 h-4 text-slate-400 mx-auto mb-0.5" />
+                        <span className="text-[8.5px] text-slate-400 font-semibold block">อัปโหลดลายเซ็น</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1.5 flex-1">
+                    <button
+                      type="button"
+                      onClick={() => personnelSignatureInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{personnelSignatureUrl ? 'เปลี่ยนไฟล์ภาพลายเซ็น' : 'เลือกไฟล์ภาพลายเซ็น'}</span>
+                    </button>
+                    {personnelSignatureUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setPersonnelSignatureUrl('')}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-medium rounded-xl transition-colors cursor-pointer block"
+                      >
+                        ลบลายเซ็น
                       </button>
                     )}
                   </div>
@@ -6168,6 +6287,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         onClose={() => setStudentCardModalState(prev => ({ ...prev, isOpen: false }))}
         students={students}
         schoolInfo={schoolInfo}
+        personnel={personnel}
         initialSide={studentCardModalState.side}
         initialGrade={studentCardModalState.grade}
         onShowToast={onShowToast}

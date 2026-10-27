@@ -115,7 +115,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   grade,
   academicYear,
   semester,
-  schoolInfo,
+  schoolInfo: propSchoolInfo,
   personnel,
   subjects,
   grades,
@@ -126,6 +126,28 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   onOpenLightbox
 }) => {
   const [activeTab, setActiveTab] = useState<PhorPhor6Tab>('cover');
+
+  // หน้าข้อมูลโรงเรียน: Always pull directly from "ข้อมูลโรงเรียน" (StorageService.getSchoolInfo())
+  const schoolInfo = useMemo(() => {
+    try {
+      const fresh = StorageService.getSchoolInfo();
+      if (fresh && fresh.schoolName) {
+        return { ...propSchoolInfo, ...fresh };
+      }
+    } catch {}
+    return propSchoolInfo;
+  }, [propSchoolInfo]);
+
+  // Clean formatted school name: ensure exactly one "โรงเรียน" prefix, never duplicate "โรงเรียนโรงเรียน..."
+  const cleanSchoolName = useMemo(() => {
+    const raw = (schoolInfo?.schoolName || '').trim();
+    if (!raw) return 'วัดผลประเมินพัฒนาการ';
+    return raw.replace(/^โรงเรียน\s*/, '');
+  }, [schoolInfo?.schoolName]);
+
+  const fullSchoolName = useMemo(() => {
+    return `โรงเรียน${cleanSchoolName}`;
+  }, [cleanSchoolName]);
 
   // 1. หน้าข้อมูลนักเรียน: Always pull directly from "ข้อมูล/อื่นๆ" (StorageService.getStudents())
   const student = useMemo(() => {
@@ -349,7 +371,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
         {/* Line 3: โรงเรียน สังกัด */}
         <p className="text-xs font-semibold text-slate-800">
-          โรงเรียน{schoolInfo.schoolName || 'วัดผลประเมินพัฒนาการ'} {affiliationText}
+          {fullSchoolName} {affiliationText}
         </p>
 
         {/* Line 4: ปีการศึกษา ภาค และชั้น */}
@@ -1145,7 +1167,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 <div className="space-y-1.5 text-[13px] mb-6 px-2">
                   <div className="flex flex-wrap items-baseline gap-1">
                     <span className="font-bold text-slate-900">โรงเรียน :</span>
-                    <span className="font-semibold text-slate-900 px-2 border-b border-dotted border-slate-600 inline-block min-w-[220px]">{schoolInfo.schoolName || 'วัดผลประเมินพัฒนาการ'}</span>
+                    <span className="font-semibold text-slate-900 px-2 border-b border-dotted border-slate-600 inline-block min-w-[220px]">{cleanSchoolName}</span>
                   </div>
 
                   <div className="flex flex-wrap items-baseline gap-4">

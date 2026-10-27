@@ -486,7 +486,7 @@ export const INITIAL_PERSONNEL: Personnel[] = [
     lastName: "เจริญรัตนกุล",
     personnelType: "ผู้อำนวยการ",
     department: "บริหารทั่วไป",
-    position: "ผู้อำนวยการโรงเรียน",
+    position: "ผู้อำนวยการโรงเรียนบ้านไสโป๊ะ",
     birthDate: "1972-04-15",
     employmentDate: "2000-05-16",
     retirementDate: "2032-09-30",

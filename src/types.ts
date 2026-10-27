@@ -164,6 +164,7 @@ export interface Personnel {
   email: string;
   avatarUrl?: string;
   photoUrl?: string;
+  signatureUrl?: string; // ลายเซ็นสำหรับบัตรนักเรียนและเอกสารราชการ
 }
 
 export interface SchoolInfo {

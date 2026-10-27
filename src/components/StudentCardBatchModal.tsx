@@ -1,15 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Student, SchoolInfo, GradeLevel } from '../types';
+import { Student, SchoolInfo, GradeLevel, Personnel } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   Printer, 
   Download, 
   X, 
   CreditCard, 
-  GraduationCap, 
   Phone, 
-  Calendar, 
   User, 
-  QrCode,
   ShieldCheck,
   Check
 } from 'lucide-react';
@@ -19,6 +17,7 @@ interface StudentCardBatchModalProps {
   onClose: () => void;
   students: Student[];
   schoolInfo: SchoolInfo;
+  personnel?: Personnel[];
   initialSide?: 'front' | 'back';
   initialGrade?: string;
   onShowToast?: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
@@ -26,11 +25,32 @@ interface StudentCardBatchModalProps {
 
 const CARDS_PER_A4_PAGE = 8; // 2 columns x 4 rows fits standard CR80 (85.6mm x 54mm) on A4 Portrait
 
+/**
+ * Stage mapping helper:
+ * อ.1 - 3  -> ชั้นอนุบาล
+ * ป.1 - 3  -> ชั้นประถมศึกษาตอนต้น
+ * ป.4 - 6  -> ชั้นประถมศึกษาตอนปลาย
+ * ม.1 - 3  -> ชั้นมัธยมศึกษาตอนต้น
+ * ม.4 - 6  -> ชั้นมัธยมศึกษาตอนปลาย
+ */
+export const getGradeStageLabel = (gradeLevel: string): string => {
+  const g = (gradeLevel || '').trim();
+  if (g.startsWith('อ.')) return 'ชั้นอนุบาล';
+  if (['ป.1', 'ป.2', 'ป.3'].includes(g)) return 'ชั้นประถมศึกษาตอนต้น';
+  if (['ป.4', 'ป.5', 'ป.6'].includes(g)) return 'ชั้นประถมศึกษาตอนปลาย';
+  if (['ม.1', 'ม.2', 'ม.3'].includes(g)) return 'ชั้นมัธยมศึกษาตอนต้น';
+  if (['ม.4', 'ม.5', 'ม.6'].includes(g)) return 'ชั้นมัธยมศึกษาตอนปลาย';
+  if (g.includes('อนุบาล')) return 'ชั้นอนุบาล';
+  if (g.includes('ประถม')) return 'ชั้นประถมศึกษา';
+  return `ชั้น${g}`;
+};
+
 export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
   isOpen,
   onClose,
   students,
   schoolInfo,
+  personnel = [],
   initialSide = 'front',
   initialGrade = 'all',
   onShowToast
@@ -49,6 +69,46 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
       }
     }
   }, [isOpen, initialSide, initialGrade]);
+
+  // Personnel list fallback to StorageService if prop is empty
+  const activePersonnel = useMemo(() => {
+    if (personnel && personnel.length > 0) return personnel;
+    try {
+      return StorageService.getPersonnel() || [];
+    } catch {
+      return [];
+    }
+  }, [personnel]);
+
+  // Find school director and director's uploaded signature
+  const director = useMemo(() => {
+    if (!activePersonnel || activePersonnel.length === 0) return null;
+    return activePersonnel.find(p => 
+      (p.position && p.position.includes('ผู้อำนวยการ')) ||
+      (p.personnelType && p.personnelType.includes('ผู้อำนวยการ'))
+    ) || activePersonnel.find(p => p.personnelType === 'ผู้บริหาร' || p.personnelType === 'ผู้อำนวยการ') || null;
+  }, [activePersonnel]);
+
+  const rawSchoolName = (schoolInfo.schoolName || 'บ้านไสโป๊ะ').trim();
+  const cleanSchool = rawSchoolName.replace(/^โรงเรียน/, '').trim() || 'บ้านไสโป๊ะ';
+  const defaultDirectorPosition = `ผู้อำนวยการโรงเรียน${cleanSchool}`;
+
+  // ดึงข้อมูลตำแหน่งจากช่องตำแหน่งของข้อมูลบุคลากร (Personnel -> position)
+  const directorPositionTitle = useMemo(() => {
+    const rawPos = (director?.position || '').trim();
+    if (!rawPos) {
+      return defaultDirectorPosition;
+    }
+    // หากเป็นเพียงคำกว้างๆ เช่น "ผู้อำนวยการ" หรือ "ผู้อำนวยการโรงเรียน" หรือ "ผู้อำนวยการสถานศึกษา" ให้ประกอบชื่อโรงเรียนเป็น "ผู้อำนวยการโรงเรียนบ้านไสโป๊ะ"
+    if (rawPos === 'ผู้อำนวยการ' || rawPos === 'ผู้อำนวยการโรงเรียน' || rawPos === 'ผู้อำนวยการสถานศึกษา') {
+      return defaultDirectorPosition;
+    }
+    return rawPos;
+  }, [director, defaultDirectorPosition]);
+
+  const directorSignature = director?.signatureUrl;
+  const directorDisplayName = schoolInfo.directorName || 
+    (director ? `${director.prefix || ''}${director.firstName} ${director.lastName}`.trim() : 'ผู้อำนวยการโรงเรียน');
 
   // Available grade levels present in the school's students
   const availableGrades = useMemo(() => {
@@ -148,55 +208,38 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
             max-height: 297mm !important;
             padding: 11mm 13.5mm !important;
             margin: 0 !important;
-            box-shadow: none !important;
-            border: none !important;
             page-break-after: always !important;
             break-after: page !important;
-            box-sizing: border-box !important;
-            overflow: hidden !important;
-            display: grid !important;
-            grid-template-columns: repeat(2, 85.6mm) !important;
-            grid-template-rows: repeat(4, 54mm) !important;
-            column-gap: 8.5mm !important;
-            row-gap: 6.5mm !important;
-            justify-content: center !important;
-            align-content: center !important;
-          }
-          .student-card-a4-page:last-child {
-            page-break-after: auto !important;
-            break-after: auto !important;
+            box-shadow: none !important;
+            border: none !important;
           }
           .student-card-item {
-            width: 85.6mm !important;
-            height: 54mm !important;
-            min-width: 85.6mm !important;
-            max-width: 85.6mm !important;
-            min-height: 54mm !important;
-            max-height: 54mm !important;
-            box-sizing: border-box !important;
+            border: 1px solid #94a3b8 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
         }
       `}</style>
 
-      {/* MODAL HEADER TOOLBAR (no-print) */}
-      <div className="no-print bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 shrink-0 shadow-xs z-10 flex-wrap">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+      {/* MODAL CONTROL HEADER (Hidden on print) */}
+      <div className="no-print bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3 shadow-md z-10 shrink-0 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-200 flex items-center justify-center text-blue-600 shadow-2xs">
             <CreditCard className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
-              <span>พิมพ์บัตรนักเรียน (85.6 × 54 มม.)</span>
-              <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg">
-                กระดาษ A4 แนวตั้ง ({targetStudents.length} คน • {studentPages.length} หน้า)
+            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <span>ดาวน์โหลด / พิมพ์บัตรนักเรียน</span>
+              <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                มาตรฐาน CR80 (85.6 × 54 มม.) 8 ใบ/หน้า A4
               </span>
             </h3>
+            <p className="text-xs text-slate-500">
+              {cardSide === 'front' ? 'หน้าบัตรนักเรียน' : 'หลังบัตรนักเรียน'} • รวม {targetStudents.length} คน ({studentPages.length} หน้า A4)
+            </p>
           </div>
         </div>
 
-        {/* Controls: Card Side Toggle + Grade Level Selector + Print Button */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* Side Toggle */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -297,9 +340,9 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
               </div>
 
               {pageStudents.map((student) => {
-                const rollDisplay = student.rollNumber !== undefined ? student.rollNumber : '-';
                 const codeDisplay = student.studentCode || '-';
                 const idCardDisplay = student.idCard || student.citizenId || '-';
+                const gradeStage = getGradeStageLabel(student.gradeLevel);
                 const emergencyPhone = student.guardianPhone || student.fatherPhone || student.motherPhone || schoolInfo.phone || '-';
 
                 return (
@@ -320,9 +363,9 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                       /* ===================== FRONT OF CARD (หน้าบัตร 85.6 x 54 mm) ===================== */
                       <div className="w-full h-full flex flex-col justify-between bg-white relative">
                         {/* Decorative Top Background Header */}
-                        <div className="h-[12.5mm] bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white px-2 py-1 flex items-center justify-between relative overflow-hidden shrink-0">
+                        <div className="h-[13mm] bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white px-2.5 py-1 flex items-center justify-between relative overflow-hidden shrink-0">
                           {/* Subtle background crest accent */}
-                          <div className="absolute -right-3 -bottom-3 w-14 h-14 rounded-full bg-white/5 pointer-events-none" />
+                          <div className="absolute -right-3 -bottom-3 w-16 h-16 rounded-full bg-white/5 pointer-events-none" />
 
                           {/* Logo + School Title */}
                           <div className="flex items-center gap-1.5 z-10 min-w-0">
@@ -330,25 +373,25 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                               <img
                                 src={schoolInfo.logoUrl}
                                 alt="Logo"
-                                className="w-[8mm] h-[8mm] object-contain rounded-full bg-white/10 p-0.5 shrink-0"
+                                className="w-[8.5mm] h-[8.5mm] object-contain rounded-full bg-white/10 p-0.5 shrink-0"
                               />
                             ) : (
-                              <div className="w-[8mm] h-[8mm] rounded-full bg-amber-400 text-blue-950 font-black text-[9px] flex items-center justify-center shrink-0 shadow-xs">
+                              <div className="w-[8.5mm] h-[8.5mm] rounded-full bg-amber-400 text-blue-950 font-black text-[9px] flex items-center justify-center shrink-0 shadow-xs">
                                 รร
                               </div>
                             )}
                             <div className="min-w-0">
-                              <h4 className="text-[9px] font-black text-amber-300 leading-tight truncate tracking-tight">
+                              <h4 className="text-[9.5px] font-black text-amber-300 leading-tight truncate tracking-tight">
                                 {schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
                               </h4>
-                              <p className="text-[6.5px] text-blue-100 font-medium leading-none mt-0.5 truncate">
-                                บัตรประจำตัวนักเรียน • STUDENT CARD
+                              <p className="text-[7px] text-blue-100 font-medium leading-none mt-0.5 truncate">
+                                บัตรประจำตัวนักเรียน • STUDENT IDENTITY CARD
                               </p>
                             </div>
                           </div>
 
                           {/* Academic Year Badge */}
-                          <div className="z-10 bg-amber-400/90 text-blue-950 text-[6.5px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap shrink-0">
+                          <div className="z-10 bg-amber-400 text-blue-950 text-[7px] font-extrabold px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap shrink-0">
                             ปีการศึกษา {academicYear}
                           </div>
                         </div>
@@ -356,11 +399,11 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                         {/* Thin Gold accent stripe */}
                         <div className="h-[1mm] bg-amber-400 shrink-0" />
 
-                        {/* Card Body */}
-                        <div className="flex-1 px-2.5 py-1.5 flex items-center gap-2.5 min-w-0">
+                        {/* Card Body: Larger fonts, balanced spacing, no empty dead zones */}
+                        <div className="flex-1 px-3 py-1.5 flex items-center gap-3 min-w-0">
                           {/* Left Column: Photo & Student Code */}
-                          <div className="w-[22mm] flex flex-col items-center shrink-0">
-                            <div className="w-[21mm] h-[26.5mm] rounded-[2mm] border border-blue-300 bg-slate-50 overflow-hidden flex items-center justify-center shadow-2xs">
+                          <div className="w-[23mm] flex flex-col items-center shrink-0">
+                            <div className="w-[22.5mm] h-[28mm] rounded-[2mm] border-2 border-blue-400 bg-slate-50 overflow-hidden flex items-center justify-center shadow-2xs">
                               {student.photoUrl ? (
                                 <img
                                   src={student.photoUrl}
@@ -369,56 +412,50 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                                 />
                               ) : (
                                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-100">
-                                  <User className="w-7 h-7 text-slate-300" />
-                                  <span className="text-[6px] text-slate-400 font-bold mt-0.5">ไม่มีรูปถ่าย</span>
+                                  <User className="w-8 h-8 text-slate-300" />
+                                  <span className="text-[6.5px] text-slate-400 font-bold mt-0.5">ไม่มีรูปถ่าย</span>
                                 </div>
                               )}
                             </div>
-                            <div className="text-[6.5px] font-bold font-mono text-blue-950 text-center mt-1 bg-blue-50 px-1 py-0.2 rounded border border-blue-200 w-full truncate">
+                            <div className="text-[7.5px] font-bold font-mono text-blue-950 text-center mt-1 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 w-full truncate">
                               ID: {codeDisplay}
                             </div>
                           </div>
 
                           {/* Right Column: Particulars & Official Seal */}
                           <div className="flex-1 flex flex-col justify-between h-full min-w-0 py-0.5">
-                            {/* Student Name */}
-                            <div className="border-b border-slate-200/80 pb-1">
-                              <h3 className="text-[10px] font-black text-slate-900 leading-tight truncate">
+                            {/* Student Name: Larger and bolder */}
+                            <div className="border-b border-slate-200 pb-1">
+                              <h3 className="text-[12px] font-black text-slate-900 leading-tight truncate">
                                 {student.prefix}{student.firstName} {student.lastName}
                               </h3>
                               {student.nickname && (
-                                <p className="text-[7px] text-slate-500 font-medium leading-none mt-0.5">
+                                <p className="text-[8px] text-slate-500 font-medium leading-none mt-0.5">
                                   ชื่อเล่น: {student.nickname}
                                 </p>
                               )}
                             </div>
 
-                            {/* Particulars grid */}
-                            <div className="space-y-0.5 text-[7px] text-slate-700 py-0.5">
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-400 font-medium">เลขประชาชน:</span>
-                                <span className="font-mono font-bold text-slate-900 truncate">{idCardDisplay}</span>
+                            {/* Particulars grid (no roll number, larger font) */}
+                            <div className="space-y-1 text-[8px] text-slate-700 py-0.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 font-medium text-[7.5px]">เลขประชาชน:</span>
+                                <span className="font-mono font-bold text-slate-900 text-[8.5px] tracking-tight">{idCardDisplay}</span>
                               </div>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1">
-                                  <span className="text-slate-400 font-medium">ระดับชั้น:</span>
-                                  <span className="font-bold text-blue-900">
-                                    ชั้น {student.gradeLevel}{student.room ? `/${student.room}` : ''}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1 pr-1">
-                                  <span className="text-slate-400 font-medium">เลขที่:</span>
-                                  <span className="font-bold text-slate-900">{rollDisplay}</span>
-                                </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-400 font-medium text-[7.5px]">ระดับชั้น:</span>
+                                <span className="font-bold text-blue-900 text-[9px] bg-blue-50/80 px-1.5 py-0.2 rounded border border-blue-200/60">
+                                  {gradeStage}
+                                </span>
                               </div>
-                              <div className="flex items-center justify-between text-[6.5px]">
+                              <div className="flex items-center justify-between text-[7.5px]">
                                 <div className="flex items-center gap-1">
                                   <span className="text-slate-400">วันเกิด:</span>
                                   <span className="font-medium text-slate-800">{formatThaiBirthDate(student.birthDate)}</span>
                                 </div>
                                 {student.bloodGroup && (
                                   <div className="flex items-center gap-0.5 pr-1">
-                                    <span className="text-slate-400">เลือด:</span>
+                                    <span className="text-slate-400">หมู่เลือด:</span>
                                     <span className="font-bold text-rose-700">{student.bloodGroup}</span>
                                   </div>
                                 )}
@@ -426,16 +463,27 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                             </div>
 
                             {/* Director Signature verification */}
-                            <div className="border-t border-slate-100 pt-0.5 flex items-center justify-between">
-                              <div className="text-[5.5px] text-slate-400 font-medium">
+                            <div className="border-t border-slate-100 pt-1 flex items-end justify-between">
+                              <div className="text-[6px] text-slate-400 font-medium pb-0.5">
                                 ออกโดย {schoolInfo.schoolName || 'สถานศึกษา'}
                               </div>
-                              <div className="text-right">
-                                <p className="text-[6.5px] font-bold text-slate-800 leading-none">
-                                  ( {schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน'} )
+                              <div className="text-center min-w-[30mm] flex flex-col items-center">
+                                {directorSignature ? (
+                                  <img 
+                                    src={directorSignature} 
+                                    alt="ลายเซ็นผู้บริหาร" 
+                                    className="h-[6.5mm] max-w-[28mm] object-contain mb-0.5" 
+                                  />
+                                ) : (
+                                  <div className="h-[4.5mm] flex items-end">
+                                    <div className="w-20 border-b border-dotted border-slate-300 mb-0.5" />
+                                  </div>
+                                )}
+                                <p className="text-[7.5px] font-bold text-slate-900 leading-none">
+                                  ( {directorDisplayName} )
                                 </p>
-                                <p className="text-[5.5px] text-slate-500 leading-none mt-0.5">
-                                  ผู้อำนวยการสถานศึกษา
+                                <p className="text-[6.5px] text-slate-500 font-medium leading-none mt-0.5">
+                                  {directorPositionTitle}
                                 </p>
                               </div>
                             </div>
@@ -443,42 +491,44 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                         </div>
 
                         {/* Micro bottom strip */}
-                        <div className="h-[2mm] bg-blue-900 flex items-center justify-between px-2 text-[5px] text-blue-200 shrink-0 font-medium">
+                        <div className="h-[2mm] bg-blue-900 flex items-center justify-between px-2.5 text-[5px] text-blue-200 shrink-0 font-medium">
                           <span>กระทรวงศึกษาธิการ • MINISTRY OF EDUCATION</span>
                           <span className="font-mono">VALID THRU 03/{nextYear}</span>
                         </div>
                       </div>
                     ) : (
                       /* ===================== BACK OF CARD (หลังบัตร 85.6 x 54 mm) ===================== */
-                      <div className="w-full h-full flex flex-col justify-between bg-slate-50 relative p-2 text-slate-800">
+                      <div className="w-full h-full flex flex-col justify-between bg-slate-50 relative p-2.5 text-slate-800">
                         {/* Header School Info */}
                         <div className="border-b border-slate-200 pb-1 text-center">
-                          <h4 className="text-[8.5px] font-black text-blue-950 leading-tight">
+                          <h4 className="text-[9px] font-black text-blue-950 leading-tight">
                             {schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
                           </h4>
-                          <p className="text-[6px] text-slate-500 leading-tight mt-0.5 truncate">
-                            {schoolInfo.address || ''} {schoolInfo.subdistrict ? `ต.${schoolInfo.subdistrict}` : ''} {schoolInfo.district ? `อ.${schoolInfo.district}` : ''} {schoolInfo.province ? `จ.${schoolInfo.province}` : ''} {schoolInfo.postalCode || ''}
-                          </p>
-                          <p className="text-[6px] text-slate-500 leading-tight">
-                            โทรศัพท์: {schoolInfo.phone || '-'} {schoolInfo.affiliation ? `• สังกัด ${schoolInfo.affiliation}` : ''}
+                          {schoolInfo.address && (
+                            <p className="text-[6.5px] text-slate-600 leading-tight mt-0.5 truncate">
+                              {schoolInfo.address}
+                            </p>
+                          )}
+                          <p className="text-[6.8px] text-blue-900 font-bold leading-tight mt-0.5">
+                            โทรศัพท์ติดต่อ: {schoolInfo.phone || 'ยังไม่ได้ระบุ'}
                           </p>
                         </div>
 
                         {/* Card Rules / Regulations */}
-                        <div className="py-1 px-1 bg-white rounded border border-slate-200 text-[6px] text-slate-700 space-y-0.5 leading-snug">
-                          <div className="font-bold text-blue-900 text-[6.5px] mb-0.5">ข้อปฏิบัติในการใช้บัตรประจำตัวนักเรียน:</div>
+                        <div className="py-1 px-1.5 bg-white rounded border border-slate-200 text-[6.2px] text-slate-700 space-y-0.5 leading-snug">
+                          <div className="font-bold text-blue-900 text-[6.8px] mb-0.5">ข้อปฏิบัติในการใช้บัตรประจำตัวนักเรียน:</div>
                           <p>1. บัตรนี้เป็นเอกสารแสดงตนของผู้ถือบัตร และเป็นสมบัติของโรงเรียน</p>
                           <p>2. นักเรียนต้องพกติดตัวตลอดเวลาขณะอยู่ในสถานศึกษา และแสดงเมื่อเจ้าหน้าที่ร้องขอ</p>
                           <p>3. ใช้ในการติดต่อราชการ เข้าห้องสอบ ยืม-คืนหนังสือห้องสมุด และร่วมกิจกรรม</p>
                           <p>4. หากเก็บบัตรนี้ได้ กรุณาส่งคืนสถานศึกษาตามที่อยู่ข้างต้น หรือหย่อนลงตู้ไปรษณีย์</p>
                         </div>
 
-                        {/* Student Details Summary Bar */}
-                        <div className="flex items-center justify-between bg-blue-50/80 px-2 py-0.5 rounded border border-blue-200 text-[6.5px]">
+                        {/* Student Details Summary Bar (No grade level on back as requested) */}
+                        <div className="flex items-center justify-between bg-blue-50/90 px-2 py-0.5 rounded border border-blue-200 text-[7px]">
                           <div>
                             <span className="text-slate-500">ผู้ถือบัตร: </span>
                             <span className="font-bold text-slate-900">
-                              {student.prefix}{student.firstName} {student.lastName} (ชั้น {student.gradeLevel}{student.room ? `/${student.room}` : ''})
+                              {student.prefix}{student.firstName} {student.lastName}
                             </span>
                           </div>
                           <div>

@@ -210,6 +210,38 @@ function isValidDownloadedBinary(arrayBuf: ArrayBuffer, fileName: string): boole
   return true;
 }
 
+export function getDirectFileDownloadUrl(urlOrData?: string, fileName?: string, schoolId?: string): string {
+  const safeName = (fileName || 'download').trim();
+  if (!urlOrData || urlOrData === '#') {
+    if (fileName && fileName.trim()) {
+      return `/api/files/download?name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}`;
+    }
+    return '#';
+  }
+  if (urlOrData.startsWith('data:')) {
+    return urlOrData;
+  }
+  const driveId = extractDriveFileId(urlOrData);
+  if (driveId) {
+    return `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`;
+  }
+  if (urlOrData.startsWith('/api/files/')) {
+    return urlOrData;
+  }
+  if (urlOrData.startsWith('http')) {
+    return urlOrData;
+  }
+  return `/api/files/download?url=${encodeURIComponent(urlOrData)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}`;
+}
+
+export function getGoogleDriveViewUrl(urlOrData?: string): string {
+  const driveId = extractDriveFileId(urlOrData);
+  if (driveId) {
+    return `https://drive.google.com/file/d/${driveId}/view?usp=sharing`;
+  }
+  return urlOrData && urlOrData.startsWith('http') ? urlOrData : '';
+}
+
 /**
  * ดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive (ได้ไฟล์ต้นฉบับแท้ 100% เปิดใช้งานได้จริงทุกสกุลไฟล์)
  */
@@ -231,9 +263,7 @@ export function downloadRealFile(
     safeName = `${safeName}.${defaultExt.replace(/^\./, '')}`;
   }
 
-  const correctMime = getMimeTypeByExtension(safeName, 'application/octet-stream');
-
-  // 1. กรณีเป็น Base64 Data URL หรือ Raw Base64 (กรณีเพิ่งเลือกไฟล์ในเครื่อง)
+  // 1. กรณีเป็น Base64 Data URL หรือ Raw Base64 (กรณีเพิ่งเลือกไฟล์ในเครื่องก่อนบันทึก)
   if (cleanUrl && (cleanUrl.startsWith('data:') || (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('/')))) {
     const possibleDriveId = extractDriveFileId(cleanUrl);
     if (!possibleDriveId) {
@@ -263,89 +293,26 @@ export function downloadRealFile(
     }
   }
 
-  // 2. ดึงไฟล์ต้นฉบับแท้จาก Google Drive ผ่าน Server Direct Stream (/api/files/download -> drive.usercontent.google.com)
-  // เพื่อไม่ให้ติด Cross-Origin-Resource-Policy ของเบราว์เซอร์ และไม่ให้ได้ไฟล์ Thumbnail แทนไฟล์จริง
-  (async () => {
+  // 2. ดึงไฟล์ต้นฉบับแท้จาก Google Drive Direct CDN หรือ Server Stream (ไม่ใช้ Blob Memory เพื่อป้องกันการตัดจบไฟล์ผิดพลาด)
+  const driveId = extractDriveFileId(cleanUrl);
+  const targetDownloadUrl = driveId
+    ? `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`
+    : `/api/files/download?url=${encodeURIComponent(cleanUrl)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}`;
+
+  const link = document.createElement('a');
+  link.href = targetDownloadUrl;
+  link.download = safeName;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  document.body.appendChild(link);
+  link.click();
+  setTimeout(() => {
     try {
-      let driveId = extractDriveFileId(cleanUrl);
-
-      const fetchViaServerStream = async (fid: string): Promise<boolean> => {
-        const params = new URLSearchParams({
-          ...(fid ? { id: fid } : {}),
-          url: cleanUrl,
-          name: safeName,
-          ...(schoolId ? { schoolId } : {})
-        });
-        const proxyUrl = `/api/files/download?${params.toString()}`;
-        const res = await fetch(proxyUrl);
-        const contentType = String(res.headers.get('content-type') || '').toLowerCase();
-        if (res.ok && !contentType.includes('text/html') && !contentType.includes('application/json')) {
-          const arrayBuf = await res.arrayBuffer();
-          if (isValidDownloadedBinary(arrayBuf, safeName)) {
-            const blob = new Blob([arrayBuf], { type: correctMime });
-            triggerBrowserBlobDownload(blob, safeName);
-            return true;
-          }
-        }
-        return false;
-      };
-
-      // Tier 1: ดึงไฟล์ต้นฉบับผ่าน /api/files/download ทันที
-      try {
-        const ok = await fetchViaServerStream(driveId);
-        if (ok) return;
-      } catch {
-        // Fallback to Tier 2
-      }
-
-      // Tier 2: หากยังไม่มี driveId ใน URL ให้ค้นหา driveId จากชีต DriveFiles ของโรงเรียนแล้วดึงใหม่
-      if (!driveId && safeName) {
-        driveId = await resolveDriveIdByFileNameFromGas(safeName, schoolId);
-        if (driveId) {
-          try {
-            const ok = await fetchViaServerStream(driveId);
-            if (ok) return;
-          } catch {
-            // Fallback to Tier 3
-          }
-        }
-      }
-
-      // Tier 3: เฉพาะกรณีเป็นไฟล์รูปภาพจริงๆ เท่านั้น จึงอนุญาตให้ดึงจาก lh3 CDN โดยตรง
-      if (driveId && isImageFile(safeName)) {
-        try {
-          const cdnRes = await fetch(`https://lh3.googleusercontent.com/d/${driveId}`);
-          const cdnType = String(cdnRes.headers.get('content-type') || '').toLowerCase();
-          if (cdnRes.ok && !cdnType.includes('text/html')) {
-            const arrayBuf = await cdnRes.arrayBuffer();
-            if (isValidDownloadedBinary(arrayBuf, safeName)) {
-              const blob = new Blob([arrayBuf], { type: correctMime });
-              triggerBrowserBlobDownload(blob, safeName);
-              return;
-            }
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      // Tier 4: สั่งดาวน์โหลดผ่านลิงก์ /api/files/download โดยตรงจากเบราว์เซอร์
-      const fallbackParams = new URLSearchParams({
-        ...(driveId ? { id: driveId } : {}),
-        url: cleanUrl,
-        name: safeName,
-        ...(schoolId ? { schoolId } : {})
-      });
-      const link = document.createElement('a');
-      link.href = `/api/files/download?${fallbackParams.toString()}`;
-      link.download = safeName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error('Download failed:', err);
+      if (link.parentNode) link.parentNode.removeChild(link);
+    } catch {
+      // ignore
     }
-  })();
+  }, 300);
 
   return true;
 }

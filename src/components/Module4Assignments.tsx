@@ -17,11 +17,14 @@ import {
   Eye,
   Edit,
   X,
-  FileCheck
+  FileCheck,
+  ExternalLink
 } from 'lucide-react';
 import {
   downloadRealFile,
   getPreviewableFileUrl,
+  getDirectFileDownloadUrl,
+  getGoogleDriveViewUrl,
   extractDriveFileId,
   resolveDriveIdByFileNameFromGas,
   isWordFile,
@@ -1107,15 +1110,17 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <>
                             {mySubmission?.fileUrl && (
                               <>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDownloadUrl(mySubmission.fileUrl, mySubmission.fileName)}
-                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs"
+                                <a
+                                  href={getDirectFileDownloadUrl(mySubmission.fileUrl, mySubmission.fileName, user.schoolId)}
+                                  download={mySubmission.fileName}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs no-underline"
                                   title={`ดาวน์โหลดไฟล์ที่ส่งแล้ว (${mySubmission.fileName})`}
                                 >
                                   <Download className="w-3.5 h-3.5 shrink-0" />
                                   <span className="hidden md:inline">ดาวน์โหลด</span>
-                                </button>
+                                </a>
 
                                 {/* ไอคอนแก้ไขสำหรับสมาชิก: แก้ไขโดยลบไฟล์เก่าและอัปโหลดไฟล์ใหม่ */}
                                 <button
@@ -1411,22 +1416,38 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 setPreviewFileModal({ url: targetUrl, name: submission.fileName });
                               }}
                               className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                              title="ดูไฟล์งานที่สมาชิกส่งจาก Google Drive"
+                              title="ดูตัวอย่างไฟล์งาน"
                             >
                               <Eye className="w-3.5 h-3.5" />
                               <span>ดูไฟล์</span>
                             </button>
 
-                            {/* Download button */}
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadUrl(effectiveFileUrl, submission.fileName)}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                              title="ดาวน์โหลดไฟล์ต้นฉบับจาก Google Drive"
+                            {/* Download button - Native Browser Direct Download */}
+                            <a
+                              href={getDirectFileDownloadUrl(effectiveFileUrl, submission.fileName, user.schoolId)}
+                              download={submission.fileName}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs no-underline"
+                              title="ดาวน์โหลดไฟล์ต้นฉบับแท้จาก Google Drive"
                             >
                               <Download className="w-3.5 h-3.5" />
                               <span>ดาวน์โหลด</span>
-                            </button>
+                            </a>
+
+                            {/* Open in Google Drive */}
+                            {getGoogleDriveViewUrl(effectiveFileUrl) && (
+                              <a
+                                href={getGoogleDriveViewUrl(effectiveFileUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs no-underline"
+                                title="เปิดดู/ดาวน์โหลดบน Google Drive โดยตรง"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Drive</span>
+                              </a>
+                            )}
 
                             {/* Delete submission icon */}
                             <button
@@ -1495,14 +1516,28 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                               <Eye className="w-3.5 h-3.5" />
                               <span>ดูไฟล์</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDownloadUrl(effectiveFileUrl, sub.fileName)}
-                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
+                            <a
+                              href={getDirectFileDownloadUrl(effectiveFileUrl, sub.fileName, user.schoolId)}
+                              download={sub.fileName}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs no-underline"
                             >
                               <Download className="w-3.5 h-3.5" />
                               <span>ดาวน์โหลด</span>
-                            </button>
+                            </a>
+                            {getGoogleDriveViewUrl(effectiveFileUrl) && (
+                              <a
+                                href={getGoogleDriveViewUrl(effectiveFileUrl)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs no-underline"
+                                title="เปิดดู/ดาวน์โหลดบน Google Drive โดยตรง"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Drive</span>
+                              </a>
+                            )}
                           </div>
                         </div>
                       );
@@ -1582,15 +1617,29 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 </div>
               )}
 
-              <div className="flex items-center justify-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => handleDownloadUrl(previewFileModal.url, previewFileModal.name)}
-                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+              <div className="flex items-center justify-center gap-2 pt-2 flex-wrap">
+                <a
+                  href={getDirectFileDownloadUrl(previewFileModal.url, previewFileModal.name, user.schoolId)}
+                  download={previewFileModal.name}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95 no-underline"
                 >
                   <Download className="w-4 h-4" />
                   <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
-                </button>
+                </a>
+
+                {getGoogleDriveViewUrl(previewFileModal.url) && (
+                  <a
+                    href={getGoogleDriveViewUrl(previewFileModal.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95 no-underline"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>เปิดดูใน Google Drive</span>
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -1818,14 +1867,16 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-0.5 rounded-lg">
                       ไฟล์เดิมที่ส่งไว้แล้ว
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDownloadUrl(mySub.fileUrl, mySub.fileName)}
-                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 cursor-pointer"
+                    <a
+                      href={getDirectFileDownloadUrl(mySub.fileUrl, mySub.fileName, user.schoolId)}
+                      download={mySub.fileName}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 cursor-pointer no-underline"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>ดาวน์โหลดไฟล์เดิม</span>
-                    </button>
+                    </a>
                   </div>
 
                   <div className="flex items-center justify-between gap-2 p-2.5 bg-white rounded-xl border border-emerald-200/80 text-xs">
@@ -2018,14 +2069,16 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <span className="font-bold text-emerald-800 truncate">ส่งแล้ว: {mySubInModal.fileName}</span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadUrl(mySubInModal.fileUrl, mySubInModal.fileName)}
-                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 shrink-0 inline-flex items-center gap-1 cursor-pointer"
+                        <a
+                          href={getDirectFileDownloadUrl(mySubInModal.fileUrl, mySubInModal.fileName, user.schoolId)}
+                          download={mySubInModal.fileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 shrink-0 inline-flex items-center gap-1 cursor-pointer no-underline"
                         >
                           <Download className="w-3 h-3" />
                           <span>ดาวน์โหลด</span>
-                        </button>
+                        </a>
                       </div>
                     )}
                     <button

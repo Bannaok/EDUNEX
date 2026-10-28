@@ -1104,12 +1104,15 @@ async function startServer() {
     const rawName = String(req.query.name || req.query.filename || 'download').trim() || 'download';
     const schoolIdHint = String(req.query.schoolId || '').trim();
     const isInline = req.query.inline === '1';
-    const encodedName = encodeURIComponent(rawName);
-    const disposition = `${isInline ? 'inline' : 'attachment'}; filename="download"; filename*=UTF-8''${encodedName}`;
     const extMatch = rawName.match(/\.([a-zA-Z0-9]+)$/);
     const ext = extMatch ? extMatch[1].toLowerCase() : '';
     const isExpectedImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext);
     const isNonImageDoc = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'zip', 'rar', 'txt'].includes(ext);
+    const safeAsciiName = rawName.replace(/[^\x20-\x7E]/g, '_').replace(/_+/g, '_').trim();
+    const cleanAscii = safeAsciiName.replace(/^[_\.]+|[_\.]+$/g, '');
+    const fallbackFilename = ext ? (cleanAscii && cleanAscii !== ext ? `${cleanAscii}.${ext}` : `document_${Date.now()}.${ext}`) : 'document.bin';
+    const encodedName = encodeURIComponent(rawName);
+    const disposition = `${isInline ? 'inline' : 'attachment'}; filename="${fallbackFilename}"; filename*=UTF-8''${encodedName}`;
 
     try {
       if (rawUrl.startsWith('/api/files/')) {

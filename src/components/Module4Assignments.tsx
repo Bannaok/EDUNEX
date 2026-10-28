@@ -274,7 +274,10 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       extractDriveFileId((s as any).downloadUrl) ||
       extractDriveFileId(fallbackTaskUrl);
     if (fid) {
-      return `https://lh3.googleusercontent.com/d/${fid}`;
+      if (isImageFile(s.fileName)) {
+        return `https://lh3.googleusercontent.com/d/${fid}`;
+      }
+      return `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
     }
     return s.fileUrl || (s as any).downloadUrl || (s as any).localHostedUrl || fallbackTaskUrl || '';
   };
@@ -308,7 +311,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       return {
         memberId: user.id,
         memberName: user.fullName,
-        fileUrl: task.driveFileId ? `https://lh3.googleusercontent.com/d/${task.driveFileId}` : task.submittedFileUrl,
+        fileUrl: task.driveFileId
+          ? isImageFile(task.submittedFileName)
+            ? `https://lh3.googleusercontent.com/d/${task.driveFileId}`
+            : `https://drive.google.com/file/d/${task.driveFileId}/view?usp=sharing`
+          : task.submittedFileUrl,
         fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
         fileSize: task.submittedFileSize || '1.0 MB',
         driveFileId: task.driveFileId,
@@ -1395,7 +1402,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 let targetUrl = effectiveFileUrl;
                                 if (!extractDriveFileId(targetUrl) && submission.fileName) {
                                   const fid = await resolveDriveIdByFileNameFromGas(submission.fileName, user.schoolId);
-                                  if (fid) targetUrl = `https://lh3.googleusercontent.com/d/${fid}`;
+                                  if (fid) {
+                                    targetUrl = isImageFile(submission.fileName)
+                                      ? `https://lh3.googleusercontent.com/d/${fid}`
+                                      : `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
+                                  }
                                 }
                                 setPreviewFileModal({ url: targetUrl, name: submission.fileName });
                               }}
@@ -1471,7 +1482,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 let targetUrl = effectiveFileUrl;
                                 if (!extractDriveFileId(targetUrl) && sub.fileName) {
                                   const fid = await resolveDriveIdByFileNameFromGas(sub.fileName, user.schoolId);
-                                  if (fid) targetUrl = `https://lh3.googleusercontent.com/d/${fid}`;
+                                  if (fid) {
+                                    targetUrl = isImageFile(sub.fileName)
+                                      ? `https://lh3.googleusercontent.com/d/${fid}`
+                                      : `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
+                                  }
                                 }
                                 setPreviewFileModal({ url: targetUrl, name: sub.fileName });
                               }}

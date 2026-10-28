@@ -185,7 +185,7 @@ export function getPreviewableFileUrl(urlOrData?: string, fileName?: string, sch
     if (isImageFile(safeName) || (!ext && urlOrData.includes('lh3.googleusercontent.com'))) {
       return `https://lh3.googleusercontent.com/d/${driveId}`;
     }
-    return `https://drive.google.com/file/d/${driveId}/preview`;
+    return `/api/files/download?id=${encodeURIComponent(driveId)}&url=${encodeURIComponent(urlOrData)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}&inline=1`;
   }
   if (urlOrData.startsWith('/api/files/')) {
     return `/api/files/download?url=${encodeURIComponent(urlOrData)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}&inline=1`;
@@ -193,8 +193,25 @@ export function getPreviewableFileUrl(urlOrData?: string, fileName?: string, sch
   return urlOrData;
 }
 
+function isValidDownloadedBinary(arrayBuf: ArrayBuffer, fileName: string): boolean {
+  if (!arrayBuf || arrayBuf.byteLength === 0) return false;
+  const bytes = new Uint8Array(arrayBuf.slice(0, 16));
+  const asciiHead = String.fromCharCode(...Array.from(bytes));
+  if (asciiHead.startsWith('<!DOCTYPE') || asciiHead.startsWith('<html') || asciiHead.startsWith('{"status":"error')) {
+    return false;
+  }
+  // ป้องกันกรณี Google Drive lh3 ส่งรูป Thumbnail (PNG) กลับมาแทนไฟล์เอกสาร PDF / Word / Excel
+  if (!isImageFile(fileName) && getFileExtension(fileName)) {
+    const isPngHeader = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    if (isPngHeader) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
- * ดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive โดยตรง (เร็วที่สุด ได้ไฟล์ต้นฉบับ 100% ทุกสกุลไฟล์)
+ * ดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive (ได้ไฟล์ต้นฉบับแท้ 100% เปิดใช้งานได้จริงทุกสกุลไฟล์)
  */
 export function downloadRealFile(
   urlOrData?: string,
@@ -214,9 +231,10 @@ export function downloadRealFile(
     safeName = `${safeName}.${defaultExt.replace(/^\./, '')}`;
   }
 
+  const correctMime = getMimeTypeByExtension(safeName, 'application/octet-stream');
+
   // 1. กรณีเป็น Base64 Data URL หรือ Raw Base64 (กรณีเพิ่งเลือกไฟล์ในเครื่อง)
   if (cleanUrl && (cleanUrl.startsWith('data:') || (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('/')))) {
-    // ตรวจสอบก่อนว่าไม่ใช่ Drive File ID ล้วน
     const possibleDriveId = extractDriveFileId(cleanUrl);
     if (!possibleDriveId) {
       try {
@@ -229,14 +247,14 @@ export function downloadRealFile(
           base64String = parts[1] || '';
         }
 
-        const correctMime = getMimeTypeByExtension(safeName, detectedMime || 'application/octet-stream');
+        const finalMime = getMimeTypeByExtension(safeName, detectedMime || 'application/octet-stream');
         const byteCharacters = atob(base64String);
         const byteNumbers = new Uint8Array(byteCharacters.length);
         for (let i = 0; i < byteCharacters.length; i++) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
 
-        const blob = new Blob([byteNumbers], { type: correctMime });
+        const blob = new Blob([byteNumbers], { type: finalMime });
         triggerBrowserBlobDownload(blob, safeName);
         return true;
       } catch (err) {
@@ -245,82 +263,85 @@ export function downloadRealFile(
     }
   }
 
-  // 2. ดึงไฟล์ต้นฉบับจาก Google Drive โดยตรงเป็นอันดับแรก (Direct Google Drive Original File)
+  // 2. ดึงไฟล์ต้นฉบับแท้จาก Google Drive ผ่าน Server Direct Stream (/api/files/download -> drive.usercontent.google.com)
+  // เพื่อไม่ให้ติด Cross-Origin-Resource-Policy ของเบราว์เซอร์ และไม่ให้ได้ไฟล์ Thumbnail แทนไฟล์จริง
   (async () => {
     try {
       let driveId = extractDriveFileId(cleanUrl);
-      if (!driveId && safeName && (!cleanUrl || cleanUrl.startsWith('/api/files/'))) {
-        driveId = await resolveDriveIdByFileNameFromGas(safeName, schoolId);
+
+      const fetchViaServerStream = async (fid: string): Promise<boolean> => {
+        const params = new URLSearchParams({
+          ...(fid ? { id: fid } : {}),
+          url: cleanUrl,
+          name: safeName,
+          ...(schoolId ? { schoolId } : {})
+        });
+        const proxyUrl = `/api/files/download?${params.toString()}`;
+        const res = await fetch(proxyUrl);
+        const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+        if (res.ok && !contentType.includes('text/html') && !contentType.includes('application/json')) {
+          const arrayBuf = await res.arrayBuffer();
+          if (isValidDownloadedBinary(arrayBuf, safeName)) {
+            const blob = new Blob([arrayBuf], { type: correctMime });
+            triggerBrowserBlobDownload(blob, safeName);
+            return true;
+          }
+        }
+        return false;
+      };
+
+      // Tier 1: ดึงไฟล์ต้นฉบับผ่าน /api/files/download ทันที
+      try {
+        const ok = await fetchViaServerStream(driveId);
+        if (ok) return;
+      } catch {
+        // Fallback to Tier 2
       }
 
-      if (driveId) {
-        // Tier 1: ดึงไฟล์ต้นฉบับโดยตรงจาก Google Drive Direct Content Endpoint (รองรับ CORS * และได้ไฟล์ต้นฉบับแท้ 100% ทันที)
-        const directUserContentUrl = `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`;
-        try {
-          const driveRes = await fetch(directUserContentUrl);
-          const driveType = String(driveRes.headers.get('content-type') || '').toLowerCase();
-          if (driveRes.ok && !driveType.includes('text/html')) {
-            const blob = await driveRes.blob();
-            if (blob.size > 0) {
-              triggerBrowserBlobDownload(blob, safeName);
-              return;
-            }
+      // Tier 2: หากยังไม่มี driveId ใน URL ให้ค้นหา driveId จากชีต DriveFiles ของโรงเรียนแล้วดึงใหม่
+      if (!driveId && safeName) {
+        driveId = await resolveDriveIdByFileNameFromGas(safeName, schoolId);
+        if (driveId) {
+          try {
+            const ok = await fetchViaServerStream(driveId);
+            if (ok) return;
+          } catch {
+            // Fallback to Tier 3
           }
-        } catch {
-          // Fallback to Tier 2
         }
+      }
 
-        // Tier 2: ดึงผ่าน Google Drive High-Speed CDN (lh3.googleusercontent.com)
+      // Tier 3: เฉพาะกรณีเป็นไฟล์รูปภาพจริงๆ เท่านั้น จึงอนุญาตให้ดึงจาก lh3 CDN โดยตรง
+      if (driveId && isImageFile(safeName)) {
         try {
           const cdnRes = await fetch(`https://lh3.googleusercontent.com/d/${driveId}`);
           const cdnType = String(cdnRes.headers.get('content-type') || '').toLowerCase();
           if (cdnRes.ok && !cdnType.includes('text/html')) {
-            const blob = await cdnRes.blob();
-            if (blob.size > 0) {
+            const arrayBuf = await cdnRes.arrayBuffer();
+            if (isValidDownloadedBinary(arrayBuf, safeName)) {
+              const blob = new Blob([arrayBuf], { type: correctMime });
               triggerBrowserBlobDownload(blob, safeName);
               return;
             }
           }
         } catch {
-          // Fallback to Tier 3
+          // ignore
         }
-
-        // Tier 3: สั่งเบราว์เซอร์ดาวน์โหลดตรงจาก Google Drive Content-Disposition attachment
-        const link = document.createElement('a');
-        link.href = directUserContentUrl;
-        link.download = safeName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        return;
       }
 
-      // Tier 4: กรณีไม่มี Drive ID ในฝั่ง Client ให้ดึงผ่าน /api/files/download ซึ่งจะค้นหา Drive ID จาก Google Sheets ให้โดยอัตโนมัติ
-      const proxyUrl = `/api/files/download?url=${encodeURIComponent(cleanUrl)}&name=${encodeURIComponent(safeName)}${
-        schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''
-      }`;
-      try {
-        const res = await fetch(proxyUrl);
-        const contentType = String(res.headers.get('content-type') || '').toLowerCase();
-        if (res.ok && !contentType.includes('text/html') && !contentType.includes('application/json')) {
-          const blob = await res.blob();
-          if (blob.size > 0) {
-            triggerBrowserBlobDownload(blob, safeName);
-            return;
-          }
-        }
-      } catch {
-        // Fallback to external URL
-      }
-
-      if (cleanUrl.startsWith('http')) {
-        const link = document.createElement('a');
-        link.href = cleanUrl;
-        link.download = safeName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
+      // Tier 4: สั่งดาวน์โหลดผ่านลิงก์ /api/files/download โดยตรงจากเบราว์เซอร์
+      const fallbackParams = new URLSearchParams({
+        ...(driveId ? { id: driveId } : {}),
+        url: cleanUrl,
+        name: safeName,
+        ...(schoolId ? { schoolId } : {})
+      });
+      const link = document.createElement('a');
+      link.href = `/api/files/download?${fallbackParams.toString()}`;
+      link.download = safeName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (err) {
       console.error('Download failed:', err);
     }

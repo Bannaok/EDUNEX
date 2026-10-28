@@ -1100,11 +1100,16 @@ async function startServer() {
   // 0. Universal File Proxy & Hosted File Download/Preview Endpoint
   app.get('/api/files/download', async (req, res) => {
     const rawUrl = String(req.query.url || '');
+    const explicitId = String(req.query.id || '').trim();
     const rawName = String(req.query.name || req.query.filename || 'download').trim() || 'download';
     const schoolIdHint = String(req.query.schoolId || '').trim();
     const isInline = req.query.inline === '1';
     const encodedName = encodeURIComponent(rawName);
     const disposition = `${isInline ? 'inline' : 'attachment'}; filename="download"; filename*=UTF-8''${encodedName}`;
+    const extMatch = rawName.match(/\.([a-zA-Z0-9]+)$/);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+    const isExpectedImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(ext);
+    const isNonImageDoc = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'zip', 'rar', 'txt'].includes(ext);
 
     try {
       if (rawUrl.startsWith('/api/files/')) {
@@ -1115,18 +1120,21 @@ async function startServer() {
           const mime = getMimeByFilename(rawName, parts[0].replace('data:', '') || 'application/octet-stream');
           const buf = Buffer.from(parts[1] || '', 'base64');
           res.setHeader('Content-Type', mime);
+          res.setHeader('Content-Length', String(buf.length));
           res.setHeader('Content-Disposition', disposition);
           res.send(buf);
           return;
         }
       }
 
-      const driveId = await resolveDriveIdFromStoreOrSheet(rawUrl, rawName, schoolIdHint);
+      const driveId = explicitId || (await resolveDriveIdFromStoreOrSheet(rawUrl, rawName, schoolIdHint));
       const candidateUrls: string[] = [];
       if (driveId) {
         candidateUrls.push(`https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`);
-        candidateUrls.push(`https://drive.google.com/uc?export=download&id=${driveId}`);
-        candidateUrls.push(`https://lh3.googleusercontent.com/d/${driveId}`);
+        candidateUrls.push(`https://drive.google.com/uc?export=download&id=${driveId}&confirm=t`);
+        if (isExpectedImage || !isNonImageDoc) {
+          candidateUrls.push(`https://lh3.googleusercontent.com/d/${driveId}`);
+        }
       } else if (rawUrl.startsWith('http')) {
         candidateUrls.push(rawUrl);
       }
@@ -1136,11 +1144,24 @@ async function startServer() {
           const upstream = await fetch(fetchUrl);
           const upstreamType = String(upstream.headers.get('content-type') || '').toLowerCase();
           if (upstream.ok && !upstreamType.includes('text/html')) {
+            // Reject image thumbnails when the requested file is a PDF/Word/Excel/PowerPoint document
+            if (isNonImageDoc && upstreamType.startsWith('image/')) {
+              continue;
+            }
             const arrayBuf = await upstream.arrayBuffer();
             const buf = Buffer.from(arrayBuf);
             if (buf.length > 0) {
+              // Extra magic-byte guard: ensure PDF/Office files are not HTML or PNG thumbnails
+              const headAscii = buf.slice(0, 16).toString('ascii');
+              if (headAscii.startsWith('<!DOCTYPE') || headAscii.startsWith('<html')) {
+                continue;
+              }
+              if (isNonImageDoc && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+                continue;
+              }
               const mime = getMimeByFilename(rawName, upstreamType || 'application/octet-stream');
               res.setHeader('Content-Type', mime);
+              res.setHeader('Content-Length', String(buf.length));
               res.setHeader('Content-Disposition', disposition);
               res.send(buf);
               return;

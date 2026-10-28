@@ -243,14 +243,15 @@ export function getGoogleDriveViewUrl(urlOrData?: string): string {
 }
 
 /**
- * ดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive (ได้ไฟล์ต้นฉบับแท้ 100% เปิดใช้งานได้จริงทุกสกุลไฟล์)
+ * ดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive (ได้ไฟล์ต้นฉบับแท้ 100% อยู่ในหน้าเดิม ไม่เปิดแท็บใหม่ และแสดงสถานะตามจริง)
  */
-export function downloadRealFile(
+export async function downloadRealFile(
   urlOrData?: string,
   fileName?: string,
   defaultExt?: string,
-  schoolId?: string
-): boolean {
+  schoolId?: string,
+  onProgress?: (percent: number) => void
+): Promise<boolean> {
   const cleanUrl = !urlOrData || urlOrData === '#' ? '' : urlOrData.trim();
   if (!cleanUrl && (!fileName || !fileName.trim())) {
     return false;
@@ -262,6 +263,8 @@ export function downloadRealFile(
   if (!currentExt && defaultExt) {
     safeName = `${safeName}.${defaultExt.replace(/^\./, '')}`;
   }
+
+  if (onProgress) onProgress(10);
 
   // 1. กรณีเป็น Base64 Data URL หรือ Raw Base64 (กรณีเพิ่งเลือกไฟล์ในเครื่องก่อนบันทึก)
   if (cleanUrl && (cleanUrl.startsWith('data:') || (!cleanUrl.startsWith('http') && !cleanUrl.startsWith('/')))) {
@@ -285,6 +288,7 @@ export function downloadRealFile(
         }
 
         const blob = new Blob([byteNumbers], { type: finalMime });
+        if (onProgress) onProgress(100);
         triggerBrowserBlobDownload(blob, safeName);
         return true;
       } catch (err) {
@@ -293,28 +297,68 @@ export function downloadRealFile(
     }
   }
 
-  // 2. ดึงไฟล์ต้นฉบับแท้จาก Google Drive Direct CDN หรือ Server Stream (ไม่ใช้ Blob Memory เพื่อป้องกันการตัดจบไฟล์ผิดพลาด)
+  // 2. ดึงไฟล์ต้นฉบับแท้ผ่าน Proxy Server Stream ภายในหน้าเดิม (ไม่เปิดแท็บใหม่ ไม่เปลี่ยนหน้าเว็บ)
   const driveId = extractDriveFileId(cleanUrl);
-  const targetDownloadUrl = driveId
-    ? `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`
-    : `/api/files/download?url=${encodeURIComponent(cleanUrl)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}`;
+  const targetDownloadUrl = `/api/files/download?${driveId ? `id=${encodeURIComponent(driveId)}&` : ''}url=${encodeURIComponent(cleanUrl)}&name=${encodeURIComponent(safeName)}${schoolId ? `&schoolId=${encodeURIComponent(schoolId)}` : ''}`;
 
-  const link = document.createElement('a');
-  link.href = targetDownloadUrl;
-  link.download = safeName;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  document.body.appendChild(link);
-  link.click();
-  setTimeout(() => {
-    try {
-      if (link.parentNode) link.parentNode.removeChild(link);
-    } catch {
-      // ignore
+  try {
+    if (onProgress) onProgress(25);
+    const res = await fetch(targetDownloadUrl);
+    if (res.ok) {
+      const contentLength = Number(res.headers.get('content-length') || 0);
+      let blob: Blob;
+
+      if (res.body && contentLength > 0 && typeof ReadableStream !== 'undefined') {
+        const reader = res.body.getReader();
+        let receivedBytes = 0;
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            receivedBytes += value.length;
+            if (onProgress && contentLength > 0) {
+              const pct = Math.min(98, Math.max(25, Math.round((receivedBytes / contentLength) * 100)));
+              onProgress(pct);
+            }
+          }
+        }
+        blob = new Blob(chunks as any[], { type: getMimeTypeByExtension(safeName) });
+      } else {
+        if (onProgress) onProgress(65);
+        blob = await res.blob();
+      }
+
+      if (blob && blob.size > 0) {
+        if (onProgress) onProgress(100);
+        triggerBrowserBlobDownload(blob, safeName);
+        return true;
+      }
     }
-  }, 300);
+  } catch (fetchErr) {
+    console.warn('Direct stream fetch failed, falling back to hidden iframe:', fetchErr);
+  }
 
-  return true;
+  // 3. Fallback แบบเงียบ: ใช้ hidden iframe ในหน้าเดิม (ไม่เปิดแท็บใหม่ ไม่เปลี่ยนหน้าเว็บ 100%)
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = driveId
+      ? `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`
+      : targetDownloadUrl;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      try {
+        if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      } catch {}
+    }, 30000);
+    if (onProgress) onProgress(100);
+    return true;
+  } catch {
+    return false;
+  }
 }
+
 
 

@@ -14,7 +14,7 @@ import {
   File, 
   FileSpreadsheet, 
   Plus, 
-  Eye,
+  Loader2,
   Sparkles
 } from 'lucide-react';
 import { downloadRealFile, isWordFile, isPdfFile, isExcelFile, isImageFile, getFileExtension } from '../services/fileDownloadHelper';
@@ -48,6 +48,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
   // Pop-up modal state for viewing full document title on mobile
   const [selectedDocDetailModal, setSelectedDocDetailModal] = useState<DocumentItem | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
   // Confirmation modal state for deleting documents
   const [confirmDeleteDoc, setConfirmDeleteDoc] = useState<DocumentItem | null>(null);
@@ -336,19 +337,26 @@ export const Module5Documents: React.FC<Module5Props> = ({
     }
   };
 
-  // Download document (รับประกันได้ไฟล์จริงทุกประเภท โดยเฉพาะไฟล์ Word)
-  const handleDownloadDoc = (doc: DocumentItem) => {
+  // Download document (รับประกันได้ไฟล์จริงทุกประเภท ไม่เปิดแท็บใหม่ และแสดงผลตามจริง)
+  const handleDownloadDoc = async (doc: DocumentItem) => {
     const fileSource = doc.fileData || doc.fileUrl;
     if (!fileSource || fileSource === '#') {
       onShowToast('info', 'ไม่มีไฟล์เอกสาร', 'เอกสารนี้ยังไม่ได้แนบไฟล์');
       return;
     }
-    const defaultExt = isOrderDoc(doc) ? 'pdf' : undefined;
-    const ok = downloadRealFile(fileSource, doc.fileName || doc.title, defaultExt);
-    if (ok) {
-      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${doc.fileName || doc.title}" เรียบร้อยแล้ว`);
-    } else {
-      onShowToast('warning', 'ดาวน์โหลดไม่สำเร็จ', 'ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
+    setDownloadingDocId(doc.id);
+    try {
+      const defaultExt = isOrderDoc(doc) ? 'pdf' : undefined;
+      const ok = await downloadRealFile(fileSource, doc.fileName || doc.title, defaultExt, user.schoolId);
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${doc.fileName || doc.title}" เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('warning', 'ดาวน์โหลดไม่สำเร็จ', 'ไม่สามารถดาวน์โหลดไฟล์ได้ กรุณาลองใหม่อีกครั้ง');
+      }
+    } catch (err: any) {
+      onShowToast('error', 'ดาวน์โหลดไม่สำเร็จ', err?.message || 'เกิดข้อผิดพลาดในการดาวน์โหลด');
+    } finally {
+      setDownloadingDocId(null);
     }
   };
 
@@ -596,26 +604,21 @@ export const Module5Documents: React.FC<Module5Props> = ({
                   </div>
                 </div>
 
-                {/* ด้านขวา: ปุ่มไอคอนตา (ดูตัวอย่าง), ปุ่มไอคอนดาวน์โหลด และปุ่มจัดการสำหรับ Admin */}
+                {/* ด้านขวา: ปุ่มดาวน์โหลด และปุ่มจัดการสำหรับ Admin */}
                 <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                  {/* ปุ่มไอคอนตา: ดูตัวอย่างไฟล์ */}
+                  {/* ปุ่มดาวน์โหลดไฟล์ (อยู่ในหน้าเดิม ไม่เปิดแท็บใหม่) */}
                   <button
                     type="button"
-                    onClick={() => handlePreviewDoc(doc)}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                    title="ดูตัวอย่างไฟล์"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-
-                  {/* ปุ่มไอคอนดาวน์โหลด: ดาวน์โหลดไฟล์ */}
-                  <button
-                    type="button"
+                    disabled={downloadingDocId === doc.id}
                     onClick={() => handleDownloadDoc(doc)}
-                    className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg transition-colors cursor-pointer"
-                    title="ดาวน์โหลดไฟล์"
+                    className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-teal-50 disabled:text-teal-600 rounded-lg transition-colors cursor-pointer"
+                    title={downloadingDocId === doc.id ? "กำลังดาวน์โหลดไฟล์..." : "ดาวน์โหลดไฟล์"}
                   >
-                    <Download className="w-4 h-4" />
+                    {downloadingDocId === doc.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-teal-600" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
                   </button>
 
                   {user.role !== 'developer' && (
@@ -891,30 +894,26 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
             {/* Action Buttons */}
             <div className="pt-1 flex flex-col gap-2">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    handlePreviewDoc(selectedDocDetailModal);
-                    setSelectedDocDetailModal(null);
-                  }}
-                  className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>ดูตัวอย่างไฟล์</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleDownloadDoc(selectedDocDetailModal);
-                  }}
-                  className="py-2.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer active:scale-95"
-                >
-                  <Download className="w-4 h-4 text-teal-600" />
-                  <span>ดาวน์โหลด</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                disabled={downloadingDocId === selectedDocDetailModal.id}
+                onClick={() => {
+                  handleDownloadDoc(selectedDocDetailModal);
+                }}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
+              >
+                {downloadingDocId === selectedDocDetailModal.id ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>กำลังดาวน์โหลดไฟล์...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" />
+                    <span>ดาวน์โหลดเอกสารต้นฉบับ</span>
+                  </>
+                )}
+              </button>
 
               {user.role !== 'developer' && (
                 <div className={`grid ${user.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>

@@ -1222,6 +1222,27 @@ async function startServer() {
     res.status(404).json({ status: 'error', message: 'File not found' });
   });
 
+  // Fast direct file upload endpoint
+  app.post('/api/files/upload', (req, res) => {
+    try {
+      const { fileName, dataUrl, id } = req.body || {};
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        res.status(400).json({ status: 'error', message: 'Missing dataUrl' });
+        return;
+      }
+      const safeId = id || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const hostedUrl = saveServerHostedFile(safeId, fileName || 'upload', dataUrl);
+      res.json({
+        status: 'success',
+        fileId: safeId,
+        url: hostedUrl,
+        downloadUrl: `/api/files/download?url=${encodeURIComponent(hostedUrl)}&name=${encodeURIComponent(fileName || 'upload')}`
+      });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message || 'Upload failed' });
+    }
+  });
+
   // 1. Server-Sent Events (SSE) Real-Time Stream
   app.get('/api/realtime/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');

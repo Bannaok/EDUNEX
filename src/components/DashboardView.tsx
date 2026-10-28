@@ -12,6 +12,7 @@ import {
   MemberAccount,
   TaskSubmission
 } from '../types';
+import { StorageService } from '../services/storage';
 import { 
   Calendar as CalendarIcon, 
   CheckCircle2, 
@@ -168,6 +169,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       if (onShowToast) {
         onShowToast('info', 'เลือกไฟล์เรียบร้อย', `พร้อมส่งไฟล์ "${file.name}" (${sizeStr}) กดยืนยันส่งงานเพื่อจัดเก็บลง Google Drive`);
       }
+      StorageService.uploadFileToGoogleDrive(
+        base64,
+        file.name,
+        `TaskSubmissions_${taskToSubmit?.academicYear || schoolInfo?.academicYear || '2569'}`
+      )
+        .then(driveUrl => {
+          if (driveUrl && driveUrl.startsWith('http')) {
+            setSubmitFile(prev => (prev && prev.name === file.name ? { ...prev, url: driveUrl } : prev));
+          }
+        })
+        .catch(() => {});
     };
     reader.onerror = () => {
       setIsUploadingSubmit(false);
@@ -179,7 +191,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     e.target.value = '';
   };
 
-  const handleConfirmSubmitTask = (e: React.FormEvent) => {
+  const handleConfirmSubmitTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskToSubmit) return;
 
@@ -190,11 +202,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return;
     }
 
+    setIsUploadingSubmit(true);
+    let finalFileUrl = submitFile.url;
+    try {
+      if (finalFileUrl.startsWith('data:')) {
+        const uploadedUrl = await StorageService.uploadFileToGoogleDrive(
+          finalFileUrl,
+          submitFile.name,
+          `TaskSubmissions_${taskToSubmit.academicYear || schoolInfo?.academicYear || '2569'}`
+        );
+        if (uploadedUrl && uploadedUrl.startsWith('http')) {
+          finalFileUrl = uploadedUrl;
+        }
+      }
+    } catch {
+      // Keep local dataUrl if offline
+    } finally {
+      setIsUploadingSubmit(false);
+    }
+
     const nowIso = new Date().toISOString();
     const newSub: TaskSubmission = {
       memberId: user.id,
       memberName: user.fullName || user.username,
-      fileUrl: submitFile.url,
+      fileUrl: finalFileUrl,
       fileName: submitFile.name,
       fileSize: submitFile.size,
       submittedAt: nowIso
@@ -225,7 +256,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       submissions: updatedSubs,
       deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isNowAllSubmitted,
-      submittedFileUrl: submitFile.url.startsWith('http') ? submitFile.url : undefined,
+      submittedFileUrl: finalFileUrl.startsWith('http') ? finalFileUrl : undefined,
       submittedFileName: submitFile.name,
       submittedFileSize: submitFile.size,
       submittedBy: user.id,

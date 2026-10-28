@@ -488,19 +488,24 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
       const prevTime = prev.submittedAt ? new Date(prev.submittedAt).getTime() : 0;
       const nextTime = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
       const mergedSub: TaskSubmission = nextTime >= prevTime ? { ...prev, ...s } : { ...s, ...prev };
-      // Prefer real Google Drive URL or server-hosted /api/files/ URL or non-empty fileUrl over stripped empty string
-      const prevUrl = prev.fileUrl || (prev as any).localHostedUrl || '';
-      const nextUrl = s.fileUrl || (s as any).localHostedUrl || '';
+      // Prefer real Google Drive URL or data: URL over /api/files/ or stripped empty string
+      const prevUrl = prev.fileUrl || (prev as any).downloadUrl || '';
+      const nextUrl = s.fileUrl || (s as any).downloadUrl || '';
       if (nextUrl.startsWith('http')) {
         mergedSub.fileUrl = nextUrl;
       } else if (prevUrl.startsWith('http')) {
         mergedSub.fileUrl = prevUrl;
-      } else if (nextUrl.startsWith('/api/files/')) {
+      } else if (nextUrl.startsWith('data:')) {
         mergedSub.fileUrl = nextUrl;
-      } else if (prevUrl.startsWith('/api/files/')) {
+      } else if (prevUrl.startsWith('data:')) {
         mergedSub.fileUrl = prevUrl;
       } else {
-        mergedSub.fileUrl = nextUrl || prevUrl;
+        const fallbackDriveId = (s as any).driveFileId || (prev as any).driveFileId;
+        if (fallbackDriveId) {
+          mergedSub.fileUrl = `https://lh3.googleusercontent.com/d/${fallbackDriveId}`;
+        } else {
+          mergedSub.fileUrl = nextUrl || prevUrl || (s as any).localHostedUrl || (prev as any).localHostedUrl || '';
+        }
       }
       subMap.set(k, mergedSub);
     }
@@ -549,17 +554,35 @@ function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], p
 
 let lastDirectCloudPullTime = 0;
 
+function hasPendingBase64SubmissionInTasks(val: any): boolean {
+  if (!Array.isArray(val)) return false;
+  return val.some(
+    (t: any) =>
+      t &&
+      Array.isArray(t.submissions) &&
+      t.submissions.some((s: any) => s && typeof s.fileUrl === 'string' && s.fileUrl.startsWith('data:'))
+  );
+}
+
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
+  const isTask = isTaskStorageKey(resolvedKey);
+  const hasBase64TaskSub = isTask && hasPendingBase64SubmissionInTasks(value);
+
   // 1. Primary Cloud Database: Firebase Firestore (syncs across all devices, browsers, emails, ais-dev & ais-pre in real time)
-  saveKeyToFirestore(resolvedKey, value, timestamp, CLIENT_ID).catch(() => {});
+  if (!hasBase64TaskSub) {
+    saveKeyToFirestore(resolvedKey, value, timestamp, CLIENT_ID).catch(() => {});
+  }
 
   // 2. Automatic Per-School Google Sheets Sync for every piece of data filled by Member or Admin
-  scheduleTenantKeySyncToSchoolSheet(resolvedKey, value, timestamp);
+  // Skip while base64 submission is being converted to a Google Drive URL so we never push a stripped empty fileUrl ""
+  if (!hasBase64TaskSub) {
+    scheduleTenantKeySyncToSchoolSheet(resolvedKey, value, timestamp);
+  }
 
-  // 3. For task keys, also push directly to RealtimeCloudKV so cross-container (ais-dev <-> ais-pre) syncs immediately
-  if (isTaskStorageKey(resolvedKey)) {
+  // 3. For task keys, also push directly to RealtimeCloudKV once Drive URLs are resolved
+  if (isTask && !hasBase64TaskSub) {
     pushToGoogleCloudKVDirect(resolvedKey, value, timestamp);
   }
 
@@ -2167,9 +2190,11 @@ export const StorageService = {
     setLocal(KEYS.TASKS, updated);
 
     // Background upload any base64 member submission files to Google Drive so Drive links sync across all devices & Firestore
+    let hasDataUrlSub = false;
     if (Array.isArray(mergedTask.submissions)) {
       mergedTask.submissions.forEach(sub => {
         if (sub && sub.fileUrl && sub.fileUrl.startsWith('data:')) {
+          hasDataUrlSub = true;
           this.uploadFileToGoogleDrive(
             sub.fileUrl,
             sub.fileName || `submission_${sub.memberId}`,
@@ -2182,7 +2207,7 @@ export const StorageService = {
                 if (tIndex >= 0) {
                   const target = latestTasks[tIndex];
                   const nextSubs = (target.submissions || []).map(s =>
-                    s.memberId === sub.memberId && s.submittedAt === sub.submittedAt
+                    s.memberId === sub.memberId || (sub.fileName && s.fileName === sub.fileName)
                       ? { ...s, fileUrl: driveUrl }
                       : s
                   );
@@ -2194,7 +2219,8 @@ export const StorageService = {
                   };
                   const nextList = [...latestTasks];
                   nextList[tIndex] = nextTask;
-                  setLocal(KEYS.TASKS, nextList);
+                  setLocal(KEYS.TASKS, nextList, false);
+                  this.syncPostToGoogle('saveTask', { task: nextTask }).catch(() => {});
                 }
               }
             })
@@ -2203,18 +2229,108 @@ export const StorageService = {
       });
     }
 
-    this.syncPostToGoogle('saveTask', { task: mergedTask }).then(res => {
-      if (res && res.task && typeof res.task === 'object') {
-        const curTasks = this.getTasks();
-        const tIdx = curTasks.findIndex(t => t.id === mergedTask.id);
-        if (tIdx >= 0) {
-          const nextTasks = [...curTasks];
-          nextTasks[tIdx] = mergeSingleTaskSubmissionsClient(nextTasks[tIdx], res.task, false);
-          setLocal(KEYS.TASKS, nextTasks, true);
-        }
-      }
-    }).catch(() => {});
+    if (!hasDataUrlSub) {
+      this.syncPostToGoogle('saveTask', { task: mergedTask })
+        .then(res => {
+          if (res && res.task && typeof res.task === 'object') {
+            const curTasks = this.getTasks();
+            const tIdx = curTasks.findIndex(t => t.id === mergedTask.id);
+            if (tIdx >= 0) {
+              const nextTasks = [...curTasks];
+              nextTasks[tIdx] = mergeSingleTaskSubmissionsClient(nextTasks[tIdx], res.task, false);
+              setLocal(KEYS.TASKS, nextTasks, true);
+            }
+          }
+        })
+        .catch(() => {});
+    }
     return updated;
+  },
+
+  async recoverMissingTaskFileUrls(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const currentTasks = this.getTasks();
+    const needsRecovery = currentTasks.some(
+      t =>
+        t &&
+        Array.isArray(t.submissions) &&
+        t.submissions.some(s => s && s.fileName && (!s.fileUrl || s.fileUrl.startsWith('/api/files/')))
+    );
+    if (!needsRecovery) return false;
+
+    try {
+      const config = this.getGoogleConfig();
+      const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
+      const session = this.getSession();
+      const admins = this.getAdmins();
+      const activeSchoolId = session?.schoolId
+        ? normalizeSchoolId(session.schoolId, session.schoolName, admins)
+        : 'admin-school-01';
+      const matchedAdmin = admins.find(a => a.id === activeSchoolId);
+      const spreadsheetId = matchedAdmin?.googleSheetId || this.getCurrentSchoolSpreadsheetId() || '';
+
+      const q = new URLSearchParams({
+        action: 'getSheet',
+        sheet: 'DriveFiles',
+        ...(spreadsheetId ? { spreadsheetId } : {}),
+        ...(activeSchoolId ? { schoolId: activeSchoolId } : {}),
+        _t: String(Date.now())
+      });
+
+      const res = await fetch(`${gasUrl}?${q.toString()}`);
+      if (!res.ok) return false;
+      const json = await res.json();
+      if (!json || json.status !== 'success' || !Array.isArray(json.data) || json.data.length === 0) {
+        return false;
+      }
+
+      const driveRows = json.data;
+      let updatedAny = false;
+      const latestTasks = this.getTasks();
+      const nextTasks = latestTasks.map(t => {
+        if (!t || !Array.isArray(t.submissions)) return t;
+        let taskUpdated = false;
+        let nextMainUrl = t.submittedFileUrl;
+        const nextSubs = t.submissions.map(s => {
+          if (!s || !s.fileName || (s.fileUrl && s.fileUrl.startsWith('http'))) return s;
+          const targetName = s.fileName.trim().toLowerCase();
+          for (let i = driveRows.length - 1; i >= 0; i--) {
+            const row = driveRows[i];
+            if (!row) continue;
+            const rName = String(row.fileName || '').trim().toLowerCase();
+            if (rName === targetName || rName.endsWith('_' + targetName) || rName.includes(targetName)) {
+              const fid = String(row.driveFileId || '').trim();
+              const viewUrl = String(row.driveViewUrl || (fid ? `https://lh3.googleusercontent.com/d/${fid}` : ''));
+              if (viewUrl && viewUrl.startsWith('http')) {
+                taskUpdated = true;
+                updatedAny = true;
+                if (!nextMainUrl) nextMainUrl = viewUrl;
+                return {
+                  ...s,
+                  fileUrl: viewUrl
+                };
+              }
+            }
+          }
+          return s;
+        });
+
+        if (!taskUpdated) return t;
+        return {
+          ...t,
+          submissions: nextSubs,
+          submittedFileUrl: nextMainUrl || t.submittedFileUrl
+        };
+      });
+
+      if (updatedAny) {
+        setLocal(KEYS.TASKS, nextTasks, false);
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
   },
 
   // Mark task completed without deleting it so it stays at the bottom of Module4Assignments in green

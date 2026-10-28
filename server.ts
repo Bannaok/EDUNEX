@@ -586,7 +586,11 @@ function mergeSingleTaskSubmissionsServer(existingTask: any, incomingTask: any):
 
     const prev = mergedSubsMap.get(key);
     if (!prev) {
-      mergedSubsMap.set(key, { ...sub });
+      const cloned = { ...sub };
+      if (!cloned.fileUrl && (cloned.downloadUrl || cloned.driveFileId)) {
+        cloned.fileUrl = cloned.downloadUrl || `https://lh3.googleusercontent.com/d/${cloned.driveFileId}`;
+      }
+      mergedSubsMap.set(key, cloned);
     } else {
       const prevTime = String(prev.submittedAt || '');
       const newer = subTime >= prevTime ? { ...prev, ...sub } : { ...sub, ...prev };
@@ -603,6 +607,9 @@ function mergeSingleTaskSubmissionsServer(existingTask: any, incomingTask: any):
         newer.fileUrl = prevUrl;
       } else if (!newer.fileUrl && (subUrl || prevUrl)) {
         newer.fileUrl = subUrl || prevUrl;
+      }
+      if (!newer.fileUrl && (newer.downloadUrl || newer.driveFileId)) {
+        newer.fileUrl = newer.downloadUrl || `https://lh3.googleusercontent.com/d/${newer.driveFileId}`;
       }
       mergedSubsMap.set(key, newer);
     }
@@ -821,6 +828,9 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
     if (keysToPushBack.length > 0) {
       scheduleCloudKvPush(keysToPushBack);
     }
+
+    // Automatically heal any task submission that has a fileName but empty fileUrl
+    healMissingTaskSubmissionUrlsServer().catch(() => {});
   } catch {
     // ignore transient network errors
   } finally {
@@ -876,6 +886,197 @@ function extractDriveIdServer(urlOrId: string): string {
   return '';
 }
 
+const driveFilesCache = new Map<string, { fetchedAt: number; rows: any[] }>();
+let isHealingTaskUrls = false;
+
+async function fetchSchoolDriveFilesRows(schoolId: string): Promise<any[]> {
+  const cacheKey = schoolId || 'default';
+  const cached = driveFilesCache.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < 15000) {
+    return cached.rows;
+  }
+
+  const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+  const matchedAdmin = admins.find(a => a && a.id === schoolId);
+  const spreadsheetId = matchedAdmin?.googleSheetId || '';
+
+  const q = new URLSearchParams({
+    action: 'getSheet',
+    sheet: 'DriveFiles',
+    ...(spreadsheetId ? { spreadsheetId } : {}),
+    ...(schoolId ? { schoolId } : {}),
+    _t: String(Date.now())
+  });
+
+  try {
+    const res = await fetch(`${getGasWebAppUrl()}?${q.toString()}`);
+    if (!res.ok) return cached?.rows || [];
+    const json: any = await res.json();
+    if (json && json.status === 'success' && Array.isArray(json.data)) {
+      driveFilesCache.set(cacheKey, { fetchedAt: Date.now(), rows: json.data });
+      return json.data;
+    }
+  } catch {
+    // ignore
+  }
+  return cached?.rows || [];
+}
+
+async function healMissingTaskSubmissionUrlsServer(): Promise<void> {
+  if (isHealingTaskUrls) return;
+  isHealingTaskUrls = true;
+  try {
+    const changedKeys: string[] = [];
+    for (const [key, val] of Object.entries(state.store)) {
+      if (!isTaskKeyName(key) || !Array.isArray(val)) continue;
+      const needsHeal = val.some(
+        (t: any) =>
+          t &&
+          Array.isArray(t.submissions) &&
+          t.submissions.some(
+            (s: any) =>
+              s &&
+              s.fileName &&
+              (!s.fileUrl || String(s.fileUrl).startsWith('/api/files/')) &&
+              !s.driveFileId
+          )
+      );
+      if (!needsHeal) continue;
+
+      const schoolId = key.includes('__') ? key.split('__').slice(1).join('__') : 'admin-school-01';
+      const driveRows = await fetchSchoolDriveFilesRows(schoolId);
+      if (!driveRows || driveRows.length === 0) continue;
+
+      let keyChanged = false;
+      const nextTasks = val.map((t: any) => {
+        if (!t || !Array.isArray(t.submissions)) return t;
+        let taskChanged = false;
+        let recoveredMainUrl = t.submittedFileUrl;
+        const nextSubs = t.submissions.map((s: any) => {
+          if (!s || !s.fileName) return s;
+          if (s.fileUrl && String(s.fileUrl).startsWith('http')) return s;
+          const targetName = String(s.fileName).trim().toLowerCase();
+          for (let i = driveRows.length - 1; i >= 0; i--) {
+            const row = driveRows[i];
+            if (!row) continue;
+            const rName = String(row.fileName || '').trim().toLowerCase();
+            if (rName === targetName || rName.endsWith('_' + targetName) || rName.includes(targetName)) {
+              const fid =
+                String(row.driveFileId || '').trim() ||
+                extractDriveIdServer(String(row.driveViewUrl || row.driveDownloadUrl || ''));
+              if (fid) {
+                const viewUrl = String(row.driveViewUrl || `https://lh3.googleusercontent.com/d/${fid}`);
+                const dlUrl = String(row.driveDownloadUrl || `https://drive.google.com/uc?export=download&id=${fid}`);
+                taskChanged = true;
+                keyChanged = true;
+                if (!recoveredMainUrl) recoveredMainUrl = viewUrl;
+                return {
+                  ...s,
+                  fileUrl: viewUrl,
+                  driveFileId: fid,
+                  downloadUrl: dlUrl
+                };
+              }
+            }
+          }
+          return s;
+        });
+
+        if (!taskChanged) return t;
+        return {
+          ...t,
+          submissions: nextSubs,
+          submittedFileUrl: recoveredMainUrl || t.submittedFileUrl
+        };
+      });
+
+      if (keyChanged) {
+        const nowTs = Date.now();
+        state.store[key] = nextTasks;
+        state.timestamps[key] = Math.max(nowTs, (Number(state.timestamps[key]) || 0) + 1);
+        changedKeys.push(key);
+      }
+    }
+
+    if (changedKeys.length > 0) {
+      state.rev += 1;
+      scheduleDiskSave();
+      const updatesObj: Record<string, any> = {};
+      const tsObj: Record<string, number> = {};
+      for (const k of changedKeys) {
+        updatesObj[k] = state.store[k];
+        tsObj[k] = state.timestamps[k];
+      }
+      broadcastDelta('server-heal-urls', updatesObj, tsObj);
+      scheduleCloudKvPush(changedKeys);
+    }
+  } finally {
+    isHealingTaskUrls = false;
+  }
+}
+
+async function resolveDriveIdFromStoreOrSheet(
+  rawUrl: string,
+  fileName: string,
+  schoolIdHint?: string
+): Promise<string> {
+  const directId = extractDriveIdServer(rawUrl);
+  if (directId) return directId;
+
+  const cleanName = (fileName || '').trim().toLowerCase();
+
+  // 1. Search in-memory state.store across all task submissions and documents
+  for (const [k, v] of Object.entries(state.store)) {
+    if (isTaskKeyName(k) && Array.isArray(v)) {
+      for (const t of v) {
+        if (!t || !Array.isArray(t.submissions)) continue;
+        for (const s of t.submissions) {
+          if (!s) continue;
+          const matchUrl = rawUrl && (s.localHostedUrl === rawUrl || s.fileUrl === rawUrl);
+          const matchName = cleanName && cleanName !== 'download' && String(s.fileName || '').trim().toLowerCase() === cleanName;
+          if (matchUrl || matchName) {
+            const fid = String(s.driveFileId || '').trim() || extractDriveIdServer(String(s.fileUrl || s.downloadUrl || ''));
+            if (fid) return fid;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Search in DriveFiles sheet of the school (or all active schools if schoolIdHint not provided)
+  if (cleanName && cleanName !== 'download') {
+    const schoolIdsToCheck: string[] = [];
+    if (schoolIdHint) schoolIdsToCheck.push(schoolIdHint);
+    const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+    for (const adm of admins) {
+      if (adm && adm.id && !schoolIdsToCheck.includes(adm.id)) {
+        schoolIdsToCheck.push(adm.id);
+      }
+    }
+
+    for (const sid of schoolIdsToCheck) {
+      const rows = await fetchSchoolDriveFilesRows(sid);
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i];
+        if (!row) continue;
+        const rName = String(row.fileName || '').trim().toLowerCase();
+        if (rName === cleanName || rName.endsWith('_' + cleanName) || rName.includes(cleanName)) {
+          const fid =
+            String(row.driveFileId || '').trim() ||
+            extractDriveIdServer(String(row.driveViewUrl || row.driveDownloadUrl || ''));
+          if (fid) {
+            // Trigger background heal so state.store gets updated too
+            healMissingTaskSubmissionUrlsServer().catch(() => {});
+            return fid;
+          }
+        }
+      }
+    }
+  }
+
+  return '';
+}
+
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
@@ -899,7 +1100,8 @@ async function startServer() {
   // 0. Universal File Proxy & Hosted File Download/Preview Endpoint
   app.get('/api/files/download', async (req, res) => {
     const rawUrl = String(req.query.url || '');
-    const rawName = String(req.query.name || 'download').trim() || 'download';
+    const rawName = String(req.query.name || req.query.filename || 'download').trim() || 'download';
+    const schoolIdHint = String(req.query.schoolId || '').trim();
     const isInline = req.query.inline === '1';
     const encodedName = encodeURIComponent(rawName);
     const disposition = `${isInline ? 'inline' : 'attachment'}; filename="download"; filename*=UTF-8''${encodedName}`;
@@ -919,49 +1121,81 @@ async function startServer() {
         }
       }
 
-      const driveId = extractDriveIdServer(rawUrl);
-      const targetFetchUrl = driveId
-        ? `https://drive.google.com/uc?export=download&id=${driveId}`
-        : rawUrl;
+      const driveId = await resolveDriveIdFromStoreOrSheet(rawUrl, rawName, schoolIdHint);
+      const candidateUrls: string[] = [];
+      if (driveId) {
+        candidateUrls.push(`https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`);
+        candidateUrls.push(`https://drive.google.com/uc?export=download&id=${driveId}`);
+        candidateUrls.push(`https://lh3.googleusercontent.com/d/${driveId}`);
+      } else if (rawUrl.startsWith('http')) {
+        candidateUrls.push(rawUrl);
+      }
 
-      if (targetFetchUrl.startsWith('http')) {
-        const upstream = await fetch(targetFetchUrl);
-        if (upstream.ok) {
-          const arrayBuf = await upstream.arrayBuffer();
-          const buf = Buffer.from(arrayBuf);
-          const upstreamMime = upstream.headers.get('content-type') || 'application/octet-stream';
-          const mime = getMimeByFilename(rawName, upstreamMime);
-          res.setHeader('Content-Type', mime);
-          res.setHeader('Content-Disposition', disposition);
-          res.send(buf);
-          return;
+      for (const fetchUrl of candidateUrls) {
+        try {
+          const upstream = await fetch(fetchUrl);
+          const upstreamType = String(upstream.headers.get('content-type') || '').toLowerCase();
+          if (upstream.ok && !upstreamType.includes('text/html')) {
+            const arrayBuf = await upstream.arrayBuffer();
+            const buf = Buffer.from(arrayBuf);
+            if (buf.length > 0) {
+              const mime = getMimeByFilename(rawName, upstreamType || 'application/octet-stream');
+              res.setHeader('Content-Type', mime);
+              res.setHeader('Content-Disposition', disposition);
+              res.send(buf);
+              return;
+            }
+          }
+        } catch {
+          // try next candidate URL
         }
       }
 
-      res.redirect(rawUrl);
+      if (driveId) {
+        res.redirect(`https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`);
+        return;
+      }
+      if (rawUrl.startsWith('http')) {
+        res.redirect(rawUrl);
+        return;
+      }
+
+      res.status(404).json({ status: 'error', message: 'File not found' });
     } catch {
-      res.redirect(rawUrl);
+      if (rawUrl.startsWith('http')) {
+        res.redirect(rawUrl);
+      } else {
+        res.status(404).json({ status: 'error', message: 'File not found' });
+      }
     }
   });
 
-  app.get('/api/files/:fileId', (req, res) => {
+  app.get('/api/files/:fileId', async (req, res) => {
     const fileId = String(req.params.fileId || '');
     const record = loadServerHostedFile(fileId);
-    if (!record || !record.dataUrl) {
-      res.status(404).json({ status: 'error', message: 'File not found' });
+    if (record && record.dataUrl) {
+      const parts = record.dataUrl.split(';base64,');
+      const mime = getMimeByFilename(record.fileName, parts[0].replace('data:', '') || 'application/octet-stream');
+      const buf = Buffer.from(parts[1] || '', 'base64');
+      const isDownload = req.query.download === '1';
+      const encodedName = encodeURIComponent(record.fileName || 'file');
+      res.setHeader('Content-Type', mime);
+      res.setHeader(
+        'Content-Disposition',
+        `${isDownload ? 'attachment' : 'inline'}; filename="file"; filename*=UTF-8''${encodedName}`
+      );
+      res.send(buf);
       return;
     }
-    const parts = record.dataUrl.split(';base64,');
-    const mime = getMimeByFilename(record.fileName, parts[0].replace('data:', '') || 'application/octet-stream');
-    const buf = Buffer.from(parts[1] || '', 'base64');
-    const isDownload = req.query.download === '1';
-    const encodedName = encodeURIComponent(record.fileName || 'file');
-    res.setHeader('Content-Type', mime);
-    res.setHeader(
-      'Content-Disposition',
-      `${isDownload ? 'attachment' : 'inline'}; filename="file"; filename*=UTF-8''${encodedName}`
-    );
-    res.send(buf);
+
+    // Fallback: if local file is missing on this container, resolve via Drive ID in state.store
+    const driveId = await resolveDriveIdFromStoreOrSheet(`/api/files/${fileId}`, '');
+    if (driveId) {
+      res.redirect(`/api/files/download?url=${encodeURIComponent(`https://lh3.googleusercontent.com/d/${driveId}`)}`);
+      return;
+    }
+
+    res.status(404).json({ status: 'error', message: 'File not found' });
   });
 
   // 1. Server-Sent Events (SSE) Real-Time Stream

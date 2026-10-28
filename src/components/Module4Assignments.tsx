@@ -19,7 +19,16 @@ import {
   X,
   FileCheck
 } from 'lucide-react';
-import { downloadRealFile, getPreviewableFileUrl, isWordFile, isExcelFile, isImageFile, isPdfFile } from '../services/fileDownloadHelper';
+import {
+  downloadRealFile,
+  getPreviewableFileUrl,
+  extractDriveFileId,
+  resolveDriveIdByFileNameFromGas,
+  isWordFile,
+  isExcelFile,
+  isImageFile,
+  isPdfFile
+} from '../services/fileDownloadHelper';
 import { StorageService } from '../services/storage';
 
 interface Module4Props {
@@ -153,6 +162,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   // Submission modal state (for members)
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
   const [submittedFile, setSubmittedFile] = useState<{ name: string; url: string; size: string } | null>(null);
+  const [isUploadingSubmission, setIsUploadingSubmission] = useState(false);
+  const uploadPromiseRef = useRef<Promise<string> | null>(null);
 
   // Drag and drop state for reordering
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -165,6 +176,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   // Keep Admin and Member assignments & submissions continuously synchronized in real time
   useEffect(() => {
     StorageService.pullRemoteState(false).catch(() => {});
+    StorageService.recoverMissingTaskFileUrls().catch(() => {});
     const timer = setInterval(() => {
       StorageService.pullRemoteState(false).catch(() => {});
     }, 1000);
@@ -172,8 +184,21 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   }, []);
 
   useEffect(() => {
+    const hasMissingUrl = tasks.some(
+      t =>
+        t &&
+        Array.isArray(t.submissions) &&
+        t.submissions.some(s => s && s.fileName && (!s.fileUrl || s.fileUrl.startsWith('/api/files/')))
+    );
+    if (hasMissingUrl) {
+      StorageService.recoverMissingTaskFileUrls().catch(() => {});
+    }
+  }, [tasks]);
+
+  useEffect(() => {
     if (statusTaskModal) {
       StorageService.pullRemoteState(false).catch(() => {});
+      StorageService.recoverMissingTaskFileUrls().catch(() => {});
     }
   }, [statusTaskModal?.id]);
 
@@ -241,6 +266,19 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return undefined;
   };
 
+  const resolveSubmissionDriveUrl = (s?: TaskSubmission, fallbackTaskUrl?: string): string => {
+    if (!s) return fallbackTaskUrl || '';
+    const fid =
+      s.driveFileId ||
+      extractDriveFileId(s.fileUrl) ||
+      extractDriveFileId((s as any).downloadUrl) ||
+      extractDriveFileId(fallbackTaskUrl);
+    if (fid) {
+      return `https://lh3.googleusercontent.com/d/${fid}`;
+    }
+    return s.fileUrl || (s as any).downloadUrl || (s as any).localHostedUrl || fallbackTaskUrl || '';
+  };
+
   const getMySubmission = (task: TaskItem): TaskSubmission | undefined => {
     if (!task) return undefined;
     const subs = task.submissions || [];
@@ -253,7 +291,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       if (normMyName && normalizePersonName(s.memberName) === normMyName) return true;
       return false;
     });
-    if (found) return found;
+    if (found) {
+      return {
+        ...found,
+        fileUrl: resolveSubmissionDriveUrl(found, task.submittedFileUrl)
+      };
+    }
 
     if (
       task.submittedFileUrl &&
@@ -265,7 +308,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       return {
         memberId: user.id,
         memberName: user.fullName,
-        fileUrl: task.submittedFileUrl,
+        fileUrl: task.driveFileId ? `https://lh3.googleusercontent.com/d/${task.driveFileId}` : task.submittedFileUrl,
         fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
         fileSize: task.submittedFileSize || '1.0 MB',
         driveFileId: task.driveFileId,
@@ -285,7 +328,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       const key = String(s.memberId || s.memberName || '').trim().toLowerCase();
       if (!key || seenKeys.has(key)) return;
       seenKeys.add(key);
-      const effectiveUrl = s.fileUrl || (s as any).localHostedUrl || task.submittedFileUrl || '';
+      const effectiveUrl = resolveSubmissionDriveUrl(s, task.submittedFileUrl);
       result.push({
         ...s,
         memberName: fallbackName || s.memberName || s.memberId || 'สมาชิก',
@@ -501,8 +544,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       const base64 = event.target?.result as string;
       setSubmittedFile({ name: file.name, url: base64, size: sizeStr });
       onShowToast('info', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) กดยืนยันการส่งงานได้เลย`);
-      // Pre-upload to Google Drive in background so when Member clicks submit, Drive URL is ready immediately
-      StorageService.uploadFileToGoogleDrive(
+      // Pre-upload to Google Drive immediately and track promise so handleFinalSubmitTask can await it
+      const uploadPromise = StorageService.uploadFileToGoogleDrive(
         base64,
         file.name,
         `TaskSubmissions_${currentAcademicYear}`
@@ -510,15 +553,18 @@ export const Module4Assignments: React.FC<Module4Props> = ({
         .then(driveUrl => {
           if (driveUrl && driveUrl.startsWith('http')) {
             setSubmittedFile(prev => (prev && prev.name === file.name ? { ...prev, url: driveUrl } : prev));
+            return driveUrl;
           }
+          return base64;
         })
-        .catch(() => {});
+        .catch(() => base64);
+      uploadPromiseRef.current = uploadPromise;
     };
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
-  const handleFinalSubmitTask = (taskId: string) => {
+  const handleFinalSubmitTask = async (taskId: string) => {
     if (!submittedFile) {
       onShowToast('warning', 'กรุณาแนบไฟล์', 'โปรดอัปโหลดไฟล์งานที่ต้องการส่งก่อนกดยืนยัน');
       return;
@@ -526,11 +572,39 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
+    setIsUploadingSubmission(true);
+    let finalFileUrl = submittedFile.url;
+    try {
+      if (finalFileUrl.startsWith('data:')) {
+        if (uploadPromiseRef.current) {
+          const awaitedUrl = await uploadPromiseRef.current;
+          if (awaitedUrl && awaitedUrl.startsWith('http')) {
+            finalFileUrl = awaitedUrl;
+          }
+        }
+        if (finalFileUrl.startsWith('data:')) {
+          const directDriveUrl = await StorageService.uploadFileToGoogleDrive(
+            finalFileUrl,
+            submittedFile.name,
+            `TaskSubmissions_${currentAcademicYear}`
+          );
+          if (directDriveUrl && directDriveUrl.startsWith('http')) {
+            finalFileUrl = directDriveUrl;
+          }
+        }
+      }
+    } catch {
+      // Keep finalFileUrl if offline
+    } finally {
+      setIsUploadingSubmission(false);
+      uploadPromiseRef.current = null;
+    }
+
     const nowIso = new Date().toISOString();
     const newSub: TaskSubmission = {
       memberId: user.id,
       memberName: user.fullName,
-      fileUrl: submittedFile.url,
+      fileUrl: finalFileUrl,
       fileName: submittedFile.name,
       fileSize: submittedFile.size,
       submittedAt: nowIso
@@ -560,8 +634,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       submissions: updatedSubs,
       deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isAllMembersDone,
-      // Avoid duplicating large base64 data URLs twice in the same TaskItem object
-      submittedFileUrl: submittedFile.url.startsWith('http') ? submittedFile.url : undefined,
+      submittedFileUrl: finalFileUrl.startsWith('http') ? finalFileUrl : undefined,
       submittedFileName: submittedFile.name,
       submittedFileSize: submittedFile.size,
       submittedBy: user.id,
@@ -575,7 +648,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     onShowToast(
       'success',
       'ส่งงานสำเร็จ 🎉',
-      'ส่งภาระงานเรียบร้อยแล้ว ระบบซิงค์ข้อมูลไปยังหน้าผู้ดูแลระบบ (Admin) ทันที'
+      'ส่งภาระงานเรียบร้อยแล้ว ระบบซิงค์ข้อมูลและไฟล์ไปยังหน้าผู้ดูแลระบบ (Admin) ทันที'
     );
   };
 
@@ -658,13 +731,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
   };
 
   const handleDownloadUrl = (url: string, filename: string) => {
-    if (!url || url === '#') {
+    if ((!url || url === '#') && !filename) {
       onShowToast('info', 'ไม่มีไฟล์', 'รายการนี้ยังไม่มีไฟล์แนบ');
       return;
     }
-    const ok = downloadRealFile(url, filename);
+    const ok = downloadRealFile(url, filename, undefined, user.schoolId);
     if (ok) {
-      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${filename}" เรียบร้อยแล้ว`);
+      onShowToast('success', 'กำลังดาวน์โหลดไฟล์', `ดาวน์โหลด "${filename || 'ไฟล์งาน'}" เรียบร้อยแล้ว`);
     } else {
       onShowToast('warning', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ได้');
     }
@@ -954,12 +1027,6 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                                 : (isUrgent ? 'ด่วนที่สุด' : isHigh ? 'ด่วน' : 'ปกติ')}
                             </span>
 
-                            {user.role === 'admin' && submittedCount > 0 && (
-                              <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg shrink-0 flex items-center gap-1 bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                ✓ ส่งแล้ว {submittedCount}/{totalSchoolMembers} คน
-                              </span>
-                            )}
-
                             {task.dueDate && (
                               <span className={`text-[10px] sm:text-xs font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-lg border flex items-center gap-1 whitespace-nowrap shrink-0 ${
                                 isGreenCompleted 
@@ -988,51 +1055,6 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             >
                               {displayDesc}
                             </p>
-                          )}
-
-                          {/* สำหรับผู้ดูแลระบบ (Admin): แสดงรายชื่อสมาชิกที่ส่งงานแล้ว พร้อมปุ่ม ดูไฟล์ / ดาวน์โหลด ทันทีบนแถวรายการ */}
-                          {user.role === 'admin' && submittedCount > 0 && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-1.5 flex flex-wrap items-center gap-1.5"
-                            >
-                              {getTaskEffectiveSubmissions(task).map((sub, sIdx) => (
-                                <div
-                                  key={`${sub.memberId || sub.memberName}-${sIdx}`}
-                                  className="inline-flex items-center gap-1.5 bg-white/95 border border-emerald-300 rounded-xl px-2 py-1 text-[11px] shadow-2xs max-w-full"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                  <span className="font-bold text-emerald-900 truncate max-w-[110px] sm:max-w-[160px]">
-                                    {sub.memberName}
-                                  </span>
-                                  <span className="text-slate-500 truncate max-w-[90px] sm:max-w-[150px]" title={sub.fileName}>
-                                    ({sub.fileName})
-                                  </span>
-                                  {sub.fileUrl && (
-                                    <div className="flex items-center gap-1 shrink-0 ml-0.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => setPreviewFileModal({ url: sub.fileUrl, name: sub.fileName })}
-                                        className="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                                        title={`ดูไฟล์ของ ${sub.memberName}`}
-                                      >
-                                        <Eye className="w-3 h-3" />
-                                        <span>ดูไฟล์</span>
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDownloadUrl(sub.fileUrl, sub.fileName)}
-                                        className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[10px] inline-flex items-center gap-1 cursor-pointer transition-colors"
-                                        title={`ดาวน์โหลดไฟล์ของ ${sub.memberName}`}
-                                      >
-                                        <Download className="w-3 h-3" />
-                                        <span>ดาวน์โหลด</span>
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
                           )}
                         </div>
                       </div>
@@ -1325,7 +1347,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   {schoolMembers.map((mem, idx) => {
                     const submission = findMemberSubmission(liveStatusTask, mem);
                     const hasSubmitted = !!submission;
-                    const effectiveFileUrl = submission?.fileUrl || (submission as any)?.localHostedUrl || '';
+                    const effectiveFileUrl = resolveSubmissionDriveUrl(submission, liveStatusTask.submittedFileUrl);
                     const overdue = isOverdue(liveStatusTask.dueDate);
 
                     return (
@@ -1369,9 +1391,16 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             {/* View file button */}
                             <button
                               type="button"
-                              onClick={() => setPreviewFileModal({ url: effectiveFileUrl, name: submission.fileName })}
+                              onClick={async () => {
+                                let targetUrl = effectiveFileUrl;
+                                if (!extractDriveFileId(targetUrl) && submission.fileName) {
+                                  const fid = await resolveDriveIdByFileNameFromGas(submission.fileName, user.schoolId);
+                                  if (fid) targetUrl = `https://lh3.googleusercontent.com/d/${fid}`;
+                                }
+                                setPreviewFileModal({ url: targetUrl, name: submission.fileName });
+                              }}
                               className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                              title="ดูไฟล์งานที่สมาชิกส่ง"
+                              title="ดูไฟล์งานที่สมาชิกส่งจาก Google Drive"
                             >
                               <Eye className="w-3.5 h-3.5" />
                               <span>ดูไฟล์</span>
@@ -1382,7 +1411,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                               type="button"
                               onClick={() => handleDownloadUrl(effectiveFileUrl, submission.fileName)}
                               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
-                              title="ดาวน์โหลดไฟล์"
+                              title="ดาวน์โหลดไฟล์ต้นฉบับจาก Google Drive"
                             >
                               <Download className="w-3.5 h-3.5" />
                               <span>ดาวน์โหลด</span>
@@ -1414,7 +1443,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   {(liveStatusTask.submissions || [])
                     .filter(s => s && !schoolMembers.some(m => findMemberSubmission(liveStatusTask, m)?.memberId === s.memberId || findMemberSubmission(liveStatusTask, m)?.memberName === s.memberName))
                     .map((sub, extraIdx) => {
-                      const effectiveFileUrl = sub.fileUrl || (sub as any).localHostedUrl || '';
+                      const effectiveFileUrl = resolveSubmissionDriveUrl(sub, liveStatusTask.submittedFileUrl);
                       return (
                         <div
                           key={`extra-${sub.memberId}-${extraIdx}`}
@@ -1438,7 +1467,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
                               type="button"
-                              onClick={() => setPreviewFileModal({ url: effectiveFileUrl, name: sub.fileName })}
+                              onClick={async () => {
+                                let targetUrl = effectiveFileUrl;
+                                if (!extractDriveFileId(targetUrl) && sub.fileName) {
+                                  const fid = await resolveDriveIdByFileNameFromGas(sub.fileName, user.schoolId);
+                                  if (fid) targetUrl = `https://lh3.googleusercontent.com/d/${fid}`;
+                                }
+                                setPreviewFileModal({ url: targetUrl, name: sub.fileName });
+                              }}
                               className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold inline-flex items-center gap-1 transition-colors cursor-pointer shadow-2xs"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -1476,9 +1512,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
       {/* MODAL: Preview File Modal */}
       {previewFileModal && (() => {
-        const previewSrc = getPreviewableFileUrl(previewFileModal.url, previewFileModal.name);
+        const previewSrc = getPreviewableFileUrl(previewFileModal.url, previewFileModal.name, user.schoolId);
         const showImage = isImageFile(previewFileModal.name) || previewFileModal.url?.startsWith('data:image/');
-        const showPdf = isPdfFile(previewFileModal.name) || previewFileModal.url?.startsWith('data:application/pdf');
+        const showIframePreview =
+          !showImage &&
+          (isPdfFile(previewFileModal.name) ||
+            previewFileModal.url?.startsWith('data:application/pdf') ||
+            previewSrc.includes('drive.google.com/file/d/'));
         return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] flex flex-col">
@@ -1504,7 +1544,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     className="max-h-[52vh] w-auto mx-auto rounded-lg object-contain"
                   />
                 </div>
-              ) : showPdf && previewSrc ? (
+              ) : showIframePreview && previewSrc ? (
                 <iframe
                   src={previewSrc}
                   title={previewFileModal.name}
@@ -1518,12 +1558,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
               
               {isWordFile(previewFileModal.name) && (
                 <div className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl max-w-sm mx-auto leading-relaxed">
-                  ไฟล์เอกสาร Microsoft Word (.docx / .doc) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์จริงไปเปิดและแก้ไขได้ทันที
+                  ไฟล์เอกสาร Microsoft Word (.docx / .doc) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive ไปเปิดและแก้ไขได้ทันที
                 </div>
               )}
               {isExcelFile(previewFileModal.name) && (
                 <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl max-w-sm mx-auto leading-relaxed">
-                  ไฟล์เอกสาร Microsoft Excel (.xlsx / .xls) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์จริงไปเปิดและแก้ไขได้ทันที
+                  ไฟล์เอกสาร Microsoft Excel (.xlsx / .xls) สามารถกดปุ่มด้านล่างเพื่อดาวน์โหลดไฟล์ต้นฉบับจริงจาก Google Drive ไปเปิดและแก้ไขได้ทันที
                 </div>
               )}
 
@@ -1534,7 +1574,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
                 >
                   <Download className="w-4 h-4" />
-                  <span>ดาวน์โหลดไฟล์จริง</span>
+                  <span>ดาวน์โหลดไฟล์ต้นฉบับ</span>
                 </button>
               </div>
             </div>
@@ -1847,12 +1887,18 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   </button>
                   <button
                     type="button"
-                    disabled={!submittedFile}
+                    disabled={!submittedFile || isUploadingSubmission}
                     onClick={() => handleFinalSubmitTask(submittingTaskId)}
                     className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95 transition-transform"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>{mySub ? 'บันทึกไฟล์ใหม่' : 'ยืนยันการส่งงาน'}</span>
+                    <span>
+                      {isUploadingSubmission
+                        ? 'กำลังอัปโหลดไฟล์ส่งงาน...'
+                        : mySub
+                        ? 'บันทึกไฟล์ใหม่'
+                        : 'ยืนยันการส่งงาน'}
+                    </span>
                   </button>
                 </div>
               </div>
@@ -1982,51 +2028,12 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 );
               })()}
 
-              {/* Admin Actions: View Member Submitted Files Directly + Toggle Complete + Submission Status */}
+              {/* Admin Actions: Toggle Complete + Submission Status (View/Download inside Submission Status Modal) */}
               {user.role === 'admin' && selectedTaskDetailModal.type !== 'announcement' && (() => {
                 const liveDetailTask = tasks.find(t => t.id === selectedTaskDetailModal.id) || selectedTaskDetailModal;
                 const detailSubs = getTaskEffectiveSubmissions(liveDetailTask);
                 return (
                 <div className="space-y-2">
-                  {detailSubs.length > 0 && (
-                    <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-2 max-h-44 overflow-y-auto">
-                      <div className="text-[11px] font-bold text-emerald-900 flex items-center justify-between">
-                        <span>รายการไฟล์ที่สมาชิกส่งแล้ว ({detailSubs.length}/{totalSchoolMembers} คน)</span>
-                      </div>
-                      {detailSubs.map((sub, idx) => (
-                        <div
-                          key={`detail-sub-${sub.memberId}-${idx}`}
-                          className="p-2 bg-white border border-emerald-200 rounded-xl flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-800 truncate">{sub.memberName}</div>
-                            <div className="text-[11px] text-emerald-700 truncate">{sub.fileName}</div>
-                          </div>
-                          {sub.fileUrl && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => setPreviewFileModal({ url: sub.fileUrl, name: sub.fileName })}
-                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Eye className="w-3 h-3" />
-                                <span>ดูไฟล์</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadUrl(sub.fileUrl, sub.fileName)}
-                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Download className="w-3 h-3" />
-                                <span>ดาวน์โหลด</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
                   {/* Complete Checkmark Toggle */}
                   <button
                     type="button"

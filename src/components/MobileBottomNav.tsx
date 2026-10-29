@@ -12,7 +12,8 @@ import {
   FileText,
   Globe,
   BarChart3,
-  Settings
+  Settings,
+  Lock
 } from 'lucide-react';
 import { UserSession } from '../types';
 
@@ -22,6 +23,8 @@ interface MobileBottomNavProps {
   pendingTasksCount: number;
   user?: UserSession;
   onOpenSettings: () => void;
+  disableAssignments?: boolean;
+  disableDocuments?: boolean;
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
@@ -29,7 +32,9 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   onSelectTab,
   pendingTasksCount,
   user,
-  onOpenSettings
+  onOpenSettings,
+  disableAssignments = false,
+  disableDocuments = false
 }) => {
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
@@ -38,7 +43,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       id: 'dashboard',
       label: 'หน้าแรก',
       icon: <Home className="w-5 h-5" />,
-      badge: pendingTasksCount > 0 ? pendingTasksCount : undefined
+      badge: !disableAssignments && pendingTasksCount > 0 ? pendingTasksCount : undefined
     },
     {
       id: 'attendance_savings',
@@ -57,14 +62,26 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     }
   ];
 
-  const allMenuItems: { id: NavTab; label: string; subLabel: string; icon: React.ReactNode }[] = [
+  const allMenuItems: { id: NavTab; label: string; subLabel: string; icon: React.ReactNode; disabled?: boolean }[] = [
     { id: 'dashboard', label: 'หน้าหลัก', subLabel: 'ปฏิทินและภาพรวม', icon: <Home className="w-5 h-5 text-indigo-600" /> },
     { id: 'classroom', label: 'ธุรการชั้นเรียน', subLabel: 'บันทึกสุขภาพและกิจกรรม', icon: <Activity className="w-5 h-5 text-blue-600" /> },
     { id: 'data_others', label: 'ข้อมูล/อื่นๆ & ครูเวร', subLabel: 'นักเรียน บุคลากร ครูเวร 100 วัน', icon: <Users className="w-5 h-5 text-cyan-600" /> },
     { id: 'grading', label: 'ระบบบันทึกคะแนน', subLabel: 'เกรดเฉลี่ยและ ปพ.5', icon: <Award className="w-5 h-5 text-amber-600" /> },
     { id: 'attendance_savings', label: 'เช็กชื่อ & เงินฝาก', subLabel: 'ปฏิทิน 100 วันและออมทรัพย์', icon: <CalendarCheck className="w-5 h-5 text-emerald-600" /> },
-    { id: 'assignments', label: 'ติดตามภาระงาน', subLabel: 'การส่งงานและเวรประจำวัน', icon: <ClipboardList className="w-5 h-5 text-purple-600" /> },
-    { id: 'documents', label: 'คลังเอกสาร', subLabel: 'แบบฟอร์มวิชาการ Google Drive', icon: <FileText className="w-5 h-5 text-rose-600" /> },
+    {
+      id: 'assignments',
+      label: user?.role === 'member' ? 'ส่งงาน' : 'มอบหมาย',
+      subLabel: disableAssignments ? 'ปิดการใช้งานโดยผู้พัฒนาระบบ (OFF)' : 'การส่งงานและเวรประจำวัน',
+      icon: <ClipboardList className="w-5 h-5 text-purple-600" />,
+      disabled: disableAssignments
+    },
+    {
+      id: 'documents',
+      label: 'ศูนย์เอกสาร',
+      subLabel: disableDocuments ? 'ปิดการใช้งานโดยผู้พัฒนาระบบ (OFF)' : 'แบบฟอร์มวิชาการ Google Drive',
+      icon: <FileText className="w-5 h-5 text-rose-600" />,
+      disabled: disableDocuments
+    },
     { id: 'websites', label: 'เว็บไซต์แนะนำ', subLabel: 'ลิงก์และฐานข้อมูลเพื่อการศึกษา', icon: <Globe className="w-5 h-5 text-teal-600" /> },
     { id: 'reports', label: 'รายงานสรุปผล', subLabel: 'สถิติและกราฟวิเคราะห์', icon: <BarChart3 className="w-5 h-5 text-orange-600" /> }
   ];
@@ -156,26 +173,39 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
             {/* All Modules List */}
             <div className="grid grid-cols-1 gap-1.5">
               {allMenuItems.map((item) => {
-                const isActive = activeTab === item.id;
+                const isDisabled = Boolean(item.disabled);
+                const isActive = activeTab === item.id && !isDisabled;
                 return (
                   <button
                     key={item.id}
                     type="button"
+                    disabled={isDisabled}
                     onClick={() => {
+                      if (isDisabled) return;
                       onSelectTab(item.id);
                       setIsMoreMenuOpen(false);
                     }}
-                    className={`flex items-center gap-3 p-3 rounded-2xl text-left transition-all cursor-pointer ${
-                      isActive 
-                        ? 'bg-blue-50 border border-blue-200 text-blue-900 font-bold' 
-                        : 'bg-slate-50/70 hover:bg-slate-100 text-slate-800'
+                    className={`flex items-center gap-3 p-3 rounded-2xl text-left transition-all ${
+                      isDisabled
+                        ? 'bg-slate-100 border border-slate-200 text-slate-400 opacity-55 cursor-not-allowed grayscale'
+                        : isActive 
+                        ? 'bg-blue-50 border border-blue-200 text-blue-900 font-bold cursor-pointer' 
+                        : 'bg-slate-50/70 hover:bg-slate-100 text-slate-800 cursor-pointer'
                     }`}
                   >
                     <div className="p-2 rounded-xl bg-white border border-slate-200 shrink-0 shadow-2xs">
                       {item.icon}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold leading-tight truncate">{item.label}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold leading-tight truncate">{item.label}</p>
+                        {isDisabled && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center gap-0.5">
+                            <Lock className="w-2.5 h-2.5" />
+                            <span>OFF</span>
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-slate-500 leading-tight mt-0.5 truncate">{item.subLabel}</p>
                     </div>
                   </button>

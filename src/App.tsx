@@ -536,24 +536,58 @@ export default function App() {
   };
 
   const currentUserSchoolIdForTasks = user ? StorageService.getNormalizedSchoolId(user.schoolId, user.schoolName) : '';
+  const currentSchoolAdminForAccess = user && user.role !== 'developer'
+    ? admins.find(
+        a =>
+          StorageService.getNormalizedSchoolId(a.id, a.schoolName) === currentUserSchoolIdForTasks ||
+          a.id === currentUserSchoolIdForTasks
+      )
+    : undefined;
+  const disableAssignments = Boolean(currentSchoolAdminForAccess?.disableAssignments);
+  const disableDocuments = Boolean(currentSchoolAdminForAccess?.disableDocuments);
+
+  // Auto-redirect away from assignments or documents if Developer turns it OFF in real-time
+  useEffect(() => {
+    if (!user || user.role === 'developer') return;
+    if (activeTab === 'assignments' && disableAssignments) {
+      setActiveTab('dashboard');
+      setPreviousTab('dashboard');
+      showToast(
+        'warning',
+        'หน้ามอบหมายถูกปิดใช้งาน (OFF)',
+        'ผู้พัฒนาระบบได้ปิดการใช้งานหน้ามอบหมายสำหรับโรงเรียนของท่าน'
+      );
+    } else if (activeTab === 'documents' && disableDocuments) {
+      setActiveTab('dashboard');
+      setPreviousTab('dashboard');
+      showToast(
+        'warning',
+        'หน้าศูนย์เอกสารถูกปิดใช้งาน (OFF)',
+        'ผู้พัฒนาระบบได้ปิดการใช้งานหน้าศูนย์เอกสารสำหรับโรงเรียนของท่าน'
+      );
+    }
+  }, [activeTab, disableAssignments, disableDocuments, user?.id, user?.role]);
+
   const schoolMembersForTasks = (currentUserSchoolIdForTasks
     ? members.filter(m => StorageService.getNormalizedSchoolId(m.schoolId, m.schoolName) === currentUserSchoolIdForTasks)
     : members
   ).filter(m => m.role !== 'admin');
   const totalSchoolMembersCount = schoolMembersForTasks.length > 0 ? schoolMembersForTasks.length : 1;
 
-  const pendingTasksCount = tasks.filter(t => {
-    if (t.type === 'announcement') return false;
-    if (t.isManualCompleted) return false;
-    if (user?.role === 'member') {
-      const hasSubmitted =
-        (t.submissions || []).some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)) ||
-        t.submittedBy === user.id;
-      return !hasSubmitted;
-    }
-    const submittedCount = (t.submissions || []).length;
-    return submittedCount < totalSchoolMembersCount;
-  }).length;
+  const pendingTasksCount = disableAssignments
+    ? 0
+    : tasks.filter(t => {
+        if (t.type === 'announcement') return false;
+        if (t.isManualCompleted) return false;
+        if (user?.role === 'member') {
+          const hasSubmitted =
+            (t.submissions || []).some(s => s.memberId === user.id || (user.fullName && s.memberName === user.fullName)) ||
+            t.submittedBy === user.id;
+          return !hasSubmitted;
+        }
+        const submittedCount = (t.submissions || []).length;
+        return submittedCount < totalSchoolMembersCount;
+      }).length;
 
   // Header quick statistics
   const todayStr = new Date().toISOString().split('T')[0];
@@ -564,6 +598,22 @@ export default function App() {
     : 100;
 
   const handleSelectTab = (tab: NavTab) => {
+    if (tab === 'assignments' && disableAssignments) {
+      showToast(
+        'warning',
+        'หน้านี้ถูกปิดการใช้งาน (OFF)',
+        'หน้ามอบหมายของโรงเรียนนี้ถูกปิดการใช้งาน (OFF) โดยผู้พัฒนาระบบ'
+      );
+      return;
+    }
+    if (tab === 'documents' && disableDocuments) {
+      showToast(
+        'warning',
+        'หน้านี้ถูกปิดการใช้งาน (OFF)',
+        'หน้าศูนย์เอกสารของโรงเรียนนี้ถูกปิดการใช้งาน (OFF) โดยผู้พัฒนาระบบ'
+      );
+      return;
+    }
     if (tab !== 'settings') {
       setPreviousTab(tab);
     }
@@ -647,6 +697,8 @@ export default function App() {
         onSelectTab={handleSelectTab}
         pendingTasksCount={pendingTasksCount}
         user={user}
+        disableAssignments={disableAssignments}
+        disableDocuments={disableDocuments}
       />
 
       {/* Main Container */}
@@ -672,6 +724,7 @@ export default function App() {
             customButtons={customButtons}
             onSaveCustomButton={handleSaveCustomButton}
             onDeleteCustomButton={handleDeleteCustomButton}
+            disableAssignments={disableAssignments}
           />
         )}
 
@@ -756,7 +809,7 @@ export default function App() {
           />
         )}
 
-        {effectiveTab === 'assignments' && (
+        {effectiveTab === 'assignments' && !disableAssignments && (
           <Module4Assignments
             user={user}
             tasks={tasks}
@@ -770,7 +823,7 @@ export default function App() {
           />
         )}
 
-        {effectiveTab === 'documents' && (
+        {effectiveTab === 'documents' && !disableDocuments && (
           <Module5Documents
             user={user}
             documents={documents}
@@ -850,6 +903,8 @@ export default function App() {
         pendingTasksCount={pendingTasksCount}
         user={user}
         onOpenSettings={() => handleSelectTab('settings')}
+        disableAssignments={disableAssignments}
+        disableDocuments={disableDocuments}
       />
 
 

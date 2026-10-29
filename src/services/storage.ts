@@ -1426,6 +1426,42 @@ export const StorageService = {
     return Boolean(matchedAdmin?.isSuspended);
   },
 
+  toggleSchoolModuleAccess(
+    id: string,
+    moduleKey: 'disableAssignments' | 'disableDocuments'
+  ): { updated: SchoolAdminAccount[]; targetAdmin?: SchoolAdminAccount } {
+    const list = this.getAdmins();
+    let targetAdmin: SchoolAdminAccount | undefined;
+    const updated = list.map(a => {
+      if (a.id === id) {
+        targetAdmin = { ...a, [moduleKey]: !a[moduleKey] };
+        return targetAdmin;
+      }
+      return a;
+    });
+    if (targetAdmin) {
+      setLocal(KEYS.ADMINS, updated);
+      D1Service.saveAdmin(targetAdmin).catch(() => {});
+      this.syncAdminRecordToGoogleSheets(targetAdmin);
+    }
+    return { updated, targetAdmin };
+  },
+
+  getSchoolModuleAccess(
+    schoolId?: string,
+    schoolName?: string
+  ): { disableAssignments: boolean; disableDocuments: boolean } {
+    const admins = this.getAdmins();
+    const normId = normalizeSchoolId(schoolId, schoolName, admins);
+    const matchedAdmin = admins.find(
+      a => a.id === normId || (schoolName && cleanSchoolNameForMatch(a.schoolName) === cleanSchoolNameForMatch(schoolName))
+    );
+    return {
+      disableAssignments: Boolean(matchedAdmin?.disableAssignments),
+      disableDocuments: Boolean(matchedAdmin?.disableDocuments)
+    };
+  },
+
   authenticate(username: string, password: string): { success: boolean; user?: UserSession; message: string } {
     const trimmedUser = username.trim();
     const devCreds = this.getDeveloperCredentials();
@@ -2438,6 +2474,37 @@ export const StorageService = {
       updated = [doc, ...list];
     }
     setLocal(KEYS.DOCUMENTS, updated);
+
+    const rawDataUrl = doc.fileData || (doc.fileUrl && doc.fileUrl.startsWith('data:') ? doc.fileUrl : '');
+    if (rawDataUrl) {
+      // 1. Pre-upload to local node server cache so members can download it immediately with 0ms delay
+      fetch('/api/files/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileName: doc.fileName || `${doc.title || 'document'}.pdf`,
+          dataUrl: rawDataUrl,
+          id: `doc_${doc.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`
+        })
+      }).catch(() => {});
+
+      // 2. Upload to Google Drive dedicated school folder
+      const category = `Documents_${doc.academicYear || (doc.docType === 'order' ? 'Orders' : 'General')}`;
+      this.uploadFileToGoogleDrive(rawDataUrl, doc.fileName || doc.title, category)
+        .then(driveUrl => {
+          if (driveUrl && driveUrl.startsWith('http')) {
+            const curDocs = this.getDocuments();
+            const dIdx = curDocs.findIndex(d => d.id === doc.id);
+            if (dIdx >= 0) {
+              const nextDocs = [...curDocs];
+              nextDocs[dIdx] = { ...nextDocs[dIdx], fileUrl: driveUrl };
+              setLocal(KEYS.DOCUMENTS, nextDocs, false);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     this.syncPostToGoogle('uploadDocument', doc).then(res => {
       if (res && res.document && res.document.fileUrl && res.document.fileUrl.startsWith('http')) {
         const curDocs = this.getDocuments();

@@ -58,6 +58,7 @@ interface DashboardViewProps {
   onNavigateToTab: (tab: any) => void;
   onSaveCustomButton?: (btn: CustomButton) => void;
   onDeleteCustomButton?: (id: string) => void;
+  disableAssignments?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -79,7 +80,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onDeleteCalendarEvent,
   onNavigateToTab,
   onSaveCustomButton,
-  onDeleteCustomButton
+  onDeleteCustomButton,
+  disableAssignments = false
 }) => {
   // Custom Buttons State
   const [isAddButtonModalOpen, setIsAddButtonModalOpen] = useState(false);
@@ -800,7 +802,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
             </div>
 
-            {user.role === 'admin' && (
+            {user.role === 'admin' && !disableAssignments && (
               <button
                 onClick={() => onNavigateToTab('assignments')}
                 className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold"
@@ -812,7 +814,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Prompt constraint: "Beside the calendar, display a Pending Tasks / Assignments widget ('งานที่ต้องส่ง'). Tasks disappear immediately once completed/submitted." */}
           <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1">
-            {visibleTasks.length === 0 ? (
+            {disableAssignments ? (
+              <div className="py-12 px-4 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
+                <div className="w-12 h-12 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center mx-auto mb-2.5">
+                  <Lock className="w-6 h-6" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-700">ระบบมอบหมายงานถูกปิดใช้งาน (OFF)</h3>
+                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                  ผู้พัฒนาระบบได้ปิดการใช้งานหน้ามอบหมายสำหรับโรงเรียนนี้ชั่วคราว
+                </p>
+              </div>
+            ) : visibleTasks.length === 0 ? (
               <div className="py-12 px-4 text-center bg-slate-50/70 rounded-2xl border border-dashed border-slate-200">
                 <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-2.5">
                   <CheckCircle2 className="w-6 h-6" />

@@ -28,6 +28,8 @@ export interface SchoolAdminAccount {
   directorName?: string;
   createdAt: string;
   isSuspended?: boolean;
+  disableAssignments?: boolean;
+  disableDocuments?: boolean;
   googleSheetId?: string;
   googleSheetUrl?: string;
   driveFolderId?: string;

@@ -526,6 +526,90 @@ function ensureTaskFilesHostedAndUploaded(key: string, tasksList: any): any {
   return tasksList;
 }
 
+function isDocumentKeyName(key: string): boolean {
+  return key === 'ams_documents' || key.startsWith('ams_documents__');
+}
+
+function ensureDocumentFilesHostedAndUploaded(key: string, docsList: any): any {
+  if (!isDocumentKeyName(key) || !Array.isArray(docsList)) return docsList;
+  const schoolId = key.includes('__') ? key.split('__').slice(1).join('__') : 'admin-school-01';
+  const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+  const matchedAdmin = admins.find(a => a && a.id === schoolId);
+  const schoolName = matchedAdmin?.schoolName || schoolId;
+
+  for (const doc of docsList) {
+    if (!doc || typeof doc !== 'object') continue;
+    const rawUrl = String(doc.fileData || doc.fileUrl || '');
+    if (rawUrl.startsWith('data:')) {
+      const docIdClean = String(doc.id || 'doc').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileId = `doc_${docIdClean}`;
+      const hostedPath = saveServerHostedFile(fileId, doc.fileName || doc.title || 'document', rawUrl);
+      if (hostedPath) {
+        doc.localHostedUrl = hostedPath;
+      }
+
+      const uploadLockKey = `${key}::${doc.id}::${doc.date || ''}`;
+      if (!inFlightDriveUploads.has(uploadLockKey)) {
+        inFlightDriveUploads.add(uploadLockKey);
+        fetch(getGasWebAppUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'uploadDriveFile',
+            spreadsheetId: matchedAdmin?.googleSheetId || '',
+            schoolId,
+            schoolName,
+            schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
+            driveFolderId: getDriveFolderId(),
+            category: `Documents_${doc.academicYear || (doc.docType === 'order' ? 'Orders' : 'General')}`,
+            fileName: doc.fileName || `${doc.title || 'document'}.pdf`,
+            fileBase64: rawUrl,
+            uploadedBy: doc.uploadedBy || 'Admin'
+          })
+        })
+          .then(r => r.json())
+          .then((resData: any) => {
+            if (resData && resData.status === 'success' && resData.fileUrl) {
+              const driveUrl = String(resData.fileUrl);
+              const curList = state.store[key];
+              if (Array.isArray(curList)) {
+                let updatedAny = false;
+                const nextList = curList.map((d: any) => {
+                  if (!d || d.id !== doc.id) return d;
+                  if (!d.fileUrl || String(d.fileUrl).startsWith('data:') || String(d.fileUrl).startsWith('/api/files/')) {
+                    updatedAny = true;
+                    return {
+                      ...d,
+                      fileUrl: driveUrl,
+                      driveFileId: resData.fileId || d.driveFileId,
+                      downloadUrl: resData.downloadUrl || d.downloadUrl
+                    };
+                  }
+                  return d;
+                });
+
+                if (updatedAny) {
+                  const nowTs = Date.now();
+                  state.store[key] = nextList;
+                  state.timestamps[key] = Math.max(nowTs, (Number(state.timestamps[key]) || 0) + 1);
+                  state.rev += 1;
+                  scheduleDiskSave();
+                  broadcastDelta('server-drive-sync', { [key]: nextList }, { [key]: state.timestamps[key] });
+                  scheduleCloudKvPush([key]);
+                }
+              }
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            inFlightDriveUploads.delete(uploadLockKey);
+          });
+      }
+    }
+  }
+  return docsList;
+}
+
 function sanitizeForCloudKv(val: any): any {
   if (!val) return val;
   if (typeof val === 'string') {
@@ -540,7 +624,7 @@ function sanitizeForCloudKv(val: any): any {
   if (typeof val === 'object') {
     const out: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
-      if (k === 'fileUrl' && typeof v === 'string' && v.startsWith('data:') && v.length > 30000 && val.localHostedUrl) {
+      if ((k === 'fileUrl' || k === 'fileData') && typeof v === 'string' && v.startsWith('data:') && v.length > 30000 && val.localHostedUrl) {
         out[k] = val.localHostedUrl;
       } else {
         out[k] = sanitizeForCloudKv(v);
@@ -1040,6 +1124,19 @@ async function resolveDriveIdFromStoreOrSheet(
           }
         }
       }
+    } else if (isDocumentKeyName(k) && Array.isArray(v)) {
+      for (const d of v) {
+        if (!d) continue;
+        const matchUrl = rawUrl && (d.localHostedUrl === rawUrl || d.fileUrl === rawUrl || d.fileData === rawUrl);
+        const matchName = cleanName && cleanName !== 'download' && (
+          String(d.fileName || '').trim().toLowerCase() === cleanName ||
+          String(d.title || '').trim().toLowerCase() === cleanName
+        );
+        if (matchUrl || matchName) {
+          const fid = String(d.driveFileId || '').trim() || extractDriveIdServer(String(d.fileUrl || d.downloadUrl || ''));
+          if (fid) return fid;
+        }
+      }
     }
   }
 
@@ -1336,6 +1433,8 @@ async function startServer() {
               finalValue = mergeTaskListsServer(state.store[key], value);
             }
             finalValue = ensureTaskFilesHostedAndUploaded(key, finalValue);
+          } else if (isDocumentKeyName(key)) {
+            finalValue = ensureDocumentFilesHostedAndUploaded(key, finalValue);
           }
           state.store[key] = finalValue;
         }

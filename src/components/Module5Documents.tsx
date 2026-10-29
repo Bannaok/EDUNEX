@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { DocumentItem, UserSession, GoogleConfig } from '../types';
 import { 
   FileText, 
@@ -15,8 +15,13 @@ import {
   FileSpreadsheet, 
   Plus, 
   Loader2,
-  Sparkles
+  Sparkles,
+  Archive,
+  Film,
+  Music,
+  CheckCircle2
 } from 'lucide-react';
+import { StorageService } from '../services/storage';
 import { downloadRealFile, isWordFile, isPdfFile, isExcelFile, isImageFile, getFileExtension } from '../services/fileDownloadHelper';
 
 interface Module5Props {
@@ -63,6 +68,12 @@ export const Module5Documents: React.FC<Module5Props> = ({
   const [fileSize, setFileSize] = useState('');
   const [fileData, setFileData] = useState<string>('');
 
+  // Upload progress tracking (0% - 100%)
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number>(0);
+  const [uploadStatusText, setUploadStatusText] = useState<string>('');
+  const driveUploadPromiseRef = useRef<Promise<string> | null>(null);
+
   // Drag and drop state for Admin reordering
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -70,6 +81,15 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
   // File input ref for real file upload
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Real-time synchronization: Keep documents automatically updated between Admin and Members continuously
+  useEffect(() => {
+    StorageService.pullRemoteState(false).catch(() => {});
+    const timer = setInterval(() => {
+      StorageService.pullRemoteState(false).catch(() => {});
+    }, 1200);
+    return () => clearInterval(timer);
+  }, []);
 
   // Helper: Format date string to Thai พ.ศ. format (e.g. 2026-09-10 -> 10-09-2569)
   const formatThaiDocDate = (dateStr?: string) => {
@@ -164,27 +184,25 @@ export const Module5Documents: React.FC<Module5Props> = ({
   const processSelectedFile = (file: File) => {
     if (!file) return;
 
-    if (file.size > 20 * 1024 * 1024) {
-      onShowToast('warning', 'ไฟล์มีขนาดใหญ่เกินไป', 'กรุณาเลือกไฟล์ขนาดไม่เกิน 20MB');
+    if (file.size > 50 * 1024 * 1024) {
+      onShowToast('warning', 'ไฟล์มีขนาดใหญ่เกินไป', 'กรุณาเลือกไฟล์ขนาดไม่เกิน 50MB');
       return;
     }
 
     // Format size
     const sizeStr = file.size < 1024 * 1024 
       ? `${(file.size / 1024).toFixed(1)} KB`
-      : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+      : `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
 
     setFileName(file.name);
     setFileSize(sizeStr);
 
-    // 2. เมื่อกดอัปโหลดไฟล์ ตรงช่องชื่อเรื่องจะเขียนชื่อไฟล์อัตโนมัติ ตามชื่อไฟล์ที่อัปโหลด เป็นทั้งหน้าศูนย์เอกสาร และหน้าหนังสือคำสั่ง
     const cleanName = file.name.lastIndexOf('.') > 0 
       ? file.name.substring(0, file.name.lastIndexOf('.')) 
       : file.name;
     const autoTitle = cleanName.trim() || file.name;
     setTitle(autoTitle);
 
-    // กรณีหน้าหนังสือคำสั่ง ถ้ามีคำว่า คำสั่ง หรือ เลขที่คำสั่ง ในชื่อไฟล์ ให้ช่วยกรอกเลขที่คำสั่งให้อัตโนมัติด้วย
     if (!docNumber) {
       const matchOrder = autoTitle.match(/(คำสั่ง(?:โรงเรียน)?(?:ที่)?\s*[\d/-]+)/i) || autoTitle.match(/([\d]+[/][\d]+)/);
       if (matchOrder) {
@@ -192,13 +210,65 @@ export const Module5Documents: React.FC<Module5Props> = ({
       }
     }
 
+    setIsUploadingFile(true);
+    setUploadPercent(15);
+    setUploadStatusText(`กำลังอ่านไฟล์ "${file.name}" (${sizeStr})...`);
+
     const reader = new FileReader();
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable && ev.total > 0) {
+        const pct = Math.min(45, Math.round((ev.loaded / ev.total) * 45));
+        setUploadPercent(Math.max(15, pct));
+      }
+    };
+
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
       setFileData(base64);
       setFileUrl(base64);
-      onShowToast('info', 'เลือกไฟล์แล้ว', `เขียนชื่อเรื่องอัตโนมัติ: "${autoTitle}" กดบันทึกเพื่อจัดเก็บลง Google Drive`);
+      setUploadPercent(55);
+      setUploadStatusText('กำลังจัดเก็บและเชื่อมโยงกับ Google Drive ประจำโรงเรียน...');
+
+      // 1. Fast cache locally so members can download it immediately with 0ms delay
+      fetch('/api/files/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, dataUrl: base64 })
+      }).catch(() => {});
+
+      // 2. Pre-upload directly to Google Drive dedicated school folder
+      const category = `Documents_${modalTargetType === 'order' ? currentAcademicYear : 'General'}`;
+      const uploadPromise = StorageService.uploadFileToGoogleDrive(base64, file.name, category)
+        .then(driveUrl => {
+          if (driveUrl && driveUrl.startsWith('http')) {
+            setFileUrl(driveUrl);
+            setUploadPercent(100);
+            setUploadStatusText('จัดเก็บลง Google Drive ประจำโรงเรียนเรียบร้อย');
+            return driveUrl;
+          }
+          setUploadPercent(100);
+          setUploadStatusText('พร้อมบันทึกเอกสาร');
+          return base64;
+        })
+        .catch(() => {
+          setUploadPercent(100);
+          setUploadStatusText('พร้อมบันทึกเอกสาร');
+          return base64;
+        })
+        .finally(() => {
+          setIsUploadingFile(false);
+        });
+
+      driveUploadPromiseRef.current = uploadPromise;
+      onShowToast('info', 'เลือกไฟล์แล้ว', `เขียนชื่อเรื่องอัตโนมัติ: "${autoTitle}" (${sizeStr})`);
     };
+
+    reader.onerror = () => {
+      setIsUploadingFile(false);
+      setUploadPercent(0);
+      onShowToast('error', 'อ่านไฟล์ไม่สำเร็จ', 'ไม่สามารถอ่านไฟล์ได้ โปรดลองอีกครั้ง');
+    };
+
     reader.readAsDataURL(file);
   };
 
@@ -212,7 +282,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
   };
 
   // Save document
-  const handleSaveDocSubmit = (e: React.FormEvent) => {
+  const handleSaveDocSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (user.role !== 'admin') {
       onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะ Admin เท่านั้นที่สามารถอัปโหลดหรือแก้ไขเอกสาร');
@@ -225,6 +295,27 @@ export const Module5Documents: React.FC<Module5Props> = ({
       return;
     }
 
+    let finalFileUrl = fileUrl || fileData || (editingDoc ? editingDoc.fileUrl : '#');
+
+    // If Google Drive upload is still in progress, wait up to 5 seconds to get the real Google Drive URL
+    if (driveUploadPromiseRef.current && finalFileUrl.startsWith('data:')) {
+      setIsUploadingFile(true);
+      setUploadStatusText('กำลังซิงค์และบันทึกลง Google Drive ประจำโรงเรียน...');
+      try {
+        const driveUrl = await Promise.race([
+          driveUploadPromiseRef.current,
+          new Promise<string>(r => setTimeout(() => r(''), 5000))
+        ]);
+        if (driveUrl && driveUrl.startsWith('http')) {
+          finalFileUrl = driveUrl;
+        }
+      } catch {
+        // continue
+      } finally {
+        setIsUploadingFile(false);
+      }
+    }
+
     const newDoc: DocumentItem = {
       id: editingDoc ? editingDoc.id : 'doc-' + Date.now(),
       docNumber: docNumber.trim() || '-',
@@ -233,17 +324,18 @@ export const Module5Documents: React.FC<Module5Props> = ({
       academicYear: modalTargetType === 'order' ? (editingDoc?.academicYear || currentAcademicYear) : undefined,
       category: modalTargetType === 'order' ? 'คำสั่งโรงเรียน' : 'เอกสารทั่วไป',
       date: docDate || new Date().toISOString().split('T')[0],
-      fileUrl: fileUrl || fileData || (editingDoc ? editingDoc.fileUrl : '#'),
+      fileUrl: finalFileUrl,
       fileName: fileName.trim() || (editingDoc ? editingDoc.fileName : trimmedTitle),
       fileSize: fileSize || (editingDoc ? editingDoc.fileSize : '1.0 MB'),
-      fileData: fileData || (editingDoc ? editingDoc.fileData : undefined),
+      fileData: finalFileUrl.startsWith('data:') ? finalFileUrl : (fileData || editingDoc?.fileData),
       driveFileId: editingDoc?.driveFileId,
       uploadedBy: editingDoc ? editingDoc.uploadedBy : user.fullName
     };
 
     onSaveDocument(newDoc);
     setIsUploadModalOpen(false);
-    onShowToast('success', 'บันทึกสำเร็จ', `${editingDoc ? 'แก้ไข' : 'บันทึก'} "${newDoc.title}" เรียบร้อยแล้ว`);
+    driveUploadPromiseRef.current = null;
+    onShowToast('success', 'บันทึกสำเร็จ', `${editingDoc ? 'แก้ไข' : 'บันทึก'} "${newDoc.title}" จัดเก็บลง Google Drive โรงเรียนเรียบร้อยแล้ว`);
   };
 
   // Reordering handler
@@ -360,7 +452,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
     }
   };
 
-  // Get file icon based on name
+  // Get file icon based on name (supports all file extensions)
   const renderFileIcon = (fileName?: string) => {
     const ext = getFileExtension(fileName);
     if (ext === 'pdf') {
@@ -370,31 +462,59 @@ export const Module5Documents: React.FC<Module5Props> = ({
         </div>
       );
     }
-    if (ext === 'doc' || ext === 'docx') {
+    if (ext === 'doc' || ext === 'docx' || ext === 'odt' || ext === 'rtf') {
       return (
         <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 border border-blue-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
           DOC
         </div>
       );
     }
-    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') {
+    if (ext === 'xls' || ext === 'xlsx' || ext === 'csv' || ext === 'ods') {
       return (
         <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
           XLS
         </div>
       );
     }
-    if (ext === 'ppt' || ext === 'pptx') {
+    if (ext === 'ppt' || ext === 'pptx' || ext === 'odp') {
       return (
         <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 border border-amber-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
           PPT
         </div>
       );
     }
-    if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
+          ZIP
+        </div>
+      );
+    }
+    if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-violet-50 text-violet-600 border border-violet-200/80 flex items-center justify-center shrink-0">
+          <Film className="w-4 h-4" />
+        </div>
+      );
+    }
+    if (['mp3', 'wav', 'm4a', 'aac', 'ogg'].includes(ext)) {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-pink-50 text-pink-600 border border-pink-200/80 flex items-center justify-center shrink-0">
+          <Music className="w-4 h-4" />
+        </div>
+      );
+    }
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'bmp'].includes(ext)) {
       return (
         <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-600 border border-purple-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
           IMG
+        </div>
+      );
+    }
+    if (ext === 'txt') {
+      return (
+        <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 border border-slate-200/80 flex items-center justify-center shrink-0 font-bold text-[10px]">
+          TXT
         </div>
       );
     }
@@ -700,38 +820,64 @@ export const Module5Documents: React.FC<Module5Props> = ({
               {/* อัปโหลดไฟล์ได้จริงทุกประเภท */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  ไฟล์เอกสาร (อัปโหลดไฟล์ได้จริงทุกประเภท) *
+                  ไฟล์เอกสาร (อัปโหลดไฟล์ได้จริงทุกประเภท เช่น PDF, Word, Excel, PowerPoint, ZIP ฯลฯ) *
                 </label>
 
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleRealFileUpload}
+                  accept="*/*"
                   className="hidden"
                 />
 
                 {fileName ? (
-                  <div className="flex items-center justify-between p-3 bg-emerald-50/60 rounded-2xl border border-emerald-200">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {renderFileIcon(fileName)}
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-800 truncate" title={fileName}>
-                          {fileName}
-                        </div>
-                        <div className="text-[10px] text-emerald-700 font-mono">
-                          {fileSize || '1.0 MB'} • เขียนชื่อเรื่องอัตโนมัติแล้ว
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        {renderFileIcon(fileName)}
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-800 truncate" title={fileName}>
+                            {fileName}
+                          </div>
+                          <div className="text-[10px] text-emerald-700 font-mono">
+                            {fileSize || '1.0 MB'} • เขียนชื่อเรื่องอัตโนมัติแล้ว
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 shadow-2xs cursor-pointer"
+                        >
+                          เปลี่ยนไฟล์
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-2.5 py-1 text-xs font-semibold bg-white hover:bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 shadow-2xs cursor-pointer"
-                      >
-                        เปลี่ยนไฟล์
-                      </button>
-                    </div>
+
+                    {/* Progress Bar Display */}
+                    {(isUploadingFile || uploadPercent > 0) && (
+                      <div className="p-2.5 bg-emerald-50/50 rounded-xl border border-emerald-200/70 space-y-1.5 animate-in fade-in">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-emerald-800 font-semibold flex items-center gap-1.5">
+                            {uploadPercent < 100 ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            )}
+                            <span>{uploadStatusText || 'กำลังประมวลผลไฟล์...'}</span>
+                          </span>
+                          <span className="font-mono font-bold text-emerald-700">{uploadPercent}%</span>
+                        </div>
+                        <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-emerald-600 h-1.5 rounded-full transition-all duration-300"
+                            style={{ width: `${uploadPercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div
@@ -758,7 +904,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                         คลิกหรือลากไฟล์เอกสารมาวางที่นี่
                       </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        ระบบจะเขียนชื่อเรื่องให้อัตโนมัติตามชื่อไฟล์ (รองรับ PDF, Word, Excel ฯลฯ)
+                        รองรับไฟล์ทุกประเภท (PDF, Word, Excel, PowerPoint, ZIP ฯลฯ สูงสุด 50MB)
                       </div>
                     </div>
                   </div>

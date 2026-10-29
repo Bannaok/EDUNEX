@@ -38,7 +38,9 @@ import {
   Cloud,
   Server,
   Code,
-  FileSpreadsheet
+  FileSpreadsheet,
+  ClipboardList,
+  FileText
 } from 'lucide-react';
 import { D1Service } from '../services/d1Service';
 
@@ -379,6 +381,31 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
         'success',
         'ยกเลิกการระงับแล้ว ✓',
         `เปิดสิทธิ์การใช้งานให้ "${admin.schoolName}" (${admin.username}) และสมาชิกในสังกัดกลับมาใช้งานได้ตามปกติแล้ว`
+      );
+    }
+  };
+
+  // Handler: Toggle per-school ON/OFF for หน้ามอบหมาย (disableAssignments) or หน้าศูนย์เอกสาร (disableDocuments)
+  const handleToggleSchoolModule = (
+    admin: SchoolAdminAccount,
+    moduleKey: 'disableAssignments' | 'disableDocuments'
+  ) => {
+    const res = StorageService.toggleSchoolModuleAccess(admin.id, moduleKey);
+    onRefreshData();
+    const isNowDisabled = Boolean(res.targetAdmin?.[moduleKey]);
+    const moduleLabel = moduleKey === 'disableAssignments' ? 'หน้ามอบหมาย' : 'หน้าศูนย์เอกสาร';
+
+    if (isNowDisabled) {
+      onShowToast(
+        'warning',
+        `ปิดการใช้งาน ${moduleLabel} (OFF) 🚫`,
+        `ตั้งค่า OFF "${moduleLabel}" สำหรับ "${admin.schoolName}" แล้ว ทั้ง Admin และสมาชิกของโรงเรียนนี้จะไม่สามารถกดเข้าหน้านี้ได้`
+      );
+    } else {
+      onShowToast(
+        'success',
+        `เปิดการใช้งาน ${moduleLabel} (ON) ✓`,
+        `ตั้งค่า ON "${moduleLabel}" สำหรับ "${admin.schoolName}" แล้ว ทั้ง Admin และสมาชิกสามารถกดเข้าใช้งานได้ตามปกติ`
       );
     }
   };
@@ -856,6 +883,78 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                                 แยกโฟลเดอร์โรงเรียนอัตโนมัติ
                               </span>
                             )}
+                          </div>
+                        </div>
+
+                        {/* Per-School Module ON / OFF Switches (หน้ามอบหมาย & หน้าศูนย์เอกสาร) */}
+                        <div className="pt-2.5 border-t border-slate-800/80 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                              <Lock className="w-3 h-3 text-purple-400" />
+                              <span>เปิด-ปิดระบบงานเฉพาะโรงเรียนนี้ (ON / OFF):</span>
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            {/* Toggle 1: หน้ามอบหมาย */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSchoolModule(adm, 'disableAssignments')}
+                              className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                                adm.disableAssignments
+                                  ? 'bg-rose-950/50 border-rose-500/40 text-rose-300 hover:bg-rose-900/50'
+                                  : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
+                              }`}
+                              title={
+                                adm.disableAssignments
+                                  ? 'ปัจจุบัน OFF: Admin และสมาชิกไม่สามารถกดหน้ามอบหมายได้ (คลิกเพื่อเปิด ON)'
+                                  : 'ปัจจุบัน ON: เปิดใช้งานหน้ามอบหมายปกติ (คลิกเพื่อปิด OFF)'
+                              }
+                            >
+                              <span className="flex items-center gap-1.5 truncate">
+                                <ClipboardList className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">หน้ามอบหมาย</span>
+                              </span>
+                              <span
+                                className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide shrink-0 ${
+                                  adm.disableAssignments
+                                    ? 'bg-rose-600 text-white shadow-xs'
+                                    : 'bg-emerald-500 text-slate-950 shadow-xs'
+                                }`}
+                              >
+                                {adm.disableAssignments ? 'OFF' : 'ON'}
+                              </span>
+                            </button>
+
+                            {/* Toggle 2: หน้าศูนย์เอกสาร */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSchoolModule(adm, 'disableDocuments')}
+                              className={`flex items-center justify-between px-2.5 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer active:scale-95 ${
+                                adm.disableDocuments
+                                  ? 'bg-rose-950/50 border-rose-500/40 text-rose-300 hover:bg-rose-900/50'
+                                  : 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/40'
+                              }`}
+                              title={
+                                adm.disableDocuments
+                                  ? 'ปัจจุบัน OFF: Admin และสมาชิกไม่สามารถกดหน้าศูนย์เอกสารได้ (คลิกเพื่อเปิด ON)'
+                                  : 'ปัจจุบัน ON: เปิดใช้งานหน้าศูนย์เอกสารปกติ (คลิกเพื่อปิด OFF)'
+                              }
+                            >
+                              <span className="flex items-center gap-1.5 truncate">
+                                <FileText className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate">หน้าศูนย์เอกสาร</span>
+                              </span>
+                              <span
+                                className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide shrink-0 ${
+                                  adm.disableDocuments
+                                    ? 'bg-rose-600 text-white shadow-xs'
+                                    : 'bg-emerald-500 text-slate-950 shadow-xs'
+                                }`}
+                              >
+                                {adm.disableDocuments ? 'OFF' : 'ON'}
+                              </span>
+                            </button>
                           </div>
                         </div>
                       </div>

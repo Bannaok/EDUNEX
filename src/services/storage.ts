@@ -3826,6 +3826,35 @@ export const StorageService = {
     };
   },
 
+  // Deduplicate and consolidate Google Drive School Folders (Strict 1 School = 1 Folder)
+  async deduplicateSchoolDriveFolders(schoolName?: string): Promise<{ success: boolean; message: string; cleanedSummary?: any[] }> {
+    try {
+      const config = this.getGoogleConfig();
+      const res = await fetch('/api/google/deduplicate-school-folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schoolName: schoolName || '',
+          folderId: config.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          success: data.status === 'success',
+          message: data.message || 'ตรวจสอบและจัดระเบียบโฟลเดอร์ใน Google Drive เรียบร้อยแล้ว (1 โรงเรียน = 1 โฟลเดอร์จริง)',
+          cleanedSummary: data.cleanedSummary
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return {
+      success: false,
+      message: 'ไม่สามารถติดต่อ Google Apps Script เพื่อจัดระเบียบโฟลเดอร์ได้'
+    };
+  },
+
   // Background Google Apps Script sync with Per-School Spreadsheet Routing
   async syncPostToGoogle(action: string, payload: Record<string, any>): Promise<any> {
     const config = this.getGoogleConfig();

@@ -103,6 +103,12 @@ function doGet(e) {
  * 2. จัดการคำขอแบบ POST (บันทึก / แก้ไข / ลบ / ซิงค์ข้อมูลแยกตามโรงเรียน / อัปโหลดไฟล์ลง Drive)
  */
 function doPost(e) {
+  var lock = LockService.getScriptLock();
+  var hasLock = false;
+  try {
+    hasLock = lock.tryLock(30000);
+  } catch (lErr) {}
+
   try {
     if (!e || !e.postData || !e.postData.contents) {
       return jsonResponse({ status: 'error', message: 'ไม่พบข้อมูล JSON Payload ที่ส่งมา' });
@@ -119,6 +125,9 @@ function doPost(e) {
         break;
       case 'deleteSchoolSheet':
         result = handleDeleteSchoolSheet(payload);
+        break;
+      case 'deduplicateSchoolFolders':
+        result = handleDeduplicateSchoolFolders(payload);
         break;
 
       // --- ระงับ / ยกเลิกการระงับ Admin โรงเรียน และสมาชิก ---
@@ -329,6 +338,12 @@ function doPost(e) {
       status: 'error',
       message: err.toString()
     });
+  } finally {
+    if (hasLock) {
+      try {
+        lock.releaseLock();
+      } catch (rlErr) {}
+    }
   }
 }
 
@@ -487,7 +502,7 @@ function handleCreateSchoolSheet(payload) {
   var rootFolderId = payload.folderId || payload.driveFolderId || DEFAULT_DRIVE_FOLDER_ID;
   var sheetTitle = '[ระบบวิชาการ] ' + schoolName + (schoolCode ? ' (' + schoolCode + ')' : '');
 
-  // 1. สร้างหรือดึงโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin นี้ทันที (1 Admin = 1 โฟลเดอร์โรงเรียนเท่านั้น ไม่มีโฟลเดอร์ย่อย)
+  // 1. สร้างหรือดึงโฟลเดอร์ Google Drive ประจำโรงเรียนของ Admin นี้ทันที (1 Admin = 1 โฟลเดอร์โรงเรียนเท่านั้น ไม่มีโฟลเดอร์ย่อย พร้อมระบบตัดโฟลเดอร์ซ้ำอัตโนมัติ)
   var schoolFolder = null;
   var schoolFolderId = '';
   var schoolFolderUrl = '';
@@ -498,6 +513,51 @@ function handleCreateSchoolSheet(payload) {
       schoolFolderUrl = schoolFolder.getUrl();
     }
   } catch (folderInitErr) {}
+
+  // 1.1 ตรวจสอบทันทีว่าในโฟลเดอร์โรงเรียนมีไฟล์ Google Sheet อยู่แล้วหรือไม่ หากมีให้ใช้งานไฟล์เดิมทันที ไม่สร้างซ้ำเด็ดขาด
+  if (schoolFolder) {
+    try {
+      var sheetsInFolder = schoolFolder.getFilesByType(MimeType.GOOGLE_SHEETS);
+      while (sheetsInFolder.hasNext()) {
+        var existingSheetFile = sheetsInFolder.next();
+        if (!existingSheetFile.isTrashed()) {
+          var matchedId = existingSheetFile.getId();
+          var matchedUrl = existingSheetFile.getUrl();
+          try {
+            var mCheckAuto = SpreadsheetApp.openById(payload.masterSpreadsheetId || MASTER_SPREADSHEET_ID);
+            var mHeadersAuto = ['id', 'username', 'password', 'fullName', 'schoolName', 'schoolCode', 'affiliation', 'directorName', 'googleSheetId', 'googleSheetUrl', 'driveFolderId', 'driveFolderUrl', 'isSuspended', 'createdAt'];
+            var admSheetAuto = getOrCreateSheet(mCheckAuto, 'Admins', mHeadersAuto);
+            upsertRowInSheet(admSheetAuto, mHeadersAuto, 'id', {
+              id: payload.adminId || ('admin-' + new Date().getTime()),
+              username: payload.username || '',
+              password: payload.password || '123456',
+              fullName: payload.fullName || ('ผู้ดูแลระบบ ' + schoolName),
+              schoolName: schoolName,
+              schoolCode: schoolCode,
+              affiliation: payload.affiliation || 'สพป.',
+              directorName: payload.directorName || '',
+              googleSheetId: matchedId,
+              googleSheetUrl: matchedUrl,
+              driveFolderId: schoolFolderId,
+              driveFolderUrl: schoolFolderUrl,
+              isSuspended: Boolean(payload.isSuspended),
+              createdAt: new Date().toISOString().split('T')[0]
+            });
+          } catch (mErrAuto) {}
+
+          return {
+            status: 'success',
+            spreadsheetId: matchedId,
+            spreadsheetUrl: matchedUrl,
+            driveFolderId: schoolFolderId,
+            driveFolderUrl: schoolFolderUrl,
+            schoolName: schoolName,
+            message: 'พบและเชื่อมต่อ Google Sheet ในโฟลเดอร์โรงเรียน "' + schoolName + '" เดิมสำเร็จ (ไม่สร้างซ้ำ)'
+          };
+        }
+      }
+    } catch (searchSheetErr) {}
+  }
 
   // 2. ตรวจสอบก่อนว่าในตาราง Admins มี Google Sheet ของโรงเรียนนี้อยู่แล้วหรือไม่ เพื่อไม่ให้สร้างซ้ำ
   try {
@@ -829,14 +889,165 @@ function getOrCreateSchoolFolder(schoolName, rootFolderId) {
 
   var cleanName = (schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา').trim();
   var schoolFolderName = '[โรงเรียน] ' + cleanName;
-  var iter = rootFolder.getFoldersByName(schoolFolderName);
-  while (iter.hasNext()) {
-    var f = iter.next();
-    if (!f.isTrashed()) {
-      return f;
+  var pureSchoolName = cleanName.replace(/^โรงเรียน/, '').trim();
+
+  // 1. ค้นหาโฟลเดอร์ทั้งหมดใน rootFolder เพื่อตรวจหาโฟลเดอร์ที่ตรงกับโรงเรียนนี้ (ป้องกันและกำจัดโฟลเดอร์ซ้ำ 100%)
+  var matchingFolders = [];
+  try {
+    var iter = rootFolder.getFolders();
+    while (iter.hasNext()) {
+      var f = iter.next();
+      if (f.isTrashed()) continue;
+      var fn = f.getName().trim();
+      if (
+        fn === schoolFolderName ||
+        fn === cleanName ||
+        fn === '[โรงเรียน] ' + pureSchoolName ||
+        (pureSchoolName && pureSchoolName.length >= 3 && fn.indexOf(pureSchoolName) !== -1)
+      ) {
+        matchingFolders.push(f);
+      }
+    }
+  } catch (findErr) {}
+
+  // 2. หากพบโฟลเดอร์ที่ตรงกันตั้งแต่ 1 โฟลเดอร์ขึ้นไป (รวมถึงกรณีเคยถูกสร้างซ้ำ 2 อันขึ้นไปใน Google Drive)
+  if (matchingFolders.length > 0) {
+    // ให้คะแนนเพื่อเลือกโฟลเดอร์ที่ดีที่สุดเพียง 1 อันเป็น primaryFolder (โฟลเดอร์ที่มีไฟล์ หรือ Google Sheet)
+    var primaryFolder = matchingFolders[0];
+    var bestScore = -1;
+    for (var i = 0; i < matchingFolders.length; i++) {
+      var score = 0;
+      try {
+        var sheetIter = matchingFolders[i].getFilesByType(MimeType.GOOGLE_SHEETS);
+        if (sheetIter.hasNext()) score += 100;
+        var fileIter = matchingFolders[i].getFiles();
+        while (fileIter.hasNext()) { score++; fileIter.next(); }
+      } catch (scErr) {}
+      if (score > bestScore) {
+        bestScore = score;
+        primaryFolder = matchingFolders[i];
+      }
+    }
+
+    // ตั้งชื่อ primaryFolder ให้ถูกต้องตามมาตรฐาน: [โรงเรียน] <ชื่อโรงเรียน>
+    try {
+      if (primaryFolder.getName() !== schoolFolderName) {
+        primaryFolder.setName(schoolFolderName);
+      }
+    } catch (rnErr) {}
+
+    // ย้ายไฟล์ทั้งหมดจากโฟลเดอร์ซ้ำเข้ามาไว้ใน primaryFolder และลบโฟลเดอร์ซ้ำ (setTrashed) ทันที!
+    for (var d = 0; d < matchingFolders.length; d++) {
+      var dup = matchingFolders[d];
+      if (dup.getId() !== primaryFolder.getId()) {
+        try {
+          var dupFiles = dup.getFiles();
+          while (dupFiles.hasNext()) {
+            var df = dupFiles.next();
+            moveFileToFolderSafe(df.getId(), primaryFolder);
+          }
+          dup.setTrashed(true);
+        } catch (trErr) {}
+      }
+    }
+
+    return primaryFolder;
+  }
+
+  // 3. หากยังไม่เคยมีโฟลเดอร์เลย ให้สร้างโฟลเดอร์ใหม่เพียง 1 อันเท่านั้น
+  return rootFolder.createFolder(schoolFolderName);
+}
+
+/**
+ * ฟังก์ชันสำหรับ Developer หรือระบบ สั่งตรวจและลบโฟลเดอร์โรงเรียนที่ซ้ำใน Google Drive ทันที
+ * (รับประกัน 1 โรงเรียน = มีเพียง 1 โฟลเดอร์จริงตามที่สร้าง)
+ */
+function handleDeduplicateSchoolFolders(payload) {
+  var rootFolderId = (payload && (payload.folderId || payload.driveFolderId)) || DEFAULT_DRIVE_FOLDER_ID;
+  var targetSchoolName = (payload && payload.schoolName ? String(payload.schoolName).trim() : '');
+  var rootFolder;
+  try {
+    rootFolder = rootFolderId ? DriveApp.getFolderById(rootFolderId) : DriveApp.getRootFolder();
+  } catch (e) {
+    rootFolder = DriveApp.getRootFolder();
+  }
+
+  var folderMap = {};
+  var subfolders = rootFolder.getFolders();
+  while (subfolders.hasNext()) {
+    var folder = subfolders.next();
+    if (folder.isTrashed()) continue;
+    var fName = folder.getName().trim();
+    var key = fName.replace(/^\[โรงเรียน\]\s*/, '').replace(/^โรงเรียน/, '').replace(/\s+/g, '').toLowerCase();
+    if (!key) key = fName.toLowerCase();
+    if (targetSchoolName) {
+      var targetKey = targetSchoolName.replace(/^\[โรงเรียน\]\s*/, '').replace(/^โรงเรียน/, '').replace(/\s+/g, '').toLowerCase();
+      if (key !== targetKey && fName.indexOf(targetSchoolName) === -1) continue;
+    }
+    if (!folderMap[key]) folderMap[key] = [];
+    folderMap[key].push(folder);
+  }
+
+  var cleanedCount = 0;
+  var details = [];
+
+  for (var k in folderMap) {
+    var list = folderMap[k];
+    if (list.length > 1) {
+      var primary = list[0];
+      var bestScore = -1;
+      for (var i = 0; i < list.length; i++) {
+        var score = 0;
+        try {
+          var sIter = list[i].getFilesByType(MimeType.GOOGLE_SHEETS);
+          if (sIter.hasNext()) score += 100;
+          var fIter = list[i].getFiles();
+          while (fIter.hasNext()) { score++; fIter.next(); }
+        } catch (sc) {}
+        if (score > bestScore) {
+          bestScore = score;
+          primary = list[i];
+        }
+      }
+
+      var canonicalName = primary.getName();
+      if (canonicalName.indexOf('[โรงเรียน] ') !== 0) {
+        canonicalName = '[โรงเรียน] ' + canonicalName.replace(/^\[โรงเรียน\]\s*/, '');
+        try { primary.setName(canonicalName); } catch (eName) {}
+      }
+
+      var dupIds = [];
+      for (var j = 0; j < list.length; j++) {
+        if (list[j].getId() !== primary.getId()) {
+          try {
+            var files = list[j].getFiles();
+            while (files.hasNext()) {
+              moveFileToFolderSafe(files.next().getId(), primary);
+            }
+            list[j].setTrashed(true);
+            cleanedCount++;
+            dupIds.push(list[j].getId());
+          } catch (delErr) {}
+        }
+      }
+
+      details.push({
+        schoolKey: k,
+        primaryFolderId: primary.getId(),
+        primaryFolderName: primary.getName(),
+        trashedDuplicates: dupIds
+      });
     }
   }
-  return rootFolder.createFolder(schoolFolderName);
+
+  return {
+    status: 'success',
+    cleanedCount: cleanedCount,
+    details: details,
+    message: cleanedCount > 0
+      ? 'ลบโฟลเดอร์ซ้ำใน Google Drive เรียบร้อยแล้วจำนวน ' + cleanedCount + ' โฟลเดอร์ (คงเหลือเพียง 1 โฟลเดอร์จริงต่อ 1 โรงเรียน)'
+      : 'โฟลเดอร์ใน Google Drive ถูกต้องเรียบร้อยแล้ว (ไม่พบโฟลเดอร์ซ้ำ)'
+  };
 }
 
 /**

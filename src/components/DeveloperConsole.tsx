@@ -145,41 +145,20 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
   const [memberToChangePassword, setMemberToChangePassword] = useState<MemberAccount | null>(null);
   const [newMemberPasswordInput, setNewMemberPasswordInput] = useState('');
+  const [isDeduplicatingFolders, setIsDeduplicatingFolders] = useState(false);
 
-  // Auto-provision Google Sheet & Drive Folder for any Admin that is missing a real Google Sheet ID
-  const autoProvisionedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const adm of admins) {
-      const hasRealSheet =
-        adm.googleSheetId &&
-        typeof adm.googleSheetId === 'string' &&
-        adm.googleSheetId.trim().length >= 15 &&
-        !adm.googleSheetId.trim().startsWith('sheet_');
-      if (!hasRealSheet && !autoProvisionedRef.current.has(adm.id)) {
-        autoProvisionedRef.current.add(adm.id);
-        setIsCreatingSheetForAdmin(adm.id);
-        StorageService.createSchoolGoogleSheet(adm.schoolName, adm.schoolCode, adm.id, adm)
-          .then(res => {
-            if (res.success && res.spreadsheetId && !res.spreadsheetId.startsWith('sheet_')) {
-              const latest = StorageService.getAdmins().find(a => a.id === adm.id);
-              if (latest) {
-                StorageService.saveAdmin({
-                  ...latest,
-                  googleSheetId: res.spreadsheetId,
-                  googleSheetUrl: res.spreadsheetUrl,
-                  driveFolderId: res.driveFolderId || latest.driveFolderId,
-                  driveFolderUrl: res.driveFolderUrl || latest.driveFolderUrl
-                });
-                onRefreshData();
-              }
-            }
-          })
-          .finally(() => {
-            setIsCreatingSheetForAdmin(prev => (prev === adm.id ? null : prev));
-          });
-      }
+  // Manual & On-demand Drive folder audit & deduplication (Strict 1 School = 1 Real Folder)
+  const handleDeduplicateDriveFolders = async (schoolName?: string) => {
+    setIsDeduplicatingFolders(true);
+    onShowToast('info', 'กำลังตรวจสอบ Google Drive...', 'กำลังตรวจสอบและจัดระเบียบโฟลเดอร์ใน Google Drive (1 โรงเรียน = 1 โฟลเดอร์จริง)...');
+    const res = await StorageService.deduplicateSchoolDriveFolders(schoolName);
+    setIsDeduplicatingFolders(false);
+    if (res.success) {
+      onShowToast('success', 'จัดระเบียบ Google Drive สำเร็จ 🎉', res.message);
+    } else {
+      onShowToast('info', 'สถานะ Google Drive', res.message);
     }
-  }, [admins, onRefreshData]);
+  };
 
   const handleUpdateDevPassword = (e: React.FormEvent) => {
     e.preventDefault();
@@ -615,6 +594,18 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     }
   };
 
+  // Strictly deduplicated admins by ID and School Name (Never duplicate data in UI)
+  const uniqueAdmins = React.useMemo(() => {
+    const map = new Map<string, SchoolAdminAccount>();
+    for (const a of admins) {
+      const key = a.id || a.schoolName;
+      if (!map.has(key)) {
+        map.set(key, a);
+      }
+    }
+    return Array.from(map.values());
+  }, [admins]);
+
   // Filtered members list
   const filteredMembers = members.filter(m => {
     if (!selectedSchoolFilter) return true;
@@ -799,27 +790,40 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                   <h3 className="text-sm font-bold text-white flex items-center gap-2">
                     <span>รายชื่อผู้ดูแลระบบโรงเรียน (Admin)</span>
                     <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 text-[11px] font-mono">
-                      {admins.length} โรงเรียน
+                      {uniqueAdmins.length} โรงเรียน
                     </span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Developer สามารถสร้าง Admin ได้มากกว่า 2 คนขึ้นไป เพื่อรองรับการบริหารจัดการหลายโรงเรียนได้อย่างอิสระ
+                    Developer บริหารจัดการ Admin ประจำโรงเรียน (1 โรงเรียน = 1 Google Sheet และ 1 โฟลเดอร์ Google Drive ตามจริง ไม่ซ้ำซ้อน)
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsCreateAdminModalOpen(true)}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>สร้าง ID Admin โรงเรียนใหม่</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={isDeduplicatingFolders}
+                    onClick={() => handleDeduplicateDriveFolders()}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    title="ตรวจสอบและลบโฟลเดอร์ซ้ำใน Google Drive (1 โรงเรียน = 1 โฟลเดอร์จริง)"
+                  >
+                    <FolderSync className={`w-4 h-4 text-emerald-400 ${isDeduplicatingFolders ? 'animate-spin' : ''}`} />
+                    <span>{isDeduplicatingFolders ? 'กำลังจัดระเบียบ Drive...' : 'ตรวจสอบโฟลเดอร์ใน Drive'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateAdminModalOpen(true)}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center gap-2 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>สร้าง ID Admin โรงเรียนใหม่</span>
+                  </button>
+                </div>
               </div>
 
               {/* Admin List Cards */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {admins.map((adm) => {
+                {uniqueAdmins.map((adm) => {
                   const isPassVisible = passwordsMap[adm.id] || false;
                   const adminMembersCount = members.filter(m => m.schoolId === adm.id || m.schoolName === adm.schoolName).length;
                   const isSuspended = Boolean(adm.isSuspended);
@@ -1537,6 +1541,17 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                     >
                       <FolderSync className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                       <span>{isSyncing ? 'กำลังซิงค์...' : 'ซิงค์ข้อมูลเดี๋ยวนี้'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isDeduplicatingFolders}
+                      onClick={() => handleDeduplicateDriveFolders()}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer disabled:opacity-50 active:scale-95"
+                      title="ตรวจสอบและกำจัดโฟลเดอร์ที่อาจซ้ำซ้อนใน Google Drive ให้เหลือ 1 โรงเรียน = 1 โฟลเดอร์จริง"
+                    >
+                      <FolderSync className={`w-3.5 h-3.5 ${isDeduplicatingFolders ? 'animate-spin' : ''}`} />
+                      <span>{isDeduplicatingFolders ? 'กำลังจัดระเบียบ Drive...' : 'ตรวจสอบ & ลบโฟลเดอร์ซ้ำใน Drive'}</span>
                     </button>
                   </div>
                 </div>

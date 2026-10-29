@@ -2403,11 +2403,6 @@ async function startServer() {
                 merged.driveFolderId = prev.driveFolderId;
                 merged.driveFolderUrl = prev.driveFolderUrl || `https://drive.google.com/drive/folders/${prev.driveFolderId}`;
               }
-              if (!merged.googleSheetId || String(merged.googleSheetId).startsWith('sheet_')) {
-                setTimeout(() => {
-                  provisionSchoolSheetOnServer(merged).catch(() => {});
-                }, 50);
-              }
               return merged;
             });
           }
@@ -2538,7 +2533,8 @@ async function startServer() {
       };
     }
 
-    const lockKey = adminId || schoolName;
+    const cleanSchoolKey = schoolName.replace(/^โรงเรียน/, '').replace(/\s+/g, '').trim().toLowerCase() || schoolName;
+    const lockKey = cleanSchoolKey;
     if (inFlightSheetProvisions.has(lockKey)) {
       return inFlightSheetProvisions.get(lockKey)!;
     }
@@ -2651,13 +2647,38 @@ async function startServer() {
     }
   }
 
-  // Server-side Google Sheet Provisioning & Proxy Endpoints
+  // Server-side Google Sheet Provisioning, Proxy & Deduplication Endpoints
   app.post('/api/google/create-school-sheet', async (req, res) => {
     try {
       const result = await provisionSchoolSheetOnServer(req.body || {});
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ status: 'error', message: err?.message || 'Internal error' });
+    }
+  });
+
+  app.post('/api/google/deduplicate-school-folders', async (req, res) => {
+    try {
+      const schoolName = req.body?.schoolName || '';
+      const folderId = req.body?.folderId || getDriveFolderId();
+      const gasUrl = getGasWebAppUrl();
+      const response = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'deduplicateSchoolFolders',
+          schoolName,
+          folderId
+        })
+      });
+      const text = await response.text();
+      try {
+        res.json(JSON.parse(text));
+      } catch {
+        res.json({ status: 'success', raw: text });
+      }
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err?.message || 'Error deduplicating folders' });
     }
   });
 

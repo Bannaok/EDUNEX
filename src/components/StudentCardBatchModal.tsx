@@ -232,11 +232,20 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
       }
     } catch (err) {
       console.error('Download student cards failed:', err);
-      window.print();
     } finally {
       setIsDownloading(false);
     }
   };
+
+  // Auto-download PDF immediately upon opening modal (1-click automatic download requirement)
+  React.useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        handleDownloadPDF();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   // Helper date formatter
   const formatThaiBirthDate = (dateStr?: string) => {
@@ -305,7 +314,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <span>ดาวน์โหลด / พิมพ์บัตรนักเรียน</span>
+              <span>ดาวน์โหลดบัตรนักเรียน</span>
               <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                 มาตรฐาน CR80 (85.6 × 54 มม.) 8 ใบ/หน้า A4
               </span>
@@ -378,15 +387,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
             <span>{isDownloading ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
           </button>
 
-          {/* Direct Print Button */}
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
-            title="สั่งพิมพ์โดยตรงผ่านเครื่องพิมพ์"
-          >
-            <Printer className="w-4 h-4" />
-          </button>
+          {/* Close Modal Button */}
 
           {/* Close Modal Button */}
           <button

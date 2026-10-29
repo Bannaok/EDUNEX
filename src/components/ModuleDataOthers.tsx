@@ -339,20 +339,20 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     StorageService.getDailyDutyLogs(defaultDutyLogs)
   );
 
-  const isInternalSyncRef = useRef(false);
+  const isInternalDutyAssignSyncRef = useRef(false);
+  const isInternalDutyLogSyncRef = useRef(false);
 
   useEffect(() => {
     const unsubscribe = StorageService.subscribe((changedKeys) => {
-      if (changedKeys.some(k => k.startsWith('ams_leave_requests_v1'))) {
-        isInternalSyncRef.current = true;
+      if (changedKeys.some(k => k.startsWith('ams_leave_requests_v1') || k === 'ams_deleted_leave_ids')) {
         setLeaveRequests(StorageService.getLeaveRequests(defaultLeaveRequests));
       }
       if (changedKeys.some(k => k.startsWith('ams_duty_assignments_v1'))) {
-        isInternalSyncRef.current = true;
+        isInternalDutyAssignSyncRef.current = true;
         setDutyAssignments(StorageService.getDutyAssignments(defaultDutyAssignments));
       }
       if (changedKeys.some(k => k.startsWith('ams_daily_duty_logs_v1'))) {
-        isInternalSyncRef.current = true;
+        isInternalDutyLogSyncRef.current = true;
         setDutyLogs(StorageService.getDailyDutyLogs(defaultDutyLogs));
       }
     });
@@ -360,24 +360,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   }, []);
 
   useEffect(() => {
-    if (isInternalSyncRef.current) {
-      isInternalSyncRef.current = false;
-      return;
-    }
-    StorageService.setLeaveRequests(leaveRequests);
-  }, [leaveRequests]);
-
-  useEffect(() => {
-    if (isInternalSyncRef.current) {
-      isInternalSyncRef.current = false;
+    if (isInternalDutyAssignSyncRef.current) {
+      isInternalDutyAssignSyncRef.current = false;
       return;
     }
     StorageService.setDutyAssignments(dutyAssignments);
   }, [dutyAssignments]);
 
   useEffect(() => {
-    if (isInternalSyncRef.current) {
-      isInternalSyncRef.current = false;
+    if (isInternalDutyLogSyncRef.current) {
+      isInternalDutyLogSyncRef.current = false;
       return;
     }
     StorageService.setDailyDutyLogs(dutyLogs);
@@ -572,11 +564,20 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       }
     } catch (err) {
       console.error('Download leave pdf failed:', err);
-      window.print();
     } finally {
       setIsDownloadingLeavePdf(false);
     }
   };
+
+  // Auto-download Leave Request PDF immediately upon opening preview modal (Requirement 8.2 & 10)
+  useEffect(() => {
+    if (previewLeave) {
+      const timer = setTimeout(() => {
+        handleDownloadLeavePdf();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [previewLeave]);
   const [leaveForm, setLeaveForm] = useState<{
     teacherName: string;
     leaveType: string;
@@ -4378,7 +4379,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'อนุมัติ' } : r));
+                                      const updated = StorageService.saveLeaveRequest({ ...req, status: 'อนุมัติ' });
+                                      setLeaveRequests(updated);
                                       onShowToast('success', 'อนุมัติสำเร็จ', `อนุมัติการลาของ ${req.teacherName} เรียบร้อยแล้ว`);
                                     }}
                                     className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
@@ -4388,7 +4390,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setLeaveRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'ไม่อนุมัติ' } : r));
+                                      const updated = StorageService.saveLeaveRequest({ ...req, status: 'ไม่อนุมัติ' });
+                                      setLeaveRequests(updated);
                                       onShowToast('warning', 'ไม่อนุมัติ', `ปฏิเสธคำขอลาของ ${req.teacherName} แล้ว`);
                                     }}
                                     className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
@@ -5089,8 +5092,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 const finalLeaveType = leaveForm.leaveType === 'อื่นๆ' ? (leaveForm.customLeaveType.trim() || 'อื่นๆ') : leaveForm.leaveType;
                 const computedFiscalYear = getThaiFiscalYear(leaveForm.startDate);
                 if (editingLeaveId) {
-                  setLeaveRequests(prev => prev.map(r => r.id === editingLeaveId ? {
-                    ...r,
+                  const targetRecord = leaveRequests.find(r => r.id === editingLeaveId);
+                  const updatedReq: LeaveRequest = {
+                    ...(targetRecord || {}),
+                    id: editingLeaveId,
                     teacherName: leaveForm.teacherName,
                     leaveType: finalLeaveType,
                     startDate: leaveForm.startDate,
@@ -5098,12 +5103,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     reason: leaveForm.reason,
                     directorName: leaveForm.directorName,
                     personnelOfficer: leaveForm.personnelOfficer,
-                    fiscalYear: computedFiscalYear
-                  } : r));
+                    fiscalYear: computedFiscalYear,
+                    status: targetRecord?.status || (isAdmin ? 'อนุมัติ' : 'รออนุมัติ'),
+                    createdAt: targetRecord?.createdAt || new Date().toISOString()
+                  };
+                  const updated = StorageService.saveLeaveRequest(updatedReq);
+                  setLeaveRequests(updated);
                   onShowToast('success', 'แก้ไขสำเร็จ', 'อัปเดตข้อมูลคำขอลาเรียบร้อยแล้ว');
                 } else {
                   const newReq: LeaveRequest = {
-                    id: 'leave-' + Date.now(),
+                    id: 'leave-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
                     userId: user.id,
                     username: user.username,
                     teacherName: leaveForm.teacherName,
@@ -5117,7 +5126,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     fiscalYear: computedFiscalYear,
                     createdAt: new Date().toISOString()
                   };
-                  setLeaveRequests(prev => [newReq, ...prev]);
+                  const updated = StorageService.saveLeaveRequest(newReq);
+                  setLeaveRequests(updated);
                   onShowToast('success', 'ยื่นใบลาสำเร็จ', 'บันทึกคำขอลาเข้าสู่ระบบเรียบร้อยแล้ว');
                 }
                 setIsLeaveModalOpen(false);
@@ -5566,16 +5576,6 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       <Download className="w-4 h-4" />
                     )}
                     <span>{isDownloadingLeavePdf ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.print();
-                    }}
-                    className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
-                    title="สั่งพิมพ์โดยตรงผ่านเครื่องพิมพ์"
-                  >
-                    <Printer className="w-4 h-4" />
                   </button>
                   <button
                     type="button"
@@ -6549,12 +6549,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 onClick={() => {
                   const targetId = confirmDeleteLeave.id;
                   const targetTeacher = confirmDeleteLeave.teacherName;
-                  setLeaveRequests(prev => {
-                    const next = prev.filter(r => r.id !== targetId);
-                    StorageService.setLeaveRequests(next);
-                    return next;
-                  });
-                  StorageService.deleteLeaveRequest(targetId);
+                  const next = StorageService.deleteLeaveRequest(targetId);
+                  setLeaveRequests(next);
                   if (previewLeave && previewLeave.id === targetId) {
                     setPreviewLeave(null);
                   }

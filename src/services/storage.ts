@@ -550,6 +550,7 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
 
 const deletedTaskIdsSet = new Set<string>();
 const deletedDocIdsSet = new Set<string>();
+const deletedLeaveIdsSet = new Set<string>();
 
 if (typeof window !== 'undefined') {
   try {
@@ -572,6 +573,19 @@ if (typeof window !== 'undefined') {
       if (Array.isArray(arr)) {
         arr.forEach(id => {
           if (id) deletedDocIdsSet.add(String(id));
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const rawLeaves = localStorage.getItem('ams_deleted_leave_ids');
+    if (rawLeaves) {
+      const arr = JSON.parse(rawLeaves);
+      if (Array.isArray(arr)) {
+        arr.forEach(id => {
+          if (id) deletedLeaveIdsSet.add(String(id));
         });
       }
     }
@@ -742,6 +756,54 @@ function mergeDocumentListsClient(
   return result;
 }
 
+function isLeaveStorageKey(key: string): boolean {
+  return key === KEYS.LEAVE_REQUESTS || key.startsWith(`${KEYS.LEAVE_REQUESTS}__`);
+}
+
+function mergeLeaveListsClient(localList: any[], incomingList: any[], preferIncoming = true): any[] {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(localList)
+      ? localList.filter(l => l && l.id && !deletedLeaveIdsSet.has(String(l.id)))
+      : [];
+  }
+  if (!Array.isArray(localList) || localList.length === 0) {
+    return incomingList.filter(l => l && l.id && !deletedLeaveIdsSet.has(String(l.id)));
+  }
+
+  const localMap = new Map<string, any>();
+  for (const l of localList) {
+    if (l && l.id && !deletedLeaveIdsSet.has(String(l.id))) {
+      localMap.set(String(l.id), l);
+    }
+  }
+
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+
+  for (const item of incomingList) {
+    if (!item || !item.id || deletedLeaveIdsSet.has(String(item.id))) continue;
+    const lId = String(item.id);
+    handledIds.add(lId);
+    const locItem = localMap.get(lId);
+    if (locItem) {
+      result.push(preferIncoming ? { ...locItem, ...item } : { ...item, ...locItem });
+    } else {
+      result.push(item);
+    }
+  }
+
+  // Preserve any local leave request that has not arrived in incomingList yet (prevents disappearing on client)
+  for (const locItem of localList) {
+    if (!locItem || !locItem.id) continue;
+    const lId = String(locItem.id);
+    if (!handledIds.has(lId) && !deletedLeaveIdsSet.has(lId)) {
+      result.push(locItem);
+    }
+  }
+
+  return result;
+}
+
 let lastDirectCloudPullTime = 0;
 
 function hasPendingBase64SubmissionInTasks(val: any): boolean {
@@ -893,6 +955,21 @@ function applyIncomingUpdates(
           // ignore
         }
       }
+    } else if (resolvedKey === 'ams_deleted_leave_ids' && Array.isArray(value)) {
+      let changedLeaveTombstones = false;
+      for (const lId of value) {
+        if (lId && !deletedLeaveIdsSet.has(String(lId))) {
+          deletedLeaveIdsSet.add(String(lId));
+          changedLeaveTombstones = true;
+        }
+      }
+      if (changedLeaveTombstones && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_leave_ids', JSON.stringify(Array.from(deletedLeaveIdsSet).slice(-2000)));
+        } catch {
+          // ignore
+        }
+      }
     } else if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
       // Protect recent local task saves from stale background polls unless incomingTs is strictly newer
       if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
@@ -920,6 +997,20 @@ function applyIncomingUpdates(
           value = mergeDocumentListsClient(currentCachedDocs, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
         } else {
           value = value.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
+        }
+      }
+    } else if (isLeaveStorageKey(resolvedKey) && Array.isArray(value)) {
+      if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+        const currentCachedLeaves = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedLeaves)) {
+          value = mergeLeaveListsClient(currentCachedLeaves, value, false);
+        }
+      } else {
+        const currentCachedLeaves = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedLeaves)) {
+          value = mergeLeaveListsClient(currentCachedLeaves, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
+        } else {
+          value = value.filter(l => l && l.id && !deletedLeaveIdsSet.has(String(l.id)));
         }
       }
     } else {
@@ -4006,27 +4097,50 @@ export const StorageService = {
 
   // Administrative Leave & Duty Sync Handlers
   getLeaveRequests(fallback: any[] = []): any[] {
-    return getLocal<any[]>(KEYS.LEAVE_REQUESTS, fallback);
+    const list = getLocal<any[]>(KEYS.LEAVE_REQUESTS, fallback);
+    if (!Array.isArray(list) || deletedLeaveIdsSet.size === 0) return list || [];
+    return list.filter(r => r && r.id && !deletedLeaveIdsSet.has(String(r.id)));
   },
 
   setLeaveRequests(records: any[]): any[] {
-    setLocal(KEYS.LEAVE_REQUESTS, records);
-    return records;
+    const cleaned = Array.isArray(records)
+      ? records.filter(r => r && r.id && !deletedLeaveIdsSet.has(String(r.id)))
+      : [];
+    setLocal(KEYS.LEAVE_REQUESTS, cleaned);
+    return cleaned;
   },
 
   saveLeaveRequest(record: any): any[] {
+    if (!record || !record.id) return this.getLeaveRequests();
+    const cleanId = String(record.id);
+    if (deletedLeaveIdsSet.has(cleanId)) {
+      deletedLeaveIdsSet.delete(cleanId);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_leave_ids', JSON.stringify(Array.from(deletedLeaveIdsSet).slice(-2000)));
+        } catch {}
+      }
+    }
     const list = this.getLeaveRequests();
-    const idx = list.findIndex(r => r.id === record.id);
-    let updated = idx >= 0 ? list.map(r => r.id === record.id ? record : r) : [record, ...list];
+    const idx = list.findIndex(r => String(r.id) === cleanId);
+    let updated = idx >= 0 ? list.map(r => String(r.id) === cleanId ? record : r) : [record, ...list];
     setLocal(KEYS.LEAVE_REQUESTS, updated);
     this.syncPostToGoogle('saveLeaveRequest', { record });
     return updated;
   },
 
   deleteLeaveRequest(id: string): any[] {
-    const updated = this.getLeaveRequests().filter(r => r.id !== id);
+    const cleanId = String(id);
+    deletedLeaveIdsSet.add(cleanId);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ams_deleted_leave_ids', JSON.stringify(Array.from(deletedLeaveIdsSet).slice(-2000)));
+      } catch {}
+    }
+    const updated = this.getLeaveRequests().filter(r => String(r.id) !== cleanId);
     setLocal(KEYS.LEAVE_REQUESTS, updated);
-    this.syncPostToGoogle('deleteLeaveRequest', { id });
+    pushToRemoteServer('ams_deleted_leave_ids', Array.from(deletedLeaveIdsSet).slice(-2000), Date.now());
+    this.syncPostToGoogle('deleteLeaveRequest', { id: cleanId });
     return updated;
   },
 

@@ -321,7 +321,56 @@ function deleteServerHostedFile(fileId: string): boolean {
 // Server-side Tombstones & Recent Mutation Protection
 const deletedDocIdsServer = new Set<string>();
 const deletedTaskIdsServer = new Set<string>();
+const deletedLeaveIdsServer = new Set<string>();
 const recentServerMutationTs = new Map<string, number>();
+
+function isLeaveKeyName(key: string): boolean {
+  return key === 'ams_leave_requests_v1' || key.startsWith('ams_leave_requests_v1__');
+}
+
+function mergeLeaveListsServer(existingList: any, incomingList: any): any[] {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(existingList)
+      ? existingList.filter(l => l && l.id && !deletedLeaveIdsServer.has(String(l.id)))
+      : [];
+  }
+  if (!Array.isArray(existingList) || existingList.length === 0) {
+    return incomingList.filter(l => l && l.id && !deletedLeaveIdsServer.has(String(l.id)));
+  }
+
+  const existingMap = new Map<string, any>();
+  for (const l of existingList) {
+    if (l && l.id && !deletedLeaveIdsServer.has(String(l.id))) {
+      existingMap.set(String(l.id), l);
+    }
+  }
+
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+
+  for (const inc of incomingList) {
+    if (!inc || !inc.id || deletedLeaveIdsServer.has(String(inc.id))) continue;
+    const lId = String(inc.id);
+    handledIds.add(lId);
+    const ex = existingMap.get(lId);
+    if (ex) {
+      result.push({ ...ex, ...inc });
+    } else {
+      result.push(inc);
+    }
+  }
+
+  // Preserve any leave request that exists in existingList but has not reached incomingList yet (prevents disappearing leave requests)
+  for (const ex of existingList) {
+    if (!ex || !ex.id) continue;
+    const lId = String(ex.id);
+    if (!handledIds.has(lId) && !deletedLeaveIdsServer.has(lId)) {
+      result.push(ex);
+    }
+  }
+
+  return result;
+}
 
 // Load initial state from disk
 let state: PersistedState = {
@@ -354,6 +403,11 @@ if (fs.existsSync(STORE_FILE)) {
       if (Array.isArray(state.store['ams_deleted_task_ids'])) {
         for (const id of state.store['ams_deleted_task_ids']) {
           if (id) deletedTaskIdsServer.add(String(id));
+        }
+      }
+      if (Array.isArray(state.store['ams_deleted_leave_ids'])) {
+        for (const id of state.store['ams_deleted_leave_ids']) {
+          if (id) deletedLeaveIdsServer.add(String(id));
         }
       }
     }
@@ -518,6 +572,10 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
         for (const id of item.value) {
           if (id) deletedTaskIdsServer.add(String(id));
         }
+      } else if (item.key === 'ams_deleted_leave_ids' && Array.isArray(item.value)) {
+        for (const id of item.value) {
+          if (id) deletedLeaveIdsServer.add(String(id));
+        }
       }
 
       if (pendingCloudPushKeys.has(item.key) || inFlightCloudPushKeys.has(item.key)) continue;
@@ -530,6 +588,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
 
       const isTask = isTaskKeyName(item.key);
       const isDoc = isDocumentKeyName(item.key);
+      const isLeave = isLeaveKeyName(item.key);
       const nextValue =
         isTask && item.key in state.store
           ? item.updatedAt >= localTs
@@ -539,12 +598,16 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
           ? item.updatedAt >= localTs
             ? mergeDocumentListsServer(state.store[item.key], item.value)
             : mergeDocumentListsServer(item.value, state.store[item.key])
+          : isLeave && item.key in state.store
+          ? item.updatedAt >= localTs
+            ? mergeLeaveListsServer(state.store[item.key], item.value)
+            : mergeLeaveListsServer(item.value, state.store[item.key])
           : item.value;
       const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
       const remoteSerialized = JSON.stringify(item.value);
       const nextSerialized = JSON.stringify(nextValue);
 
-      if (!(item.key in state.store) || item.updatedAt > localTs || ((isTask || isDoc) && nextSerialized !== localSerialized)) {
+      if (!(item.key in state.store) || item.updatedAt > localTs || ((isTask || isDoc || isLeave) && nextSerialized !== localSerialized)) {
         const effTs = Math.max(localTs, item.updatedAt || Date.now());
         state.store[item.key] = nextValue;
         state.timestamps[item.key] = effTs;
@@ -554,7 +617,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
           appliedCount++;
         }
       }
-      if ((isTask || isDoc) && nextSerialized !== remoteSerialized) {
+      if ((isTask || isDoc || isLeave) && nextSerialized !== remoteSerialized) {
         keysToPushBack.push(item.key);
       }
     }
@@ -618,6 +681,10 @@ function startServerFirestoreListener() {
               for (const id of resolved.value) {
                 if (id) deletedTaskIdsServer.add(String(id));
               }
+            } else if (resolved.key === 'ams_deleted_leave_ids' && Array.isArray(resolved.value)) {
+              for (const id of resolved.value) {
+                if (id) deletedLeaveIdsServer.add(String(id));
+              }
             }
 
             if (pendingCloudPushKeys.has(resolved.key) || inFlightCloudPushKeys.has(resolved.key)) continue;
@@ -630,6 +697,7 @@ function startServerFirestoreListener() {
 
             const isTask = isTaskKeyName(resolved.key);
             const isDoc = isDocumentKeyName(resolved.key);
+            const isLeave = isLeaveKeyName(resolved.key);
             const nextValue =
               isTask && resolved.key in state.store
                 ? resolved.updatedAt >= localTs
@@ -639,12 +707,16 @@ function startServerFirestoreListener() {
                 ? resolved.updatedAt >= localTs
                   ? mergeDocumentListsServer(state.store[resolved.key], resolved.value)
                   : mergeDocumentListsServer(resolved.value, state.store[resolved.key])
+                : isLeave && resolved.key in state.store
+                ? resolved.updatedAt >= localTs
+                  ? mergeLeaveListsServer(state.store[resolved.key], resolved.value)
+                  : mergeLeaveListsServer(resolved.value, state.store[resolved.key])
                 : resolved.value;
             const prevSerialized =
               resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
             const nextSerialized = JSON.stringify(nextValue);
 
-            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || ((isTask || isDoc) && prevSerialized !== nextSerialized)) {
+            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || ((isTask || isDoc || isLeave) && prevSerialized !== nextSerialized)) {
               const effTs = Math.max(localTs, resolved.updatedAt || Date.now());
               state.store[resolved.key] = nextValue;
               state.timestamps[resolved.key] = effTs;
@@ -1283,6 +1355,10 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         for (const id of value) {
           if (id) deletedTaskIdsServer.add(String(id));
         }
+      } else if (key === 'ams_deleted_leave_ids' && Array.isArray(value)) {
+        for (const id of value) {
+          if (id) deletedLeaveIdsServer.add(String(id));
+        }
       }
 
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
@@ -1296,6 +1372,7 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
 
       const isTask = isTaskKeyName(key);
       const isDoc = isDocumentKeyName(key);
+      const isLeave = isLeaveKeyName(key);
       const nextValue = isTask
         ? updatedAt >= localTs
           ? mergeTaskListsServer(state.store[key], value)
@@ -1304,6 +1381,10 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         ? updatedAt >= localTs
           ? mergeDocumentListsServer(state.store[key], value)
           : mergeDocumentListsServer(value, state.store[key])
+        : isLeave
+        ? updatedAt >= localTs
+          ? mergeLeaveListsServer(state.store[key], value)
+          : mergeLeaveListsServer(value, state.store[key])
         : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
       const remoteSerialized = JSON.stringify(value);
@@ -2375,6 +2456,20 @@ async function startServer() {
               if (isTaskKeyName(k) && Array.isArray(state.store[k])) {
                 state.store[k] = state.store[k].filter((t: any) => t && t.id && !deletedTaskIdsServer.has(String(t.id)));
               }
+            }
+          } else if (key === 'ams_deleted_leave_ids' && Array.isArray(value)) {
+            for (const lId of value) {
+              if (lId) deletedLeaveIdsServer.add(String(lId));
+            }
+            // Purge deleted leave requests from all loaded stores immediately
+            for (const k of Object.keys(state.store)) {
+              if (isLeaveKeyName(k) && Array.isArray(state.store[k])) {
+                state.store[k] = state.store[k].filter((l: any) => l && l.id && !deletedLeaveIdsServer.has(String(l.id)));
+              }
+            }
+          } else if (isLeaveKeyName(key)) {
+            if (key in state.store) {
+              finalValue = mergeLeaveListsServer(state.store[key], value);
             }
           } else if (key === 'ams_school_admins' && Array.isArray(value)) {
             const existingAdmins: any[] = Array.isArray(state.store['ams_school_admins'])

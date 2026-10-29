@@ -673,10 +673,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       {/* Indicator dots for quick visual cues */}
                       <div className="flex items-center gap-0.5">
                         {dayPendingAssignments.length > 0 && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="มีภาระงานที่ต้องส่ง" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-600" title="มีภาระงานที่ต้องส่ง (สีม่วง)" />
                         )}
                         {dayAnnouncements.length > 0 && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" title="มีประกาศแจ้งเตือน" />
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="มีประกาศใหม่ (สีเหลือง)" />
                         )}
                         {dayEvents.length > 0 && dayPendingAssignments.length === 0 && dayAnnouncements.length === 0 && (
                           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" title="มีกิจกรรมโรงเรียน" />
@@ -709,30 +709,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                     return (
                       <div className="space-y-0.5 overflow-hidden">
-                        {/* Assignment from Module4Assignments / Calendar */}
+                        {/* Assignment from Module4Assignments / Calendar (Purple) */}
                         {dayAssignments.slice(0, 1).map((t) => (
                           <div
                             key={t.id}
                             className={`text-[9px] truncate px-1 py-0.5 rounded border-l-2 leading-tight flex items-center gap-0.5 font-medium ${
                               t.isCompleted || t.isManualCompleted
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-500'
-                                : 'bg-amber-50 text-amber-800 border-amber-500'
+                                : 'bg-purple-50 text-purple-900 border-purple-600'
                             }`}
                             title={`${t.isCompleted || t.isManualCompleted ? 'ส่งแล้ว' : 'ต้องส่ง'}: ${t.title}`}
                           >
-                            <ClipboardList className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                            <ClipboardList className={`w-2.5 h-2.5 shrink-0 ${t.isCompleted || t.isManualCompleted ? 'text-emerald-600' : 'text-purple-600'}`} />
                             <span className="truncate">{t.isCompleted || t.isManualCompleted ? '✓ ' : 'ส่ง: '}{t.title}</span>
                           </div>
                         ))}
 
-                        {/* Announcement from Module4Assignments / Calendar */}
+                        {/* Announcement from Module4Assignments / Calendar (Yellow / Amber) */}
                         {dayAnnouncements.slice(0, 1).map((ann) => (
                           <div
                             key={ann.id}
-                            className="text-[9px] truncate px-1 py-0.5 rounded bg-blue-50 text-blue-800 border-l-2 border-blue-500 leading-tight flex items-center gap-0.5 font-medium"
+                            className="text-[9px] truncate px-1 py-0.5 rounded bg-amber-50 text-amber-900 border-l-2 border-amber-500 leading-tight flex items-center gap-0.5 font-medium"
                             title={`แจ้งประกาศ: ${ann.title}`}
                           >
-                            <Megaphone className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                            <Megaphone className="w-2.5 h-2.5 text-amber-600 shrink-0" />
                             <span className="truncate">{ann.title}</span>
                           </div>
                         ))}
@@ -765,20 +765,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* Quick Legend */}
           <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
             <span className="font-medium text-slate-700">ประเภท:</span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> วิชาการ
+            <span className="flex items-center gap-1 font-semibold text-purple-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-600" /> มอบหมายงาน
+            </span>
+            <span className="flex items-center gap-1 font-semibold text-amber-700">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> ประกาศใหม่
             </span>
             <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-purple-600" /> กิจกรรม
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-600" /> สอบวัดผล
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" /> วันหยุด
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-600" /> ประชุม
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> กิจกรรมโรงเรียน
             </span>
           </div>
         </div>
@@ -1024,21 +1018,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     {/* ส่วนที่ 1: มอบหมายงาน (Admin) / ส่งงาน (สมาชิก) */}
                     {hasSection1 && (
                       <div className="space-y-2">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                          <Tag className="w-3.5 h-3.5 text-indigo-600" />
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-purple-950">
+                          <ClipboardList className="w-3.5 h-3.5 text-purple-600" />
                           <span>{user.role === 'admin' ? '1. มอบหมายงาน' : '1. ส่งงาน'}</span>
                         </div>
                         <div className="space-y-2">
                           {liveDayAssignments.map((task) => (
                             <div
                               key={task.id}
-                              className="p-3 rounded-xl bg-purple-50/60 border border-purple-200/80 border-l-4 border-l-purple-600 space-y-1 shadow-2xs"
+                              className={`p-3 rounded-xl border space-y-1 shadow-2xs ${
+                                task.isCompleted || task.isManualCompleted
+                                  ? 'bg-emerald-50/80 border-emerald-200/90 border-l-4 border-l-emerald-600'
+                                  : 'bg-purple-50/80 border-purple-200/90 border-l-4 border-l-purple-600'
+                              }`}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <div className="space-y-0.5">
                                   <h4 className="text-sm font-bold text-slate-800">{task.title}</h4>
-                                  <span className="inline-block text-[10px] font-semibold text-purple-700 bg-purple-100/80 px-2 py-0.5 rounded-md">
-                                    เชื่อมลิงก์กับหน้ามอบหมาย
+                                  <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                                    task.isCompleted || task.isManualCompleted
+                                      ? 'text-emerald-800 bg-emerald-100/80'
+                                      : 'text-purple-800 bg-purple-100/80'
+                                  }`}>
+                                    {task.isCompleted || task.isManualCompleted ? '✓ ส่งแล้ว' : 'เชื่อมลิงก์กับหน้ามอบหมาย'}
                                   </span>
                                 </div>
                                 {user.role === 'admin' && (
@@ -1070,8 +1072,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           {unlinkedAssignmentEvents.map((ev) => (
                             <div
                               key={ev.id}
-                              style={{ borderLeftColor: ev.color || '#2563EB' }}
-                              className="p-3 rounded-xl bg-slate-50/90 border border-slate-200/80 border-l-4 space-y-1 shadow-2xs"
+                              className="p-3 rounded-xl bg-purple-50/80 border border-purple-200/90 border-l-4 border-l-purple-600 space-y-1 shadow-2xs"
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <h4 className="text-sm font-bold text-slate-800">{ev.title}</h4>

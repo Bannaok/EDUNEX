@@ -1911,7 +1911,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
 
                 {/* Calendar Dropdown / Popover */}
                 {isCalendarOpen && (
-                  <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-3xl shadow-2xl border border-slate-200 p-3.5 w-76 sm:w-80 animate-in fade-in slide-in-from-top-2">
+                  <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2.5 sm:p-3 w-64 sm:w-72 animate-in fade-in slide-in-from-top-2">
                     {/* Header showing active semester and academic year */}
                     <div className="pb-1.5 mb-2 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-sky-900 bg-sky-50/80 px-2.5 py-1 rounded-xl">
                       <span>ปฏิทินเวลาเรียน 100 วัน</span>

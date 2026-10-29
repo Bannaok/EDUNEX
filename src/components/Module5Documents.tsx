@@ -1155,7 +1155,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                 คุณต้องการลบ <span className="font-bold text-slate-800">"{confirmDeleteDoc.title}"</span> ใช่หรือไม่?
               </p>
               <p className="text-[11px] text-rose-600 font-medium">
-                เมื่อลบแล้ว รายการจะถูกลบออกจากเว็บไซต์ และไฟล์ใน Google Drive ของโรงเรียนจะถูกลบอัตโนมัติ
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลได้
               </p>
             </div>
 
@@ -1177,7 +1177,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                   onShowToast(
                     'info',
                     'ลบสำเร็จ',
-                    `ลบ "${confirmDeleteDoc.title}" และลบไฟล์ใน Google Drive ออกเรียบร้อยแล้ว`
+                    `ลบ "${confirmDeleteDoc.title}" เรียบร้อยแล้ว`
                   );
                   setConfirmDeleteDoc(null);
                 }}

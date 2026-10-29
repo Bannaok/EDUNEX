@@ -43,9 +43,13 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  CreditCard
+  CreditCard,
+  Loader2
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import { StudentCardBatchModal } from './StudentCardBatchModal';
+import { ThaiDatePicker, formatIsoToThaiDisplay } from './ThaiDatePicker';
 
 export const RELIGION_OPTIONS = ['พุทธ', 'อิสลาม', 'คริสต์', 'พราหมณ์-ฮินดู', 'ซิกข์', 'ไม่มีศาสนา', 'อื่นๆ'];
 
@@ -515,6 +519,64 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
   const [previewLeave, setPreviewLeave] = useState<LeaveRequest | null>(null);
   const [confirmDeleteLeave, setConfirmDeleteLeave] = useState<LeaveRequest | null>(null);
+  const [isDownloadingLeavePdf, setIsDownloadingLeavePdf] = useState(false);
+
+  const handleDownloadLeavePdf = async () => {
+    if (!previewLeave || isDownloadingLeavePdf) return;
+    setIsDownloadingLeavePdf(true);
+    try {
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+
+      const element = document.getElementById('leave-official-a4-print');
+      if (!element) {
+        setIsDownloadingLeavePdf(false);
+        return;
+      }
+
+      const origShadow = element.style.boxShadow;
+      const origBorder = element.style.border;
+      element.style.boxShadow = 'none';
+      element.style.border = 'none';
+
+      const canvas = await html2canvas(element, {
+        scale: 2.2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        scrollY: 0,
+        scrollX: 0,
+        ignoreElements: (el) => !!(el.classList && el.classList.contains('no-print')),
+      });
+
+      element.style.boxShadow = origShadow;
+      element.style.border = origBorder;
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      const teacherNameClean = (previewLeave.teacherName || 'บุคลากร').replace(/\s+/g, '_');
+      const fileName = `แบบใบลา_${teacherNameClean}_${previewLeave.startDate || 'วันลา'}.pdf`;
+      pdf.save(fileName);
+
+      if (onShowToast) {
+        onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดแบบใบลา ${fileName} เรียบร้อยแล้ว`);
+      }
+    } catch (err) {
+      console.error('Download leave pdf failed:', err);
+      window.print();
+    } finally {
+      setIsDownloadingLeavePdf(false);
+    }
+  };
   const [leaveForm, setLeaveForm] = useState<{
     teacherName: string;
     leaveType: string;
@@ -2350,7 +2412,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     {viewingStudent.nickname && <span className="text-blue-600 font-semibold ml-2">({viewingStudent.nickname})</span>}
                   </h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1 text-xs text-slate-600 pt-1">
-                    <div>วันเกิด: <strong className="text-slate-800">{viewingStudent.birthDate || '-'}</strong></div>
+                    <div>วันเกิด: <strong className="text-slate-800">{viewingStudent.birthDate ? formatIsoToThaiDisplay(viewingStudent.birthDate, 'full') : '-'}</strong></div>
                     <div>อายุ: <strong className="text-slate-800">{viewingStudent.age ? `${viewingStudent.age} ปี` : '-'}</strong></div>
                     <div>ศาสนา: <strong className="text-slate-800">{viewingStudent.religion || 'พุทธ'}</strong></div>
                     <div>เลขที่: <strong className="text-slate-800">{viewingStudent.rollNumber ?? '-'}</strong></div>
@@ -2631,8 +2693,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     <div>ฝ่าย / กลุ่มงาน: <strong className="text-slate-800">{viewingPersonnel.department || '-'}</strong></div>
                     <div>ตำแหน่ง: <strong className="text-blue-600">{viewingPersonnel.position || '-'}</strong></div>
                     <div>ครูที่ปรึกษา: <strong className="text-emerald-700">{viewingPersonnel.advisorGrade ? `ชั้น ${viewingPersonnel.advisorGrade}` : 'ไม่มี'}</strong></div>
-                    <div>วันเดือนปีเกิด: <strong className="text-slate-800">{viewingPersonnel.birthDate || '-'}</strong></div>
-                    <div>วันเริ่มบรรจุ: <strong className="text-slate-800">{viewingPersonnel.employmentDate || '-'}</strong></div>
+                    <div>วันเดือนปีเกิด: <strong className="text-slate-800">{viewingPersonnel.birthDate ? formatIsoToThaiDisplay(viewingPersonnel.birthDate, 'full') : '-'}</strong></div>
+                    <div>วันเริ่มบรรจุ: <strong className="text-slate-800">{viewingPersonnel.employmentDate ? formatIsoToThaiDisplay(viewingPersonnel.employmentDate, 'full') : '-'}</strong></div>
                     <div>เกษียณอายุ: <strong className="text-rose-600">{viewingPersonnel.retirementDate || calculateRetirementDate(viewingPersonnel.birthDate)}</strong></div>
                     <div>วุฒิการศึกษา: <strong className="text-slate-800">{viewingPersonnel.degree || '-'}</strong></div>
                     <div>วิชาเอก: <strong className="text-slate-800">{viewingPersonnel.major || '-'}</strong></div>
@@ -2894,12 +2956,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">วันเกิด</label>
-                    <input
-                      type="date"
-                      value={studentFormData.birthDate}
-                      onChange={(e) => {
-                        const val = e.target.value;
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">วันเกิด (พ.ศ.)</label>
+                    <ThaiDatePicker
+                      value={studentFormData.birthDate || ''}
+                      onChange={(val) => {
                         let newAge = studentFormData.age;
                         if (val) {
                           const birthYear = parseInt(val.split('-')[0], 10);
@@ -2910,7 +2970,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         }
                         setStudentFormData(prev => ({ ...prev, birthDate: val, age: newAge }));
                       }}
-                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200"
+                      placeholder="เลือกวันเกิด (พ.ศ.)"
                     />
                   </div>
                   <div>
@@ -3920,22 +3980,21 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">วันเดือนปีเกิด *</label>
-                  <input
-                    type="date"
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">วันเดือนปีเกิด (พ.ศ.) *</label>
+                  <ThaiDatePicker
                     name="birthDate"
                     required
                     defaultValue={editingPersonnel?.birthDate || '1985-05-15'}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200"
+                    placeholder="เลือกวันเดือนปีเกิด (พ.ศ.)"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">วันเริ่มบรรจุรับราชการ</label>
-                  <input
-                    type="date"
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">วันเริ่มบรรจุรับราชการ (พ.ศ.)</label>
+                  <ThaiDatePicker
                     name="employmentDate"
+                    align="right"
                     defaultValue={editingPersonnel?.employmentDate || '2010-10-01'}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200"
+                    placeholder="เลือกวันเริ่มบรรจุ (พ.ศ.)"
                   />
                 </div>
               </div>
@@ -4278,7 +4337,9 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                             </span>
                           </td>
                           <td className="py-3 px-3 text-center font-medium text-slate-600">
-                            <span className="hidden sm:inline">{req.startDate} ถึง {req.endDate}</span>
+                            <span className="hidden sm:inline">
+                              {formatIsoToThaiDisplay(req.startDate, 'short')} ถึง {formatIsoToThaiDisplay(req.endDate, 'short')}
+                            </span>
                             <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 inline-block ml-1">
                               {daysCount} วัน
                             </span>
@@ -5175,23 +5236,22 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">ตั้งแต่วันที่</label>
-                  <input
-                    type="date"
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ตั้งแต่วันที่ (พ.ศ.)</label>
+                  <ThaiDatePicker
                     required
                     value={leaveForm.startDate}
-                    onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                    onChange={(val) => setLeaveForm({ ...leaveForm, startDate: val })}
+                    placeholder="ตั้งแต่วันที่ (พ.ศ.)"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">ถึงวันที่</label>
-                  <input
-                    type="date"
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ถึงวันที่ (พ.ศ.)</label>
+                  <ThaiDatePicker
                     required
+                    align="right"
                     value={leaveForm.endDate}
-                    onChange={(e) => setLeaveForm({ ...leaveForm, endDate: e.target.value })}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
+                    onChange={(val) => setLeaveForm({ ...leaveForm, endDate: val })}
+                    placeholder="ถึงวันที่ (พ.ศ.)"
                   />
                 </div>
               </div>
@@ -5495,14 +5555,27 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   )}
                   <button
                     type="button"
+                    disabled={isDownloadingLeavePdf}
+                    onClick={handleDownloadLeavePdf}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all disabled:opacity-60"
+                    title="ดาวน์โหลดเป็นไฟล์ PDF ทันที"
+                  >
+                    {isDownloadingLeavePdf ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    <span>{isDownloadingLeavePdf ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       window.print();
-                      onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบใบลาเป็นไฟล์ PDF (ขนาด A4 แนวตั้ง)');
                     }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                    className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-xl cursor-pointer transition-colors"
+                    title="สั่งพิมพ์โดยตรงผ่านเครื่องพิมพ์"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>พิมพ์ / บันทึก PDF (A4)</span>
                   </button>
                   <button
                     type="button"
@@ -6457,7 +6530,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               <p className="text-xs text-slate-600 leading-relaxed">
                 คุณต้องการลบรายการ{confirmDeleteLeave.leaveType} ของ{' '}
                 <span className="font-bold text-slate-900">{confirmDeleteLeave.teacherName}</span>{' '}
-                (ตั้งแต่วันที่ {confirmDeleteLeave.startDate} ถึง {confirmDeleteLeave.endDate}) ใช่หรือไม่?
+                (ตั้งแต่วันที่ {formatIsoToThaiDisplay(confirmDeleteLeave.startDate, 'short')} ถึง {formatIsoToThaiDisplay(confirmDeleteLeave.endDate, 'short')}) ใช่หรือไม่?
               </p>
               <p className="text-[11px] text-rose-600 font-medium">
                 เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลได้

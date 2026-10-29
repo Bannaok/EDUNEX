@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { StorageService } from '../services/storage';
 import { Module1CommentsEvaluation } from './Module1CommentsEvaluation';
+import { ThaiDatePicker } from './ThaiDatePicker';
 import { 
   Activity, 
   Save, 
@@ -477,9 +478,30 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
     user.role === 'member' && user.assignedGrade ? user.assignedGrade : 'ALL'
   );
   const [isMilkCalendarModalOpen, setIsMilkCalendarModalOpen] = useState<boolean>(false);
+  const [isMilkCalendarOpen, setIsMilkCalendarOpen] = useState<boolean>(false);
+  const [milkCalMonthIdx, setMilkCalMonthIdx] = useState<number>(0);
+  const milkCalendarRef = React.useRef<HTMLDivElement>(null);
+
+  const [isWeightCalendarOpen, setIsWeightCalendarOpen] = useState<boolean>(false);
+  const [weightCalMonthIdx, setWeightCalMonthIdx] = useState<number>(0);
+  const weightCalendarRef = React.useRef<HTMLDivElement>(null);
+
   const [calendarModalMonthIndex, setCalendarModalMonthIndex] = useState<number>(0);
   const [previewReportType, setPreviewReportType] = useState<'milk' | 'teeth' | null>(null);
   const [previewMilkTeethMonthIndex, setPreviewMilkTeethMonthIndex] = useState<number>(0);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (milkCalendarRef.current && !milkCalendarRef.current.contains(e.target as Node)) {
+        setIsMilkCalendarOpen(false);
+      }
+      if (weightCalendarRef.current && !weightCalendarRef.current.contains(e.target as Node)) {
+        setIsWeightCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleOpenMilkTeethReport = (type: 'milk' | 'teeth') => {
     const targetGroupIdx = daysGroupedByMonth.findIndex(group => 
@@ -503,9 +525,11 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
       const initDate = matchToday ? matchToday.date : schoolDaysList[0].date;
       setNewSessionDate(initDate);
       const mIdx = daysGroupedByMonth.findIndex(g => g.days.some(d => d.date === initDate));
+      setWeightCalMonthIdx(mIdx !== -1 ? mIdx : 0);
       setWeightCalendarMonthIdx(mIdx !== -1 ? mIdx : 0);
     }
     setIsAddSessionModalOpen(true);
+    setIsWeightCalendarOpen(prev => !prev);
   };
 
   // Handle create new session
@@ -726,7 +750,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
   return (
     <div className="space-y-4">
       {/* Sub-tab Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 bg-white p-2 rounded-2xl border border-slate-200/90 shadow-2xs w-full overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 bg-white p-2 rounded-2xl border border-slate-200/90 shadow-2xs w-full">
         {/* Equal width sub-tab grid for Mobile (3 columns, 100% width, no horizontal scroll) */}
         <div className="grid grid-cols-3 gap-1 sm:gap-2 bg-slate-100/90 p-1 sm:p-1.5 rounded-xl border border-slate-200/80 w-full sm:w-auto sm:flex sm:items-center">
           <button
@@ -769,17 +793,194 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           </button>
         </div>
 
-        {/* Action Button "+" for creating new weight recording session */}
+        {/* Action Button "+" for creating new weight recording session with Floating Popover Calendar */}
         {adminSubTab === 'weight' && !activeSessionMode && (
-          <button
-            type="button"
-            onClick={handleOpenCreateSessionModal}
-            className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-            title="สร้างรายการที่จะกรอกน้ำหนัก/ส่วนสูงใหม่"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ สร้างรายการใหม่</span>
-          </button>
+          <div className="relative" ref={weightCalendarRef}>
+            <button
+              type="button"
+              onClick={handleOpenCreateSessionModal}
+              className="p-2 sm:px-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
+              title="สร้างรายการที่จะกรอกน้ำหนัก/ส่วนสูงใหม่"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+            </button>
+
+            {/* Floating Popover Calendar matching Attendance & Savings EXACTLY */}
+            {isWeightCalendarOpen && (() => {
+              const currentMonthGroup = daysGroupedByMonth[weightCalMonthIdx] || daysGroupedByMonth[0];
+              const [yyyy, mm] = currentMonthGroup ? currentMonthGroup.monthKey.split('-') : ['2026', '05'];
+              const yearNum = parseInt(yyyy, 10);
+              const monthIdx = parseInt(mm, 10) - 1;
+              const daysInMonth = new Date(yearNum, monthIdx + 1, 0).getDate();
+              const firstDayOfWeek = new Date(yearNum, monthIdx, 1).getDay();
+              const schoolDaysMap = new Map(schoolDaysList.map(d => [d.date, d]));
+              const weightTargetStudents = gradeFilter === 'ALL'
+                ? students
+                : students.filter(s => (s.gradeLevel || '').trim() === gradeFilter);
+
+              return (
+                <div className="absolute top-full right-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2.5 sm:p-3 w-64 sm:w-72 animate-in fade-in slide-in-from-top-2">
+                  {/* Header showing active semester and academic year */}
+                  <div className="pb-1.5 mb-2 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-sky-900 bg-sky-50/80 px-2.5 py-1 rounded-xl">
+                    <span>ปฏิทินเวลาเรียน 100 วัน</span>
+                    <span className="bg-white px-2 py-0.5 rounded-lg border border-sky-200 text-sky-800 font-mono shadow-2xs">
+                      ภาคเรียนที่ {selectedSemester}/{selectedAcademicYear}
+                    </span>
+                  </div>
+
+                  {/* Month / Year header with Prev/Next buttons */}
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <button
+                      type="button"
+                      disabled={weightCalMonthIdx <= 0}
+                      onClick={() => setWeightCalMonthIdx(prev => Math.max(0, prev - 1))}
+                      className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                      title="เดือนก่อนหน้า"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <div className="font-bold text-xs text-slate-800">
+                      {currentMonthGroup ? currentMonthGroup.monthTitle : ''}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={weightCalMonthIdx >= daysGroupedByMonth.length - 1}
+                      onClick={() => setWeightCalMonthIdx(prev => Math.min(daysGroupedByMonth.length - 1, prev + 1))}
+                      className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                      title="เดือนถัดไป"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Quick Month Switcher */}
+                  {daysGroupedByMonth.length > 0 && (
+                    <div className="flex items-center justify-between gap-1 py-1.5 border-b border-slate-100 overflow-x-auto scrollbar-none">
+                      {daysGroupedByMonth.map((group, idx) => (
+                        <button
+                          key={group.monthKey}
+                          type="button"
+                          onClick={() => setWeightCalMonthIdx(idx)}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                            weightCalMonthIdx === idx
+                              ? 'bg-sky-600 text-white shadow-2xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {group.shortMonthLabel}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Days of Week Header */}
+                  <div className="grid grid-cols-7 gap-1 text-center py-1.5 text-[10px] font-bold text-slate-400 border-b border-slate-100">
+                    <span className="text-rose-500">อา</span>
+                    <span>จ</span>
+                    <span>อ</span>
+                    <span>พ</span>
+                    <span>พฤ</span>
+                    <span>ศ</span>
+                    <span className="text-rose-500">ส</span>
+                  </div>
+
+                  {/* Days Grid */}
+                  <div className="grid grid-cols-7 gap-1 py-2">
+                    {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
+                      <div key={`pad-${idx}`} className="h-8 w-full" />
+                    ))}
+
+                    {Array.from({ length: daysInMonth }).map((_, idx) => {
+                      const dayNum = idx + 1;
+                      const dateStr = `${yyyy}-${mm}-${String(dayNum).padStart(2, '0')}`;
+                      const schoolDayItem = schoolDaysMap.get(dateStr);
+                      const is100SchoolDay = Boolean(schoolDayItem);
+                      const existingSession = sessions.find(s => s.date === dateStr);
+                      const isExisting = Boolean(existingSession);
+
+                      const recordedCount = weightTargetStudents.filter(st => {
+                        const rec = dailyTracking.find(d => d.date === dateStr && d.studentId === st.id);
+                        return rec !== undefined && (rec.weight > 0 || rec.height > 0);
+                      }).length;
+                      const isFullyRecorded = weightTargetStudents.length > 0 && recordedCount === weightTargetStudents.length;
+
+                      if (is100SchoolDay) {
+                        if (isFullyRecorded || isExisting) {
+                          return (
+                            <button
+                              key={dateStr}
+                              type="button"
+                              onClick={() => {
+                                handleSelectCalendarDay(dateStr);
+                                setIsWeightCalendarOpen(false);
+                              }}
+                              className="h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs bg-emerald-500 hover:bg-emerald-600 text-white border border-emerald-600"
+                              title={`มีรายการบันทึกแล้ว: ${formatThaiDate(dateStr)}`}
+                            >
+                              <span className="leading-tight">{dayNum}</span>
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <button
+                            key={dateStr}
+                            type="button"
+                            onClick={() => {
+                              handleSelectCalendarDay(dateStr);
+                              setIsWeightCalendarOpen(false);
+                            }}
+                            className="h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300"
+                            title={`วันเรียนที่ ${schoolDayItem?.dayNumber}: คลิกเพื่อสร้าง/เปิดรายการ ${formatThaiDate(dateStr)}`}
+                          >
+                            <span className="leading-tight">{dayNum}</span>
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={dateStr}
+                          type="button"
+                          disabled
+                          className="h-8 w-full rounded-lg text-[11px] font-mono font-normal flex flex-col items-center justify-center bg-slate-100/70 text-slate-300 border border-slate-200/50 cursor-not-allowed opacity-50 select-none"
+                        >
+                          <span className="leading-tight">{dayNum}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                    {schoolDaysList.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const today = new Date().toISOString().split('T')[0];
+                          const target = schoolDaysList.some(d => d.date === today) ? today : schoolDaysList[0].date;
+                          handleSelectCalendarDay(target);
+                          setIsWeightCalendarOpen(false);
+                        }}
+                        className="text-sky-600 hover:text-sky-800 font-bold hover:underline cursor-pointer"
+                      >
+                        สร้าง/เปิดวันเรียนวันนี้
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsWeightCalendarOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 cursor-pointer ml-auto text-xs"
+                    >
+                      ปิด
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         )}
 
         {/* Top-Right Download Buttons for Milk & Teeth */}
@@ -886,8 +1087,8 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={() => setIsAddSessionModalOpen(true)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 hover:bg-blue-700 transition-colors"
+                      onClick={() => handleOpenCreateSessionModal()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 hover:bg-blue-700 transition-colors cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       <span>สร้างรายการแรก</span>
@@ -1301,321 +1502,216 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
             {/* 100 School Days Calendar Widget & Combined Filter Bar */}
             <div className="bg-sky-50/90 p-3.5 rounded-2xl border border-sky-200 shadow-xs flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const targetGroupIdx = daysGroupedByMonth.findIndex(group => 
-                      group.days.some(d => d.date === milkTeethDate)
-                    );
-                    if (targetGroupIdx !== -1) {
-                      setCalendarModalMonthIndex(targetGroupIdx);
-                    } else {
-                      setCalendarModalMonthIndex(0);
-                    }
-                    setIsMilkCalendarModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-                  title="คลิกเพื่อเปิดปฏิทิน 100 วัน"
-                >
-                  <Calendar className="w-4 h-4" />
-                  <span>ปฏิทินวันเรียน 100 วัน</span>
-                </button>
-              </div>
+                {/* Interactive Date Trigger Button with Floating Popover Calendar */}
+                <div className="relative" ref={milkCalendarRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetGroupIdx = daysGroupedByMonth.findIndex(group => 
+                        group.days.some(d => d.date === milkTeethDate)
+                      );
+                      if (targetGroupIdx !== -1) {
+                        setMilkCalMonthIdx(targetGroupIdx);
+                      }
+                      setIsMilkCalendarOpen(!isMilkCalendarOpen);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 font-bold cursor-pointer transition-all shadow-2xs text-xs ${
+                      schoolDaysList.some(d => d.date === milkTeethDate)
+                        ? 'bg-sky-600 hover:bg-sky-700 text-white border-sky-700'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+                    }`}
+                    title="คลิกเพื่อเปิดปฏิทินเวลาเรียน 100 วัน"
+                  >
+                    <Calendar className="w-3.5 h-3.5 shrink-0 text-white" />
+                    <span>{formatThaiDate(milkTeethDate)}</span>
+                    <ChevronDown className={`w-3 h-3 text-white/80 transition-transform ${isMilkCalendarOpen ? 'rotate-180' : ''}`} />
+                  </button>
 
-              {/* Unified Filter Button Group: Year + Semester + Grade */}
-              <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-sky-200 text-xs font-bold text-slate-700 shadow-2xs flex-wrap">
-                {user.role === 'admin' && (
-                  <>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-slate-500 font-medium">ปี:</span>
-                      <select
-                        value={selectedAcademicYear}
-                        onChange={(e) => setSelectedAcademicYear(e.target.value)}
-                        className="bg-sky-50 text-sky-900 font-bold px-1.5 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
-                      >
-                        <option value="2570">2570</option>
-                        <option value="2569">2569</option>
-                        <option value="2568">2568</option>
-                        <option value="2567">2567</option>
-                      </select>
-                    </div>
+                  {/* Floating Popover Calendar (Exact Attendance & Savings Style) */}
+                  {isMilkCalendarOpen && (() => {
+                    const currentMonthGroup = daysGroupedByMonth[milkCalMonthIdx] || daysGroupedByMonth[0];
+                    const [yyyy, mm] = currentMonthGroup ? currentMonthGroup.monthKey.split('-') : ['2026', '05'];
+                    const yearNum = parseInt(yyyy, 10);
+                    const monthIdx = parseInt(mm, 10) - 1;
+                    const daysInMonth = new Date(yearNum, monthIdx + 1, 0).getDate();
+                    const firstDayOfWeek = new Date(yearNum, monthIdx, 1).getDay();
+                    const schoolDaysMap = new Map(schoolDaysList.map(d => [d.date, d]));
+                    const milkTargetStudents = milkTeethGradeFilter === 'ALL'
+                      ? students
+                      : students.filter(s => s.gradeLevel === milkTeethGradeFilter);
 
-                    <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-slate-500 font-medium">ภาค:</span>
-                      <select
-                        value={selectedSemester}
-                        onChange={(e) => setSelectedSemester(e.target.value)}
-                        className="bg-sky-50 text-sky-900 font-bold px-1.5 py-0.5 rounded-lg border border-sky-200 outline-none cursor-pointer text-xs"
-                      >
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                      </select>
-                    </div>
-
-                    <div className="h-3.5 w-px bg-slate-200 mx-0.5 hidden sm:block" />
-                  </>
-                )}
-
-                {user.role === 'admin' ? (
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] text-emerald-700 font-medium">ชั้น:</span>
-                    <select
-                      value={milkTeethGradeFilter}
-                      onChange={(e) => setMilkTeethGradeFilter(e.target.value)}
-                      className="text-xs font-bold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 focus:outline-none cursor-pointer"
-                    >
-                      <option value="ALL">ทุกระดับชั้น ({students.length} คน)</option>
-                      {availableGradeLevels.map(g => (
-                        <option key={g} value={g}>
-                          ชั้น {g} ({students.filter(s => (s.gradeLevel || '').trim() === g).length} คน)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <span className="text-xs font-bold text-emerald-800">
-                    ชั้น {user.assignedGrade || 'ป.1'}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* MODAL: 100 School Days Calendar Pop-up (Single Month View with Month Pills & Prev/Next) */}
-            {/* MODAL: 100 School Days Calendar Pop-up for Milk & Teeth (Cloned from Weight/Height calendar style) */}
-            {isMilkCalendarModalOpen && (() => {
-              const currentMonthGroup = daysGroupedByMonth[calendarModalMonthIndex] || daysGroupedByMonth[0];
-              const [yyyy, mm] = currentMonthGroup ? currentMonthGroup.monthKey.split('-') : ['2026', '05'];
-              const yearNum = parseInt(yyyy, 10);
-              const monthIdx = parseInt(mm, 10) - 1;
-              const daysInMonth = new Date(yearNum, monthIdx + 1, 0).getDate();
-              const firstDayOfWeek = new Date(yearNum, monthIdx, 1).getDay();
-
-              const schoolDaysMap = new Map(schoolDaysList.map(d => [d.date, d]));
-
-              return (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150">
-                  <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
-                    {/* Header */}
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold">
-                          📅
+                    return (
+                      <div className="absolute top-full left-0 mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200 p-2.5 sm:p-3 w-64 sm:w-72 animate-in fade-in slide-in-from-top-2">
+                        {/* Header showing active semester and academic year */}
+                        <div className="pb-1.5 mb-2 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-sky-900 bg-sky-50/80 px-2.5 py-1 rounded-xl">
+                          <span>ปฏิทินเวลาเรียน 100 วัน</span>
+                          <span className="bg-white px-2 py-0.5 rounded-lg border border-sky-200 text-sky-800 font-mono shadow-2xs">
+                            ภาคเรียนที่ {selectedSemester}/{selectedAcademicYear}
+                          </span>
                         </div>
-                        <div>
-                          <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                            ปฏิทินวันเรียน 100 วัน (ดื่มนมและแปรงฟัน)
-                          </h3>
-                          <p className="text-[11px] text-slate-500">
-                            เลือกวันที่จากปฏิทินวันเรียน 100 วันที่กำหนด (เลือกได้เฉพาะวันเรียน 100 วันเท่านั้น)
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsMilkCalendarModalOpen(false)}
-                        className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
 
-                    {/* Month Selection Pills */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1.5 bg-slate-50 px-2.5 rounded-xl border border-slate-200">
-                      <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap mr-1 shrink-0">
-                        เลือกเดือน:
-                      </span>
-                      {daysGroupedByMonth.map((group, idx) => {
-                        const isActive = idx === calendarModalMonthIndex;
-                        const monthCompletedCount = group.days.filter(day => {
-                          const recordedCount = targetStudents.filter(st => {
-                            const rec = dailyTracking.find(d => d.date === day.date && d.studentId === st.id);
-                            return rec !== undefined && Boolean(rec.milkStatus) && Boolean(rec.toothBrushStatus);
-                          }).length;
-                          return targetStudents.length > 0 && recordedCount === targetStudents.length;
-                        }).length;
-                        const isMonthFullyCompleted = group.days.length > 0 && monthCompletedCount === group.days.length;
-
-                        return (
-                          <button
-                            key={group.monthKey}
-                            type="button"
-                            onClick={() => setCalendarModalMonthIndex(idx)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
-                              isActive
-                                ? 'bg-sky-600 text-white shadow-xs font-black'
-                                : 'bg-white text-slate-700 hover:bg-sky-50 border border-slate-200'
-                            }`}
-                          >
-                            <span>{group.shortMonthLabel}</span>
-                            {isMonthFullyCompleted && (
-                              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Active Month Header with Prev / Next */}
-                    {currentMonthGroup && (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between bg-sky-50/80 p-2.5 sm:p-3 rounded-xl border border-sky-200">
+                        {/* Month / Year header with Prev/Next buttons */}
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                           <button
                             type="button"
-                            disabled={calendarModalMonthIndex <= 0}
-                            onClick={() => setCalendarModalMonthIndex(prev => Math.max(0, prev - 1))}
-                            className="px-2.5 py-1 bg-white text-sky-800 rounded-lg font-bold text-xs border border-sky-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-sky-100 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                            disabled={milkCalMonthIdx <= 0}
+                            onClick={() => setMilkCalMonthIdx(prev => Math.max(0, prev - 1))}
+                            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                            title="เดือนก่อนหน้า"
                           >
-                            ◀ ก่อนหน้า
+                            <ChevronLeft className="w-4 h-4" />
                           </button>
 
-                          <div className="text-center">
-                            <h4 className="text-sm sm:text-base font-black text-sky-950">
-                              {currentMonthGroup.monthTitle}
-                            </h4>
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              {currentMonthGroup.days.length} วันเรียนใน 100 วัน
-                            </p>
+                          <div className="font-bold text-xs text-slate-800">
+                            {currentMonthGroup ? currentMonthGroup.monthTitle : ''}
                           </div>
 
                           <button
                             type="button"
-                            disabled={calendarModalMonthIndex >= daysGroupedByMonth.length - 1}
-                            onClick={() => setCalendarModalMonthIndex(prev => Math.min(daysGroupedByMonth.length - 1, prev + 1))}
-                            className="px-2.5 py-1 bg-white text-sky-800 rounded-lg font-bold text-xs border border-sky-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-sky-100 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                            disabled={milkCalMonthIdx >= daysGroupedByMonth.length - 1}
+                            onClick={() => setMilkCalMonthIdx(prev => Math.min(daysGroupedByMonth.length - 1, prev + 1))}
+                            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                            title="เดือนถัดไป"
                           >
-                            ถัดไป ▶
+                            <ChevronRight className="w-4 h-4" />
                           </button>
                         </div>
 
-                        {/* 7-Column Days Grid */}
-                        <div className="bg-slate-50/60 p-3 rounded-2xl border border-slate-200 space-y-2">
-                          {/* Day of Week Header */}
-                          <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-black text-slate-600 border-b border-slate-200 pb-1.5">
-                            <div className="text-rose-600">อา.</div>
-                            <div>จ.</div>
-                            <div>อ.</div>
-                            <div>พ.</div>
-                            <div>พฤ.</div>
-                            <div>ศ.</div>
-                            <div className="text-blue-600">ส.</div>
-                          </div>
-
-                          <div className="grid grid-cols-7 gap-1.5">
-                            {/* Leading Empty Cells */}
-                            {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
-                              <div key={`pad-${idx}`} className="p-1 rounded-lg" />
+                        {/* Quick Month Switcher */}
+                        {daysGroupedByMonth.length > 0 && (
+                          <div className="flex items-center justify-between gap-1 py-1.5 border-b border-slate-100 overflow-x-auto scrollbar-none">
+                            {daysGroupedByMonth.map((group, idx) => (
+                              <button
+                                key={group.monthKey}
+                                type="button"
+                                onClick={() => setMilkCalMonthIdx(idx)}
+                                className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                                  milkCalMonthIdx === idx
+                                    ? 'bg-sky-600 text-white shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                                }`}
+                              >
+                                {group.shortMonthLabel}
+                              </button>
                             ))}
+                          </div>
+                        )}
 
-                            {/* Month Days 1..daysInMonth */}
-                            {Array.from({ length: daysInMonth }).map((_, idx) => {
-                              const dayNum = idx + 1;
-                              const dateStr = `${yyyy}-${mm}-${String(dayNum).padStart(2, '0')}`;
-                              const schoolDayItem = schoolDaysMap.get(dateStr);
-                              const is100SchoolDay = Boolean(schoolDayItem);
-                              const isSelected = milkTeethDate === dateStr;
+                        {/* Days of Week Header */}
+                        <div className="grid grid-cols-7 gap-1 text-center py-1.5 text-[10px] font-bold text-slate-400 border-b border-slate-100">
+                          <span className="text-rose-500">อา</span>
+                          <span>จ</span>
+                          <span>อ</span>
+                          <span>พ</span>
+                          <span>พฤ</span>
+                          <span>ศ</span>
+                          <span className="text-rose-500">ส</span>
+                        </div>
 
-                              const recordedCount = targetStudents.filter(st => {
-                                const rec = dailyTracking.find(d => d.date === dateStr && d.studentId === st.id);
-                                return rec !== undefined && Boolean(rec.milkStatus) && Boolean(rec.toothBrushStatus);
-                              }).length;
-                              const isFullyCompleted = targetStudents.length > 0 && recordedCount === targetStudents.length;
-                              const isPartiallyRecorded = recordedCount > 0 && !isFullyCompleted;
+                        {/* Days Grid */}
+                        <div className="grid grid-cols-7 gap-1 py-2">
+                          {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
+                            <div key={`pad-${idx}`} className="h-8 w-full" />
+                          ))}
 
-                              if (is100SchoolDay) {
+                          {Array.from({ length: daysInMonth }).map((_, idx) => {
+                            const dayNum = idx + 1;
+                            const dateStr = `${yyyy}-${mm}-${String(dayNum).padStart(2, '0')}`;
+                            const schoolDayItem = schoolDaysMap.get(dateStr);
+                            const is100SchoolDay = Boolean(schoolDayItem);
+                            const isSelected = milkTeethDate === dateStr;
+
+                            const recordedCount = milkTargetStudents.filter(st => {
+                              const rec = dailyTracking.find(d => d.date === dateStr && d.studentId === st.id);
+                              return rec !== undefined && Boolean(rec.milkStatus) && Boolean(rec.toothBrushStatus);
+                            }).length;
+                            const isFullyCompleted = milkTargetStudents.length > 0 && recordedCount === milkTargetStudents.length;
+
+                            if (is100SchoolDay) {
+                              if (isFullyCompleted) {
                                 return (
                                   <button
                                     key={dateStr}
                                     type="button"
                                     onClick={() => {
                                       setMilkTeethDate(dateStr);
-                                      setIsMilkCalendarModalOpen(false);
+                                      setIsMilkCalendarOpen(false);
                                     }}
-                                    className={`p-1.5 sm:p-2 rounded-xl text-left transition-all cursor-pointer flex flex-col justify-between min-h-[58px] sm:min-h-[64px] border ${
+                                    className={`h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs ${
                                       isSelected
-                                        ? 'ring-2 ring-sky-600 scale-102 z-10 shadow-sm border-sky-600 font-black ' + (isFullyCompleted ? 'bg-emerald-100 text-emerald-950' : 'bg-sky-100 text-sky-950')
-                                        : isFullyCompleted
-                                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-300'
-                                        : isPartiallyRecorded
-                                        ? 'bg-emerald-50/70 hover:bg-emerald-100 text-emerald-900 border-emerald-200'
-                                        : 'bg-white hover:bg-sky-50 text-sky-950 border-sky-200'
+                                        ? 'bg-emerald-600 text-white ring-2 ring-emerald-300 shadow-md scale-105'
+                                        : 'bg-emerald-500 hover:bg-emerald-600 text-white border border-emerald-600'
                                     }`}
-                                    title={`วันที่ ${formatThaiDate(dateStr)} (วันเรียนที่ ${schoolDayItem?.dayNumber} - บันทึกแล้ว ${recordedCount}/${targetStudents.length} คน)`}
+                                    title={`บันทึกครบแล้ว: ${formatThaiDate(dateStr)}`}
                                   >
-                                    <div className="flex items-center justify-between w-full">
-                                      <span className="text-xs sm:text-sm font-black">{dayNum}</span>
-                                      <span className={`text-[9px] px-1 py-0.2 rounded font-bold ${
-                                        isFullyCompleted
-                                          ? 'bg-emerald-200 text-emerald-900'
-                                          : isPartiallyRecorded
-                                          ? 'bg-emerald-100 text-emerald-800'
-                                          : 'bg-sky-200 text-sky-900'
-                                      }`}>
-                                        ว.{schoolDayItem?.dayNumber}
-                                      </span>
-                                    </div>
-                                    <div className="text-[9px] font-bold text-center mt-0.5 truncate">
-                                      {isFullyCompleted ? '✓ บันทึกครบ' : isPartiallyRecorded ? `บันทึก (${recordedCount})` : 'วันเรียน'}
-                                    </div>
+                                    <span className="leading-tight">{dayNum}</span>
                                   </button>
                                 );
                               }
 
-                              // Day NOT in 100 school days: faded & non-clickable
                               return (
-                                <div
+                                <button
                                   key={dateStr}
-                                  className="p-1.5 sm:p-2 rounded-xl text-left flex flex-col justify-between min-h-[58px] sm:min-h-[64px] bg-slate-100/40 border border-slate-200/50 text-slate-300 opacity-25 cursor-not-allowed pointer-events-none"
-                                  title="ไม่ใช่วันเรียน 100 วัน (ไม่สามารถเลือกได้)"
+                                  type="button"
+                                  onClick={() => {
+                                    setMilkTeethDate(dateStr);
+                                    setIsMilkCalendarOpen(false);
+                                  }}
+                                  className={`h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs ${
+                                    isSelected
+                                      ? 'bg-sky-600 text-white ring-2 ring-sky-300 shadow-xs'
+                                      : 'bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300'
+                                  }`}
+                                  title={`วันเรียน: ${formatThaiDate(dateStr)}`}
                                 >
-                                  <span className="text-xs font-semibold">{dayNum}</span>
-                                  <span className="text-[8px] text-slate-400 text-center">-</span>
-                                </div>
+                                  <span className="leading-tight">{dayNum}</span>
+                                </button>
                               );
-                            })}
-                          </div>
+                            }
+
+                            return (
+                              <button
+                                key={dateStr}
+                                type="button"
+                                disabled
+                                className="h-8 w-full rounded-lg text-[11px] font-mono font-normal flex flex-col items-center justify-center bg-slate-100/70 text-slate-300 border border-slate-200/50 cursor-not-allowed opacity-50 select-none"
+                              >
+                                <span className="leading-tight">{dayNum}</span>
+                              </button>
+                            );
+                          })}
                         </div>
 
-                        {/* Legend */}
-                        <div className="flex items-center justify-center gap-4 text-[11px] text-slate-600 pt-1 flex-wrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded bg-white border border-sky-300 inline-block"></span>
-                            <span>วันเรียน 100 วัน (เลือกได้)</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-400 inline-block"></span>
-                            <span>บันทึกแล้ว</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded bg-slate-200 opacity-25 inline-block"></span>
-                            <span>ไม่ใช่วันเรียน (กดไม่ได้)</span>
-                          </div>
+                        {/* Footer */}
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                          {schoolDaysList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const today = new Date().toISOString().split('T')[0];
+                                const target = schoolDaysList.some(d => d.date === today) ? today : schoolDaysList[0].date;
+                                setMilkTeethDate(target);
+                                setIsMilkCalendarOpen(false);
+                              }}
+                              className="text-sky-600 hover:text-sky-800 font-bold hover:underline cursor-pointer"
+                            >
+                              ไปวันเรียน
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setIsMilkCalendarOpen(false)}
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer ml-auto text-xs"
+                          >
+                            ปิด
+                          </button>
                         </div>
                       </div>
-                    )}
-
-                    {/* Selected Date Summary & Action Buttons */}
-                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-600">วันที่เลือก:</span>
-                        <span className="px-3 py-1 bg-sky-50 text-sky-900 border border-sky-200 rounded-xl text-xs font-black">
-                          {formatThaiDate(milkTeethDate)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 justify-end">
-                        <button
-                          type="button"
-                          onClick={() => setIsMilkCalendarModalOpen(false)}
-                          className="px-5 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
-                        >
-                          ปิดหน้าต่าง
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
-              );
-            })()}
+              </div>
+            </div>
 
             {/* Student Table Box */}
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
@@ -1747,223 +1843,169 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
         const firstDayOfWeek = new Date(yearNum, monthIdx, 1).getDay();
 
         const schoolDaysMap = new Map(schoolDaysList.map(d => [d.date, d]));
-        const weightTargetStudents = user.role === 'member' && user.assignedGrade
-          ? students.filter(s => s.gradeLevel === user.assignedGrade)
-          : (gradeFilter === 'ALL' ? students : students.filter(s => s.gradeLevel === gradeFilter));
-
-        const isNewDateExisting = sessions.some(s => s.date === newSessionDate);
+        const weightTargetStudents = gradeFilter === 'ALL'
+          ? students
+          : students.filter(s => (s.gradeLevel || '').trim() === gradeFilter);
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in duration-150">
-            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
-                    📅
-                  </div>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                      สร้างรายการบันทึกน้ำหนัก/ส่วนสูง
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      เลือกวันที่จากปฏิทินวันเรียน 100 วันที่กำหนด (เลือกได้เฉพาะวันเรียน 100 วันเท่านั้น)
-                    </p>
-                  </div>
-                </div>
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 p-3 sm:p-4 w-72 sm:w-80 space-y-2 animate-in zoom-in-95 duration-150">
+              {/* Header showing active semester and academic year */}
+              <div className="pb-1.5 mb-1 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-sky-900 bg-sky-50/80 px-2.5 py-1.5 rounded-xl">
+                <span>ปฏิทินเวลาเรียน 100 วัน</span>
+                <span className="bg-white px-2 py-0.5 rounded-lg border border-sky-200 text-sky-800 font-mono shadow-2xs">
+                  ภาคเรียนที่ {selectedSemester}/{selectedAcademicYear}
+                </span>
+              </div>
+
+              {/* Month / Year header with Prev/Next buttons */}
+              <div className="flex items-center justify-between pb-1 border-b border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsAddSessionModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 cursor-pointer"
+                  disabled={weightCalendarMonthIdx <= 0}
+                  onClick={() => setWeightCalendarMonthIdx(prev => Math.max(0, prev - 1))}
+                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                  title="เดือนก่อนหน้า"
                 >
-                  <X className="w-5 h-5" />
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="font-bold text-xs text-slate-800">
+                  {currentMonthGroup ? currentMonthGroup.monthTitle : ''}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={weightCalendarMonthIdx >= daysGroupedByMonth.length - 1}
+                  onClick={() => setWeightCalendarMonthIdx(prev => Math.min(daysGroupedByMonth.length - 1, prev + 1))}
+                  className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer disabled:opacity-30"
+                  title="เดือนถัดไป"
+                >
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Month Selection Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1.5 bg-slate-50 px-2.5 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap mr-1 shrink-0">
-                  เลือกเดือน:
-                </span>
-                {daysGroupedByMonth.map((group, idx) => {
-                  const isActive = idx === weightCalendarMonthIdx;
-                  return (
+              {/* Quick Month Switcher */}
+              {daysGroupedByMonth.length > 0 && (
+                <div className="flex items-center justify-between gap-1 py-1 border-b border-slate-100 overflow-x-auto scrollbar-none">
+                  {daysGroupedByMonth.map((group, idx) => (
                     <button
                       key={group.monthKey}
                       type="button"
                       onClick={() => setWeightCalendarMonthIdx(idx)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 flex items-center gap-1 ${
-                        isActive
-                          ? 'bg-blue-600 text-white shadow-xs font-black'
-                          : 'bg-white text-slate-700 hover:bg-blue-50 border border-slate-200'
+                      className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-colors cursor-pointer shrink-0 ${
+                        weightCalendarMonthIdx === idx
+                          ? 'bg-sky-600 text-white shadow-2xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                       }`}
                     >
-                      <span>{group.shortMonthLabel}</span>
+                      {group.shortMonthLabel}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Days of Week Header */}
+              <div className="grid grid-cols-7 gap-1 text-center py-1 text-[10px] font-bold text-slate-400 border-b border-slate-100">
+                <span className="text-rose-500">อา</span>
+                <span>จ</span>
+                <span>อ</span>
+                <span>พ</span>
+                <span>พฤ</span>
+                <span>ศ</span>
+                <span className="text-rose-500">ส</span>
+              </div>
+
+              {/* Days Grid */}
+              <div className="grid grid-cols-7 gap-1 py-1.5">
+                {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
+                  <div key={`pad-${idx}`} className="h-8 w-full" />
+                ))}
+
+                {Array.from({ length: daysInMonth }).map((_, idx) => {
+                  const dayNum = idx + 1;
+                  const dateStr = `${yyyy}-${mm}-${String(dayNum).padStart(2, '0')}`;
+                  const schoolDayItem = schoolDaysMap.get(dateStr);
+                  const is100SchoolDay = Boolean(schoolDayItem);
+                  const existingSession = sessions.find(s => s.date === dateStr);
+                  const isExisting = Boolean(existingSession);
+
+                  const recordedCount = weightTargetStudents.filter(st => {
+                    const rec = dailyTracking.find(d => d.date === dateStr && d.studentId === st.id);
+                    return rec !== undefined && (rec.weight > 0 || rec.height > 0);
+                  }).length;
+                  const isFullyRecorded = weightTargetStudents.length > 0 && recordedCount === weightTargetStudents.length;
+
+                  if (is100SchoolDay) {
+                    if (isFullyRecorded || isExisting) {
+                      return (
+                        <button
+                          key={dateStr}
+                          type="button"
+                          onClick={() => {
+                            handleSelectCalendarDay(dateStr);
+                            setIsAddSessionModalOpen(false);
+                          }}
+                          className="h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs bg-emerald-500 hover:bg-emerald-600 text-white border border-emerald-600"
+                          title={`มีรายการบันทึกแล้ว: ${formatThaiDate(dateStr)}`}
+                        >
+                          <span className="leading-tight">{dayNum}</span>
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => {
+                          handleSelectCalendarDay(dateStr);
+                          setIsAddSessionModalOpen(false);
+                        }}
+                        className="h-8 w-full rounded-lg text-[11px] font-mono font-bold flex flex-col items-center justify-center relative transition-all cursor-pointer shadow-2xs bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300"
+                        title={`วันเรียนที่ ${schoolDayItem?.dayNumber}: คลิกเพื่อสร้าง/เปิดรายการ ${formatThaiDate(dateStr)}`}
+                      >
+                        <span className="leading-tight">{dayNum}</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      key={dateStr}
+                      type="button"
+                      disabled
+                      className="h-8 w-full rounded-lg text-[11px] font-mono font-normal flex flex-col items-center justify-center bg-slate-100/70 text-slate-300 border border-slate-200/50 cursor-not-allowed opacity-50 select-none"
+                    >
+                      <span className="leading-tight">{dayNum}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* Active Month Header with Prev / Next */}
-              {currentMonthGroup && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between bg-blue-50/80 p-2.5 sm:p-3 rounded-xl border border-blue-200">
-                    <button
-                      type="button"
-                      disabled={weightCalendarMonthIdx <= 0}
-                      onClick={() => setWeightCalendarMonthIdx(prev => Math.max(0, prev - 1))}
-                      className="px-2.5 py-1 bg-white text-blue-800 rounded-lg font-bold text-xs border border-blue-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-100 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
-                    >
-                      ◀ ก่อนหน้า
-                    </button>
-
-                    <div className="text-center">
-                      <h4 className="text-sm sm:text-base font-black text-blue-950">
-                        {currentMonthGroup.monthTitle}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 font-medium">
-                        {currentMonthGroup.days.length} วันเรียนใน 100 วัน
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={weightCalendarMonthIdx >= daysGroupedByMonth.length - 1}
-                      onClick={() => setWeightCalendarMonthIdx(prev => Math.min(daysGroupedByMonth.length - 1, prev + 1))}
-                      className="px-2.5 py-1 bg-white text-blue-800 rounded-lg font-bold text-xs border border-blue-200 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-blue-100 transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
-                    >
-                      ถัดไป ▶
-                    </button>
-                  </div>
-
-                  {/* 7-Column Days Grid */}
-                  <div className="bg-slate-50/60 p-3 rounded-2xl border border-slate-200 space-y-2">
-                    {/* Day of Week Header */}
-                    <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-black text-slate-600 border-b border-slate-200 pb-1.5">
-                      <div className="text-rose-600">อา.</div>
-                      <div>จ.</div>
-                      <div>อ.</div>
-                      <div>พ.</div>
-                      <div>พฤ.</div>
-                      <div>ศ.</div>
-                      <div className="text-blue-600">ส.</div>
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {/* Leading Empty Cells */}
-                      {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
-                        <div key={`pad-${idx}`} className="p-1 rounded-lg" />
-                      ))}
-
-                      {/* Month Days 1..daysInMonth */}
-                      {Array.from({ length: daysInMonth }).map((_, idx) => {
-                        const dayNum = idx + 1;
-                        const dateStr = `${yyyy}-${mm}-${String(dayNum).padStart(2, '0')}`;
-                        const schoolDayItem = schoolDaysMap.get(dateStr);
-                        const is100SchoolDay = Boolean(schoolDayItem);
-                        const isSelected = newSessionDate === dateStr;
-
-                        const recordedCount = weightTargetStudents.filter(st => {
-                          const rec = dailyTracking.find(d => d.date === dateStr && d.studentId === st.id);
-                          return rec !== undefined && (rec.weight > 0 || rec.height > 0);
-                        }).length;
-                        const isRecorded = recordedCount > 0;
-
-                        if (is100SchoolDay) {
-                          return (
-                            <button
-                              key={dateStr}
-                              type="button"
-                              onClick={() => setNewSessionDate(dateStr)}
-                              className={`p-1.5 sm:p-2 rounded-xl text-left transition-all cursor-pointer flex flex-col justify-between min-h-[58px] sm:min-h-[64px] border ${
-                                isSelected
-                                  ? 'ring-2 ring-blue-600 scale-102 z-10 shadow-sm border-blue-600 font-black ' + (isRecorded ? 'bg-emerald-100 text-emerald-950' : 'bg-sky-100 text-sky-950')
-                                  : isRecorded
-                                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border-emerald-300'
-                                  : 'bg-white hover:bg-sky-50 text-sky-950 border-sky-200'
-                              }`}
-                              title={`วันที่ ${formatThaiDate(dateStr)} (วันเรียนที่ ${schoolDayItem?.dayNumber})`}
-                            >
-                              <div className="flex items-center justify-between w-full">
-                                <span className="text-xs sm:text-sm font-black">{dayNum}</span>
-                                <span className={`text-[9px] px-1 py-0.2 rounded font-bold ${
-                                  isRecorded ? 'bg-emerald-200 text-emerald-900' : 'bg-sky-200 text-sky-900'
-                                }`}>
-                                  ว.{schoolDayItem?.dayNumber}
-                                </span>
-                              </div>
-                              <div className="text-[9px] font-bold text-center mt-0.5 truncate">
-                                {isRecorded ? '✓ บันทึกแล้ว' : 'วันเรียน'}
-                              </div>
-                            </button>
-                          );
-                        }
-
-                        // Day NOT in 100 school days: faded & non-clickable
-                        return (
-                          <div
-                            key={dateStr}
-                            className="p-1.5 sm:p-2 rounded-xl text-left flex flex-col justify-between min-h-[58px] sm:min-h-[64px] bg-slate-100/40 border border-slate-200/50 text-slate-300 opacity-25 cursor-not-allowed pointer-events-none"
-                            title="ไม่ใช่วันเรียน 100 วัน (ไม่สามารถเลือกได้)"
-                          >
-                            <span className="text-xs font-semibold">{dayNum}</span>
-                            <span className="text-[8px] text-slate-400 text-center">-</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Legend */}
-                  <div className="flex items-center justify-center gap-4 text-[11px] text-slate-600 pt-1 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded bg-white border border-sky-300 inline-block"></span>
-                      <span>วันเรียน 100 วัน (เลือกได้)</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-400 inline-block"></span>
-                      <span>บันทึกแล้ว</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-3 h-3 rounded bg-slate-200 opacity-25 inline-block"></span>
-                      <span>ไม่ใช่วันเรียน (กดไม่ได้)</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Selected Date Summary & Action Buttons */}
-              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600">วันที่เลือก:</span>
-                  <span className="px-3 py-1 bg-blue-50 text-blue-900 border border-blue-200 rounded-xl text-xs font-black">
-                    {formatThaiDate(newSessionDate)}
-                  </span>
-                  {isNewDateExisting && (
-                    <span className="text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 font-bold">
-                      (มีรายการนี้แล้ว - จะเปิดแก้ไข)
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2 justify-end">
+              {/* Footer */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                {schoolDaysList.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setIsAddSessionModalOpen(false)}
-                    className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                    onClick={() => {
+                      const today = new Date().toISOString().split('T')[0];
+                      const target = schoolDaysList.some(d => d.date === today) ? today : schoolDaysList[0].date;
+                      handleSelectCalendarDay(target);
+                      setIsAddSessionModalOpen(false);
+                    }}
+                    className="text-sky-600 hover:text-sky-800 font-bold hover:underline cursor-pointer"
                   >
-                    ยกเลิก
+                    สร้าง/เปิดวันเรียนวันนี้
                   </button>
-                  <button
-                    type="button"
-                    disabled={!newSessionDate}
-                    onClick={handleCreateSession}
-                    className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>{isNewDateExisting ? 'เปิดรายการบันทึก' : 'สร้างรายการและเริ่มบันทึก'}</span>
-                  </button>
-                </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsAddSessionModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer ml-auto text-xs font-semibold"
+                >
+                  ปิด
+                </button>
               </div>
             </div>
           </div>
@@ -1993,9 +2035,9 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   เลือกวันที่ใหม่ *
                 </label>
-                <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
-                  {user.role === 'member' && schoolDaysList.length > 0 ? (
+                {user.role === 'member' && schoolDaysList.length > 0 ? (
+                  <div className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
                     <select
                       value={editSessionDateVal}
                       onChange={(e) => setEditSessionDateVal(e.target.value)}
@@ -2007,15 +2049,14 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                         </option>
                       ))}
                     </select>
-                  ) : (
-                    <input
-                      type="date"
-                      value={editSessionDateVal}
-                      onChange={(e) => setEditSessionDateVal(e.target.value)}
-                      className="w-full text-xs font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
-                    />
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <ThaiDatePicker
+                    value={editSessionDateVal}
+                    onChange={(dateStr) => setEditSessionDateVal(dateStr)}
+                    className="w-full"
+                  />
+                )}
                 <p className="text-[11px] text-slate-400 mt-1">
                   * จะแสดงเป็น: {formatThaiDate(editSessionDateVal)}
                 </p>

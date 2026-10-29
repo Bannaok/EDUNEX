@@ -9,8 +9,11 @@ import {
   Phone, 
   User, 
   ShieldCheck,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 
 interface StudentCardBatchModalProps {
   isOpen: boolean;
@@ -149,6 +152,8 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
     return pages;
   }, [targetStudents]);
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
   if (!isOpen) return null;
 
   const handlePrint = () => {
@@ -156,9 +161,80 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
     if (onShowToast) {
       onShowToast(
         'success',
-        'เตรียมพิมพ์ / บันทึก PDF',
+        'เตรียมพิมพ์',
         `พร้อมพิมพ์บัตรนักเรียน (${cardSide === 'front' ? 'หน้าบัตร' : 'หลังบัตร'}) ขนาด 85.6 × 54 มม. บนกระดาษ A4 แนวตั้ง`
       );
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      if (document.fonts) {
+        await document.fonts.ready;
+      }
+
+      const pageElements = Array.from(document.querySelectorAll<HTMLElement>('.student-card-a4-page'));
+      if (!pageElements || pageElements.length === 0) {
+        if (onShowToast) {
+          onShowToast('warning', 'ไม่พบข้อมูล', 'ไม่มีข้อมูลบัตรนักเรียนสำหรับดาวน์โหลด');
+        }
+        setIsDownloading(false);
+        return;
+      }
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      for (let i = 0; i < pageElements.length; i++) {
+        const pageEl = pageElements[i];
+        if (i > 0) {
+          pdf.addPage('a4', 'portrait');
+        }
+
+        // Temporarily strip screen preview shadow/border during capture so it renders 100% clean A4
+        const origShadow = pageEl.style.boxShadow;
+        const origBorder = pageEl.style.border;
+        pageEl.style.boxShadow = 'none';
+        pageEl.style.border = 'none';
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2.2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          scrollY: 0,
+          scrollX: 0,
+          ignoreElements: (el) => !!(el.classList && el.classList.contains('no-print')),
+        });
+
+        pageEl.style.boxShadow = origShadow;
+        pageEl.style.border = origBorder;
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.98);
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      }
+
+      const sideName = cardSide === 'front' ? 'หน้าบัตร' : 'หลังบัตร';
+      const gradeName = selectedGrade === 'all' ? 'ทุกระดับชั้น' : `ชั้น${selectedGrade}`;
+      const cleanSchool = (schoolInfo.schoolName || 'โรงเรียน').replace(/\s+/g, '_');
+      const fileName = `บัตรนักเรียน_${sideName}_${gradeName}_${cleanSchool}.pdf`;
+      pdf.save(fileName);
+
+      if (onShowToast) {
+        onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดไฟล์ PDF บัตรนักเรียน (${sideName}) เรียบร้อยแล้ว`);
+      }
+    } catch (err) {
+      console.error('Download student cards failed:', err);
+      window.print();
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -286,16 +362,30 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
             </select>
           </div>
 
-          {/* Print/Download Button */}
+          {/* Direct Download PDF Button */}
+          <button
+            type="button"
+            disabled={isDownloading}
+            onClick={handleDownloadPDF}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-60"
+            title="ดาวน์โหลดเป็นไฟล์ PDF ทันที"
+          >
+            {isDownloading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            <span>{isDownloading ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
+          </button>
+
+          {/* Direct Print Button */}
           <button
             type="button"
             onClick={handlePrint}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-            title="พิมพ์หรือดาวน์โหลดเป็นไฟล์ PDF บนกระดาษ A4 แนวตั้ง"
+            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+            title="สั่งพิมพ์โดยตรงผ่านเครื่องพิมพ์"
           >
             <Printer className="w-4 h-4" />
-            <Download className="w-4 h-4" />
-            <span>พิมพ์ / ดาวน์โหลด PDF</span>
           </button>
 
           {/* Close Modal Button */}

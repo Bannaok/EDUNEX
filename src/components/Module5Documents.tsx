@@ -316,6 +316,19 @@ export const Module5Documents: React.FC<Module5Props> = ({
       }
     }
 
+    const extractedDriveId =
+      editingDoc?.driveFileId ||
+      (() => {
+        if (!finalFileUrl) return undefined;
+        const m1 = finalFileUrl.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]{20,})/);
+        if (m1 && m1[1]) return m1[1];
+        const m2 = finalFileUrl.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{20,})/);
+        if (m2 && m2[1]) return m2[1];
+        const m3 = finalFileUrl.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+        if (m3 && m3[1]) return m3[1];
+        return undefined;
+      })();
+
     const newDoc: DocumentItem = {
       id: editingDoc ? editingDoc.id : 'doc-' + Date.now(),
       docNumber: docNumber.trim() || '-',
@@ -328,7 +341,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
       fileName: fileName.trim() || (editingDoc ? editingDoc.fileName : trimmedTitle),
       fileSize: fileSize || (editingDoc ? editingDoc.fileSize : '1.0 MB'),
       fileData: finalFileUrl.startsWith('data:') ? finalFileUrl : (fileData || editingDoc?.fileData),
-      driveFileId: editingDoc?.driveFileId,
+      driveFileId: extractedDriveId,
       uploadedBy: editingDoc ? editingDoc.uploadedBy : user.fullName
     };
 
@@ -741,18 +754,16 @@ export const Module5Documents: React.FC<Module5Props> = ({
                     )}
                   </button>
 
-                  {user.role !== 'developer' && (
+                  {user.role === 'admin' && (
                     <>
-                      {user.role === 'admin' && (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenModal(doc)}
-                          className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                          title="แก้ไขเอกสาร"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenModal(doc)}
+                        className="p-1.5 text-slate-400 hover:text-teal-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                        title="แก้ไขเอกสาร"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => setConfirmDeleteDoc(doc)}
@@ -1061,21 +1072,19 @@ export const Module5Documents: React.FC<Module5Props> = ({
                 )}
               </button>
 
-              {user.role !== 'developer' && (
-                <div className={`grid ${user.role === 'admin' ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-                  {user.role === 'admin' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleOpenModal(selectedDocDetailModal);
-                        setSelectedDocDetailModal(null);
-                      }}
-                      className="py-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                    >
-                      <Edit className="w-4 h-4 text-emerald-600" />
-                      <span>แก้ไขเอกสาร</span>
-                    </button>
-                  )}
+              {user.role === 'admin' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenModal(selectedDocDetailModal);
+                      setSelectedDocDetailModal(null);
+                    }}
+                    className="py-2.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit className="w-4 h-4 text-emerald-600" />
+                    <span>แก้ไขเอกสาร</span>
+                  </button>
 
                   <button
                     type="button"
@@ -1118,7 +1127,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                 คุณต้องการลบ <span className="font-bold text-slate-800">"{confirmDeleteDoc.title}"</span> ใช่หรือไม่?
               </p>
               <p className="text-[11px] text-rose-600 font-medium">
-                เมื่อลบแล้วจะไม่สามารถกู้คืนเอกสารนี้ได้
+                เมื่อลบแล้ว รายการจะถูกลบออกจากเว็บไซต์ และไฟล์ใน Google Drive ของโรงเรียนจะถูกลบอัตโนมัติ
               </p>
             </div>
 
@@ -1140,7 +1149,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                   onShowToast(
                     'info',
                     'ลบสำเร็จ',
-                    `ลบ "${confirmDeleteDoc.title}" ออกจากระบบเรียบร้อยแล้ว`
+                    `ลบ "${confirmDeleteDoc.title}" และลบไฟล์ใน Google Drive ออกเรียบร้อยแล้ว`
                   );
                   setConfirmDeleteDoc(null);
                 }}

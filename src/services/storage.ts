@@ -552,6 +552,139 @@ function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], p
   return result;
 }
 
+// ============================================================================
+// DOCUMENT CENTER & ORDERS: MERGE LOGIC, DRIVE ID EXTRACTION & TOMBSTONES
+// Prevents documents from ever disappearing ("ห้ามหายเด็ดขาด") until Admin deletes
+// ============================================================================
+const deletedDocIdsSet = new Set<string>();
+
+if (typeof window !== 'undefined') {
+  try {
+    const raw = localStorage.getItem('ams_deleted_doc_ids');
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        arr.forEach(id => {
+          if (id) deletedDocIdsSet.add(String(id));
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function extractDriveFileIdClient(urlOrId?: string): string {
+  if (!urlOrId || typeof urlOrId !== 'string') return '';
+  const str = urlOrId.trim();
+  const m1 = str.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m1 && m1[1]) return m1[1];
+  const m2 = str.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]{20,})/);
+  if (m2 && m2[1]) return m2[1];
+  const m3 = str.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
+  if (m3 && m3[1]) return m3[1];
+  const m4 = str.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]{20,})/);
+  if (m4 && m4[1]) return m4[1];
+  if (/^[a-zA-Z0-9_-]{25,60}$/.test(str)) return str;
+  return '';
+}
+
+function isDocumentStorageKey(key: string): boolean {
+  return key === KEYS.DOCUMENTS || key.startsWith(`${KEYS.DOCUMENTS}__`);
+}
+
+function mergeSingleDocumentClient(existingDoc: DocumentItem, incomingDoc: DocumentItem, preferIncoming = true): DocumentItem {
+  if (!existingDoc) return incomingDoc;
+  if (!incomingDoc) return existingDoc;
+
+  const base: DocumentItem = preferIncoming ? { ...existingDoc, ...incomingDoc } : { ...incomingDoc, ...existingDoc };
+
+  const exUrl = String(existingDoc.fileUrl || '');
+  const inUrl = String(incomingDoc.fileUrl || '');
+  const exDriveId = existingDoc.driveFileId || extractDriveFileIdClient(exUrl);
+  const inDriveId = incomingDoc.driveFileId || extractDriveFileIdClient(inUrl);
+
+  if (inUrl.startsWith('http') && !inUrl.startsWith('/api/files/')) {
+    base.fileUrl = inUrl;
+  } else if (exUrl.startsWith('http') && !exUrl.startsWith('/api/files/')) {
+    base.fileUrl = exUrl;
+  } else if (inUrl.startsWith('/api/files/')) {
+    base.fileUrl = inUrl;
+  } else if (exUrl.startsWith('/api/files/')) {
+    base.fileUrl = exUrl;
+  } else if (inUrl.startsWith('data:')) {
+    base.fileUrl = inUrl;
+  } else if (exUrl.startsWith('data:')) {
+    base.fileUrl = exUrl;
+  }
+
+  base.driveFileId = inDriveId || exDriveId || base.driveFileId;
+  if ((!base.fileUrl || base.fileUrl === '#') && base.driveFileId) {
+    base.fileUrl = `https://drive.google.com/file/d/${base.driveFileId}/view?usp=sharing`;
+  }
+
+  if (existingDoc.fileData && !incomingDoc.fileData) {
+    base.fileData = existingDoc.fileData;
+  }
+
+  return base;
+}
+
+function mergeDocumentListsClient(
+  localList: DocumentItem[],
+  incomingList: DocumentItem[],
+  preferIncoming = true
+): DocumentItem[] {
+  if (!Array.isArray(localList)) {
+    return Array.isArray(incomingList)
+      ? incomingList.filter(d => d && d.id && !deletedDocIdsSet.has(d.id))
+      : [];
+  }
+  if (!Array.isArray(incomingList)) {
+    return localList.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
+  }
+
+  const localMap = new Map<string, DocumentItem>();
+  for (const d of localList) {
+    if (d && d.id && !deletedDocIdsSet.has(d.id)) {
+      localMap.set(d.id, d);
+    }
+  }
+
+  const incomingMap = new Map<string, DocumentItem>();
+  for (const d of incomingList) {
+    if (d && d.id && !deletedDocIdsSet.has(d.id)) {
+      incomingMap.set(d.id, d);
+    }
+  }
+
+  const result: DocumentItem[] = [];
+  const handledIds = new Set<string>();
+  const primaryList = preferIncoming ? incomingList : localList;
+
+  for (const item of primaryList) {
+    if (!item || !item.id || deletedDocIdsSet.has(item.id)) continue;
+    handledIds.add(item.id);
+    const loc = localMap.get(item.id);
+    const inc = incomingMap.get(item.id);
+    if (loc && inc) {
+      result.push(mergeSingleDocumentClient(loc, inc, preferIncoming));
+    } else {
+      result.push(item);
+    }
+  }
+
+  // Preserve any local document that has not arrived in incomingList yet (prevents disappearing on client)
+  for (const locItem of localList) {
+    if (!locItem || !locItem.id) continue;
+    if (!handledIds.has(locItem.id) && !deletedDocIdsSet.has(locItem.id)) {
+      result.push(locItem);
+    }
+  }
+
+  return result;
+}
+
 let lastDirectCloudPullTime = 0;
 
 function hasPendingBase64SubmissionInTasks(val: any): boolean {
@@ -667,6 +800,28 @@ function applyIncomingUpdates(
       const currentCachedTasks = memoryCache.get(resolvedKey);
       if (Array.isArray(currentCachedTasks)) {
         value = mergeTaskListsClient(currentCachedTasks, value, incomingTs >= localTs);
+      }
+    } else if (isDocumentStorageKey(resolvedKey) && Array.isArray(value)) {
+      const currentCachedDocs = memoryCache.get(resolvedKey);
+      if (Array.isArray(currentCachedDocs)) {
+        value = mergeDocumentListsClient(currentCachedDocs, value, incomingTs >= localTs);
+      } else {
+        value = value.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
+      }
+    } else if (resolvedKey === 'ams_deleted_doc_ids' && Array.isArray(value)) {
+      let changedTombstones = false;
+      for (const dId of value) {
+        if (dId && !deletedDocIdsSet.has(String(dId))) {
+          deletedDocIdsSet.add(String(dId));
+          changedTombstones = true;
+        }
+      }
+      if (changedTombstones && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_doc_ids', JSON.stringify(Array.from(deletedDocIdsSet).slice(-2000)));
+        } catch {
+          // ignore
+        }
       }
     } else if (locallyModifiedKeys.has(resolvedKey) && localTs > incomingTs) {
       continue;
@@ -2460,16 +2615,28 @@ export const StorageService = {
 
   // Documents
   getDocuments(): DocumentItem[] {
-    return getLocal<DocumentItem[]>(KEYS.DOCUMENTS, INITIAL_DOCUMENTS);
+    const list = getLocal<DocumentItem[]>(KEYS.DOCUMENTS, INITIAL_DOCUMENTS);
+    if (!Array.isArray(list)) return [];
+    if (deletedDocIdsSet.size === 0) return list;
+    return list.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
   },
 
   saveDocument(doc: DocumentItem): DocumentItem[] {
+    if (deletedDocIdsSet.has(doc.id)) {
+      deletedDocIdsSet.delete(doc.id);
+      try {
+        localStorage.setItem('ams_deleted_doc_ids', JSON.stringify(Array.from(deletedDocIdsSet).slice(-2000)));
+      } catch {
+        // ignore
+      }
+    }
+
     const list = this.getDocuments();
     const idx = list.findIndex(d => d.id === doc.id);
     let updated: DocumentItem[];
     if (idx >= 0) {
       updated = [...list];
-      updated[idx] = doc;
+      updated[idx] = mergeSingleDocumentClient(list[idx], doc, true);
     } else {
       updated = [doc, ...list];
     }
@@ -2497,7 +2664,11 @@ export const StorageService = {
             const dIdx = curDocs.findIndex(d => d.id === doc.id);
             if (dIdx >= 0) {
               const nextDocs = [...curDocs];
-              nextDocs[dIdx] = { ...nextDocs[dIdx], fileUrl: driveUrl };
+              nextDocs[dIdx] = {
+                ...nextDocs[dIdx],
+                fileUrl: driveUrl,
+                driveFileId: extractDriveFileIdClient(driveUrl) || nextDocs[dIdx].driveFileId
+              };
               setLocal(KEYS.DOCUMENTS, nextDocs, false);
             }
           }
@@ -2511,7 +2682,7 @@ export const StorageService = {
         const dIdx = curDocs.findIndex(d => d.id === doc.id);
         if (dIdx >= 0) {
           const nextDocs = [...curDocs];
-          nextDocs[dIdx] = { ...nextDocs[dIdx], ...res.document };
+          nextDocs[dIdx] = mergeSingleDocumentClient(nextDocs[dIdx], res.document, true);
           setLocal(KEYS.DOCUMENTS, nextDocs, true);
         }
       }
@@ -2523,12 +2694,54 @@ export const StorageService = {
     const list = this.getDocuments();
     const targetDoc = list.find(d => d.id === id);
     const updated = list.filter(d => d.id !== id);
+
+    // 1. Add to deleted tombstone set permanently
+    deletedDocIdsSet.add(id);
+    try {
+      localStorage.setItem('ams_deleted_doc_ids', JSON.stringify(Array.from(deletedDocIdsSet).slice(-2000)));
+    } catch {
+      // ignore
+    }
+
     setLocal(KEYS.DOCUMENTS, updated);
+
+    // Sync deleted IDs list to server & Firestore
+    const now = Date.now();
+    pushToRemoteServer('ams_deleted_doc_ids', Array.from(deletedDocIdsSet).slice(-2000), now);
+
+    const fileUrl = targetDoc?.fileUrl || '';
+    const driveFileId = (targetDoc as any)?.driveFileId || extractDriveFileIdClient(fileUrl);
+
+    // 2. Remove local hosted file and trigger server/GAS Drive deletion
+    fetch('/api/files/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        documentId: id,
+        fileUrl,
+        fileId: fileUrl.startsWith('/api/files/') ? fileUrl.replace('/api/files/', '').split('?')[0] : '',
+        driveFileId,
+        schoolId: getActiveSchoolId() || 'admin-school-01'
+      })
+    }).catch(() => {});
+
+    // 3. Call Google Apps Script deleteDocument (removes row from sheet and trashes file from Google Drive)
     this.syncPostToGoogle('deleteDocument', {
       id,
-      fileUrl: targetDoc?.fileUrl,
-      driveFileId: (targetDoc as any)?.driveFileId
-    });
+      docId: id,
+      fileUrl,
+      driveFileId
+    }).catch(() => {});
+
+    // 4. Also call Google Apps Script deleteDriveFile directly if Drive ID exists
+    if (driveFileId) {
+      this.syncPostToGoogle('deleteDriveFile', {
+        fileId: driveFileId,
+        driveFileId,
+        fileUrl
+      }).catch(() => {});
+    }
+
     return updated;
   },
 

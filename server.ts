@@ -121,6 +121,24 @@ function loadServerHostedFile(fileId: string): { id: string; fileName: string; d
   }
 }
 
+function deleteServerHostedFile(fileId: string): boolean {
+  const safeId = String(fileId || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (!safeId) return false;
+  try {
+    const filePath = path.join(FILES_DIR, `${safeId}.json`);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+// Server-side Document Center Tombstones
+const deletedDocIdsServer = new Set<string>();
+
 // Load initial state from disk
 let state: PersistedState = {
   rev: 1,
@@ -142,6 +160,11 @@ if (fs.existsSync(STORE_FILE)) {
       for (const k of Object.keys(state.store)) {
         if (!state.timestamps[k]) {
           state.timestamps[k] = now - 60000;
+        }
+      }
+      if (Array.isArray(state.store['ams_deleted_doc_ids'])) {
+        for (const id of state.store['ams_deleted_doc_ids']) {
+          if (id) deletedDocIdsServer.add(String(id));
         }
       }
     }
@@ -299,12 +322,18 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
 
       const localTs = Number(state.timestamps[item.key]) || 0;
       const isTask = isTaskKeyName(item.key);
-      const nextValue = isTask && item.key in state.store ? mergeTaskListsServer(state.store[item.key], item.value) : item.value;
+      const isDoc = isDocumentKeyName(item.key);
+      const nextValue =
+        isTask && item.key in state.store
+          ? mergeTaskListsServer(state.store[item.key], item.value)
+          : isDoc && item.key in state.store
+          ? mergeDocumentListsServer(state.store[item.key], item.value)
+          : item.value;
       const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
       const remoteSerialized = JSON.stringify(item.value);
       const nextSerialized = JSON.stringify(nextValue);
 
-      if (!(item.key in state.store) || item.updatedAt > localTs || (isTask && nextSerialized !== localSerialized)) {
+      if (!(item.key in state.store) || item.updatedAt > localTs || ((isTask || isDoc) && nextSerialized !== localSerialized)) {
         const effTs = Math.max(localTs, item.updatedAt || Date.now());
         state.store[item.key] = nextValue;
         state.timestamps[item.key] = effTs;
@@ -314,7 +343,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
           appliedCount++;
         }
       }
-      if (isTask && nextSerialized !== remoteSerialized) {
+      if ((isTask || isDoc) && nextSerialized !== remoteSerialized) {
         keysToPushBack.push(item.key);
       }
     }
@@ -371,15 +400,18 @@ function startServerFirestoreListener() {
 
             const localTs = Number(state.timestamps[resolved.key]) || 0;
             const isTask = isTaskKeyName(resolved.key);
+            const isDoc = isDocumentKeyName(resolved.key);
             const nextValue =
               isTask && resolved.key in state.store
                 ? mergeTaskListsServer(state.store[resolved.key], resolved.value)
+                : isDoc && resolved.key in state.store
+                ? mergeDocumentListsServer(state.store[resolved.key], resolved.value)
                 : resolved.value;
             const prevSerialized =
               resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
             const nextSerialized = JSON.stringify(nextValue);
 
-            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || (isTask && prevSerialized !== nextSerialized)) {
+            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || ((isTask || isDoc) && prevSerialized !== nextSerialized)) {
               const effTs = Math.max(localTs, resolved.updatedAt || Date.now());
               state.store[resolved.key] = nextValue;
               state.timestamps[resolved.key] = effTs;
@@ -737,6 +769,91 @@ function isTaskKeyName(key: string): boolean {
   return key === 'ams_tasks' || key.startsWith('ams_tasks__');
 }
 
+function mergeSingleDocumentServer(existingDoc: any, incomingDoc: any): any {
+  if (!existingDoc || typeof existingDoc !== 'object') return incomingDoc;
+  if (!incomingDoc || typeof incomingDoc !== 'object') return existingDoc;
+
+  const result = { ...existingDoc, ...incomingDoc };
+
+  const exUrl = String(existingDoc.fileUrl || '');
+  const inUrl = String(incomingDoc.fileUrl || '');
+  const exDriveId = existingDoc.driveFileId || extractDriveIdServer(exUrl);
+  const inDriveId = incomingDoc.driveFileId || extractDriveIdServer(inUrl);
+
+  if (inUrl.startsWith('http') && !inUrl.startsWith('/api/files/')) {
+    result.fileUrl = inUrl;
+  } else if (exUrl.startsWith('http') && !exUrl.startsWith('/api/files/')) {
+    result.fileUrl = exUrl;
+  } else if (inUrl.startsWith('/api/files/')) {
+    result.fileUrl = inUrl;
+  } else if (exUrl.startsWith('/api/files/')) {
+    result.fileUrl = exUrl;
+  } else if (inUrl.startsWith('data:')) {
+    result.fileUrl = inUrl;
+  } else if (exUrl.startsWith('data:')) {
+    result.fileUrl = exUrl;
+  }
+
+  result.driveFileId = inDriveId || exDriveId || result.driveFileId;
+  if (!result.fileUrl && result.driveFileId) {
+    result.fileUrl = `https://drive.google.com/file/d/${result.driveFileId}/view?usp=sharing`;
+  }
+  result.localHostedUrl = incomingDoc.localHostedUrl || existingDoc.localHostedUrl;
+
+  return result;
+}
+
+function mergeDocumentListsServer(existingList: any, incomingList: any): any {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(existingList)
+      ? existingList.filter(d => d && d.id && !deletedDocIdsServer.has(String(d.id)))
+      : [];
+  }
+  if (!Array.isArray(existingList) || existingList.length === 0) {
+    return incomingList.filter(d => d && d.id && !deletedDocIdsServer.has(String(d.id)));
+  }
+
+  const existingMap = new Map<string, any>();
+  for (const d of existingList) {
+    if (d && d.id && !deletedDocIdsServer.has(String(d.id))) {
+      existingMap.set(String(d.id), d);
+    }
+  }
+
+  const incomingMap = new Map<string, any>();
+  for (const d of incomingList) {
+    if (d && d.id && !deletedDocIdsServer.has(String(d.id))) {
+      incomingMap.set(String(d.id), d);
+    }
+  }
+
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+
+  for (const incDoc of incomingList) {
+    if (!incDoc || !incDoc.id || deletedDocIdsServer.has(String(incDoc.id))) continue;
+    const docId = String(incDoc.id);
+    handledIds.add(docId);
+    const exDoc = existingMap.get(docId);
+    if (exDoc) {
+      result.push(mergeSingleDocumentServer(exDoc, incDoc));
+    } else {
+      result.push(incDoc);
+    }
+  }
+
+  // Preserve any document that exists in existingList but has not reached incomingList yet (prevents disappearing documents)
+  for (const exDoc of existingList) {
+    if (!exDoc || !exDoc.id) continue;
+    const docId = String(exDoc.id);
+    if (!handledIds.has(docId) && !deletedDocIdsServer.has(docId)) {
+      result.push(exDoc);
+    }
+  }
+
+  return result;
+}
+
 function buildCloudKvRow(key: string, value: any, updatedAt: number): Record<string, any> | null {
   try {
     let serialized = JSON.stringify(value);
@@ -882,12 +999,17 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
 
       const localTs = Number(state.timestamps[key]) || 0;
       const isTask = isTaskKeyName(key);
-      const nextValue = isTask ? mergeTaskListsServer(state.store[key], value) : value;
+      const isDoc = isDocumentKeyName(key);
+      const nextValue = isTask
+        ? mergeTaskListsServer(state.store[key], value)
+        : isDoc
+        ? mergeDocumentListsServer(state.store[key], value)
+        : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
       const remoteSerialized = JSON.stringify(value);
       const cloudSerialized = JSON.stringify(nextValue);
 
-      if (!(key in state.store) || updatedAt > localTs || (isTask && localSerialized !== cloudSerialized)) {
+      if (!(key in state.store) || updatedAt > localTs || ((isTask || isDoc) && localSerialized !== cloudSerialized)) {
         const effTs = Math.max(localTs, updatedAt || Date.now());
         state.store[key] = nextValue;
         state.timestamps[key] = effTs;
@@ -898,7 +1020,7 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         }
       }
 
-      if (isTask && cloudSerialized !== remoteSerialized) {
+      if ((isTask || isDoc) && cloudSerialized !== remoteSerialized) {
         keysToPushBack.push(key);
       }
     }
@@ -1340,6 +1462,59 @@ async function startServer() {
     }
   });
 
+  // Direct file delete endpoint: cleans up local cache and deletes file from Google Drive
+  app.post('/api/files/delete', async (req, res) => {
+    try {
+      const { fileId, fileUrl, driveFileId, schoolId, documentId } = req.body || {};
+      const safeDocId = documentId ? String(documentId).trim() : '';
+      if (safeDocId) {
+        deletedDocIdsServer.add(safeDocId);
+        state.store['ams_deleted_doc_ids'] = Array.from(deletedDocIdsServer).slice(-2000);
+        for (const k of Object.keys(state.store)) {
+          if (isDocumentKeyName(k) && Array.isArray(state.store[k])) {
+            state.store[k] = state.store[k].filter((d: any) => d && d.id !== safeDocId);
+          }
+        }
+        scheduleDiskSave();
+      }
+
+      // 1. Delete local hosted cache
+      if (fileId) {
+        deleteServerHostedFile(fileId);
+      }
+      if (fileUrl && typeof fileUrl === 'string' && fileUrl.startsWith('/api/files/')) {
+        const fId = fileUrl.replace('/api/files/', '').split('?')[0];
+        deleteServerHostedFile(fId);
+      }
+
+      // 2. Trash file from Google Drive via Google Apps Script
+      const driveId = driveFileId || extractDriveIdServer(fileUrl || '');
+      if (driveId) {
+        const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+        const matchedAdmin = admins.find(a => a && a.id === (schoolId || 'admin-school-01'));
+        fetch(getGasWebAppUrl(), {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'deleteDriveFile',
+            fileId: driveId,
+            driveFileId: driveId,
+            fileUrl: fileUrl || `https://drive.google.com/file/d/${driveId}/view`,
+            spreadsheetId: matchedAdmin?.googleSheetId || '',
+            schoolId: schoolId || 'admin-school-01',
+            schoolName: matchedAdmin?.schoolName || '',
+            schoolDriveFolderId: matchedAdmin?.driveFolderId || '',
+            driveFolderId: getDriveFolderId()
+          })
+        }).catch(() => {});
+      }
+
+      res.json({ status: 'success', message: 'File delete request processed' });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err?.message || 'Delete failed' });
+    }
+  });
+
   // 1. Server-Sent Events (SSE) Real-Time Stream
   app.get('/api/realtime/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -1434,7 +1609,20 @@ async function startServer() {
             }
             finalValue = ensureTaskFilesHostedAndUploaded(key, finalValue);
           } else if (isDocumentKeyName(key)) {
+            if (key in state.store) {
+              finalValue = mergeDocumentListsServer(state.store[key], value);
+            }
             finalValue = ensureDocumentFilesHostedAndUploaded(key, finalValue);
+          } else if (key === 'ams_deleted_doc_ids' && Array.isArray(value)) {
+            for (const dId of value) {
+              if (dId) deletedDocIdsServer.add(String(dId));
+            }
+            // Purge deleted documents from all loaded stores immediately
+            for (const k of Object.keys(state.store)) {
+              if (isDocumentKeyName(k) && Array.isArray(state.store[k])) {
+                state.store[k] = state.store[k].filter((d: any) => d && d.id && !deletedDocIdsServer.has(String(d.id)));
+              }
+            }
           }
           state.store[key] = finalValue;
         }

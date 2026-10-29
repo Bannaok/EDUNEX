@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   SchoolAdminAccount, 
   MemberAccount, 
@@ -140,6 +140,47 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
   const [adminToDelete, setAdminToDelete] = useState<SchoolAdminAccount | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<MemberAccount | null>(null);
 
+  // Modal States: Change Admin Password & Member Password
+  const [adminToChangePassword, setAdminToChangePassword] = useState<SchoolAdminAccount | null>(null);
+  const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
+  const [memberToChangePassword, setMemberToChangePassword] = useState<MemberAccount | null>(null);
+  const [newMemberPasswordInput, setNewMemberPasswordInput] = useState('');
+
+  // Auto-provision Google Sheet & Drive Folder for any Admin that is missing a real Google Sheet ID
+  const autoProvisionedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const adm of admins) {
+      const hasRealSheet =
+        adm.googleSheetId &&
+        typeof adm.googleSheetId === 'string' &&
+        adm.googleSheetId.trim().length >= 15 &&
+        !adm.googleSheetId.trim().startsWith('sheet_');
+      if (!hasRealSheet && !autoProvisionedRef.current.has(adm.id)) {
+        autoProvisionedRef.current.add(adm.id);
+        setIsCreatingSheetForAdmin(adm.id);
+        StorageService.createSchoolGoogleSheet(adm.schoolName, adm.schoolCode, adm.id, adm)
+          .then(res => {
+            if (res.success && res.spreadsheetId && !res.spreadsheetId.startsWith('sheet_')) {
+              const latest = StorageService.getAdmins().find(a => a.id === adm.id);
+              if (latest) {
+                StorageService.saveAdmin({
+                  ...latest,
+                  googleSheetId: res.spreadsheetId,
+                  googleSheetUrl: res.spreadsheetUrl,
+                  driveFolderId: res.driveFolderId || latest.driveFolderId,
+                  driveFolderUrl: res.driveFolderUrl || latest.driveFolderUrl
+                });
+                onRefreshData();
+              }
+            }
+          })
+          .finally(() => {
+            setIsCreatingSheetForAdmin(prev => (prev === adm.id ? null : prev));
+          });
+      }
+    }
+  }, [admins, onRefreshData]);
+
   const handleUpdateDevPassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDevPassword.trim() || newDevPassword.trim().length < 4) {
@@ -150,6 +191,56 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     setIsChangeDevPassOpen(false);
     setNewDevPassword('');
     onShowToast('success', 'เปลี่ยนรหัสผ่านสำเร็จ', 'อัปเดตรหัสผ่านของ Developer (airfan) เรียบร้อยแล้ว');
+  };
+
+  const openChangeAdminPasswordModal = (admin: SchoolAdminAccount) => {
+    setAdminToChangePassword(admin);
+    setNewAdminPasswordInput(admin.password || '123456');
+  };
+
+  const handleConfirmChangeAdminPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminToChangePassword) return;
+    const cleanPass = newAdminPasswordInput.trim();
+    if (!cleanPass) {
+      onShowToast('warning', 'กรุณาระบุรหัสผ่าน', 'รหัสผ่านของ Admin ห้ามว่าง');
+      return;
+    }
+    const target = adminToChangePassword;
+    StorageService.updateAdminPassword(target.id, cleanPass);
+    setAdminToChangePassword(null);
+    setNewAdminPasswordInput('');
+    onRefreshData();
+    onShowToast(
+      'success',
+      'เปลี่ยนรหัสผ่าน Admin สำเร็จ ✓',
+      `อัปเดตรหัสผ่านของ "${target.username}" (${target.schoolName}) เป็น "${cleanPass}" เรียบร้อยแล้ว`
+    );
+  };
+
+  const openChangeMemberPasswordModal = (member: MemberAccount) => {
+    setMemberToChangePassword(member);
+    setNewMemberPasswordInput(member.password || '123');
+  };
+
+  const handleConfirmChangeMemberPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!memberToChangePassword) return;
+    const cleanPass = newMemberPasswordInput.trim();
+    if (!cleanPass) {
+      onShowToast('warning', 'กรุณาระบุรหัสผ่าน', 'รหัสผ่านของสมาชิกห้ามว่าง');
+      return;
+    }
+    const target = memberToChangePassword;
+    StorageService.updateMemberPassword(target.id, cleanPass);
+    setMemberToChangePassword(null);
+    setNewMemberPasswordInput('');
+    onRefreshData();
+    onShowToast(
+      'success',
+      'เปลี่ยนรหัสผ่านสมาชิกสำเร็จ ✓',
+      `อัปเดตรหัสผ่านของ "${target.fullName}" (ID: ${target.username}) เป็น "${cleanPass}" เรียบร้อยแล้ว`
+    );
   };
 
   const toggleShowPassword = (id: string) => {
@@ -341,11 +432,11 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
     StorageService.createSchoolGoogleSheet(cleanSchoolName, cleanSchoolCode, adminId, newAdmin)
       .then(sheetRes => {
         if (sheetRes.success && sheetRes.spreadsheetId) {
-          // Ensure the admin wasn't deleted while sheet was being created
-          const stillExists = StorageService.getAdmins().some(a => a.id === adminId);
-          if (stillExists) {
+          // Ensure the admin wasn't deleted while sheet was being created, and merge into latest admin state
+          const latestAdmin = StorageService.getAdmins().find(a => a.id === adminId);
+          if (latestAdmin) {
             const updatedAdmin: SchoolAdminAccount = {
-              ...newAdmin,
+              ...latestAdmin,
               googleSheetId: sheetRes.spreadsheetId,
               googleSheetUrl: sheetRes.spreadsheetUrl,
               driveFolderId: sheetRes.driveFolderId,
@@ -799,6 +890,15 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                               >
                                 {isPassVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
+                              <button
+                                type="button"
+                                onClick={() => openChangeAdminPasswordModal(adm)}
+                                className="px-2 py-0.5 rounded-md bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 hover:text-white border border-indigo-500/30 text-[10px] font-sans font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                title="เปลี่ยนรหัสผ่านของ Admin โรงเรียนนี้"
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                <span>เปลี่ยนรหัส</span>
+                              </button>
                             </div>
                           </div>
 
@@ -825,7 +925,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                                 <RefreshCw className="w-3 h-3 animate-spin" />
                                 <span>กำลังสร้างในพื้นหลัง...</span>
                               </span>
-                            ) : adm.googleSheetUrl ? (
+                            ) : adm.googleSheetId && !adm.googleSheetId.startsWith('sheet_') && adm.googleSheetUrl ? (
                               <a
                                 href={adm.googleSheetUrl}
                                 target="_blank"
@@ -846,7 +946,7 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                               </button>
                             )}
                           </div>
-                          {adm.googleSheetId && (
+                          {adm.googleSheetId && !adm.googleSheetId.startsWith('sheet_') && (
                             <p className="text-[10px] text-slate-500 font-mono truncate" title={adm.googleSheetId}>
                               Sheet ID: {adm.googleSheetId}
                             </p>
@@ -960,32 +1060,44 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                       </div>
 
                       <div className="pt-2.5 border-t border-slate-700/60 flex items-center justify-between gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleSuspendAdmin(adm)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
-                            isSuspended
-                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-xs'
-                              : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
-                          }`}
-                          title={
-                            isSuspended
-                              ? 'คลิกเพื่อยกเลิกการระงับ ให้ Admin และสมาชิกในสังกัดกลับมาใช้งานได้'
-                              : 'คลิกเพื่อระงับการใช้งานชั่วคราว (Admin และสมาชิกของโรงเรียนนี้จะเข้าใช้งานไม่ได้ชั่วคราว)'
-                          }
-                        >
-                          {isSuspended ? (
-                            <>
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>ยกเลิกการระงับ</span>
-                            </>
-                          ) : (
-                            <>
-                              <Ban className="w-3.5 h-3.5 shrink-0" />
-                              <span>ระงับใช้งานชั่วคราว</span>
-                            </>
-                          )}
-                        </button>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleSuspendAdmin(adm)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                              isSuspended
+                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-xs'
+                                : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30'
+                            }`}
+                            title={
+                              isSuspended
+                                ? 'คลิกเพื่อยกเลิกการระงับ ให้ Admin และสมาชิกในสังกัดกลับมาใช้งานได้'
+                                : 'คลิกเพื่อระงับการใช้งานชั่วคราว (Admin และสมาชิกของโรงเรียนนี้จะเข้าใช้งานไม่ได้ชั่วคราว)'
+                            }
+                          >
+                            {isSuspended ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>ยกเลิกการระงับ</span>
+                              </>
+                            ) : (
+                              <>
+                                <Ban className="w-3.5 h-3.5 shrink-0" />
+                                <span>ระงับใช้งานชั่วคราว</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openChangeAdminPasswordModal(adm)}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 bg-indigo-500/15 hover:bg-indigo-500/30 text-indigo-300 hover:text-white border border-indigo-500/30 transition-all cursor-pointer"
+                            title="เปลี่ยนรหัสผ่านของ Admin โรงเรียนนี้"
+                          >
+                            <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                            <span>เปลี่ยนรหัส</span>
+                          </button>
+                        </div>
 
                         <button
                           type="button"
@@ -1123,18 +1235,37 @@ export const DeveloperConsole: React.FC<DeveloperConsoleProps> = ({
                                     >
                                       {isPassVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                                     </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openChangeMemberPasswordModal(mem)}
+                                      className="px-1.5 py-0.5 rounded bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 hover:text-white border border-blue-500/30 text-[10px] font-sans font-bold flex items-center gap-1 transition-all cursor-pointer"
+                                      title="เปลี่ยนรหัสผ่านสมาชิกคนนี้"
+                                    >
+                                      <KeyRound className="w-2.5 h-2.5" />
+                                      <span>เปลี่ยนรหัส</span>
+                                    </button>
                                   </div>
                                 </div>
                               </td>
                               <td className="py-3 px-3 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteMember(mem)}
-                                  className="p-1.5 hover:bg-rose-500/20 text-slate-500 hover:text-rose-300 rounded-lg transition-colors cursor-pointer"
-                                  title="ลบสมาชิกนี้"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openChangeMemberPasswordModal(mem)}
+                                    className="p-1.5 hover:bg-blue-500/20 text-blue-400 hover:text-blue-200 rounded-lg transition-colors cursor-pointer"
+                                    title="เปลี่ยนรหัสผ่านสมาชิกนี้"
+                                  >
+                                    <KeyRound className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMember(mem)}
+                                    className="p-1.5 hover:bg-rose-500/20 text-slate-500 hover:text-rose-300 rounded-lg transition-colors cursor-pointer"
+                                    title="ลบสมาชิกนี้"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2595,6 +2726,156 @@ pages_build_output_dir = "dist"`}
                 ยืนยันลบสมาชิก
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 9: Change Admin Password */}
+      {adminToChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-indigo-500/60 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">เปลี่ยนรหัสผ่าน Admin โรงเรียน</h3>
+                  <p className="text-[11px] text-slate-400">อัปเดตรหัสผ่านพร้อมซิงค์ลงฐานข้อมูลทันที</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminToChangePassword(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">โรงเรียน:</span>
+                <strong className="text-white">{adminToChangePassword.schoolName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ID (Username):</span>
+                <strong className="text-indigo-300 font-mono">{adminToChangePassword.username}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">รหัสผ่านปัจจุบัน:</span>
+                <span className="text-amber-300 font-mono">{adminToChangePassword.password || '123456'}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmChangeAdminPassword} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  ระบุรหัสผ่านใหม่ (New Password) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newAdminPasswordInput}
+                  onChange={(e) => setNewAdminPasswordInput(e.target.value)}
+                  placeholder="กรอกรหัสผ่านใหม่ของ Admin..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setAdminToChangePassword(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                >
+                  บันทึกรหัสผ่านใหม่
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 10: Change Member Password */}
+      {memberToChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-blue-500/60 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">เปลี่ยนรหัสผ่านสมาชิก (บุคลากร)</h3>
+                  <p className="text-[11px] text-slate-400">อัปเดตรหัสผ่านพร้อมซิงค์ลงฐานข้อมูลทันที</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMemberToChangePassword(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-400">ชื่อ - นามสกุล:</span>
+                <strong className="text-white">{memberToChangePassword.fullName}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">สังกัดโรงเรียน:</span>
+                <span className="text-indigo-300">{memberToChangePassword.schoolName || 'โรงเรียนหลัก'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">ID (Username):</span>
+                <strong className="text-emerald-400 font-mono">{memberToChangePassword.username}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">รหัสผ่านปัจจุบัน:</span>
+                <span className="text-amber-300 font-mono">{memberToChangePassword.password || '123'}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmChangeMemberPassword} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1.5">
+                  ระบุรหัสผ่านใหม่ (New Password) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newMemberPasswordInput}
+                  onChange={(e) => setNewMemberPasswordInput(e.target.value)}
+                  placeholder="กรอกรหัสผ่านใหม่ของสมาชิก..."
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setMemberToChangePassword(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-md cursor-pointer"
+                >
+                  บันทึกรหัสผ่านใหม่
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

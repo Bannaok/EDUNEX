@@ -442,9 +442,43 @@ function isRealDriveFolderId(id) {
 }
 
 /**
+ * ย้ายไฟล์ (เช่น Google Sheet ที่เพิ่งสร้าง) เข้าสู่โฟลเดอร์โรงเรียนโดยรองรับทั้ง Google Apps Script V8 (file.moveTo) และรุ่นเก่า
+ */
+function moveFileToFolderSafe(fileId, targetFolder) {
+  if (!fileId || !targetFolder) return false;
+  try {
+    var file = DriveApp.getFileById(String(fileId).trim());
+    if (!file) return false;
+    // ตรวจสอบว่าไฟล์อยู่ในโฟลเดอร์เป้าหมายแล้วหรือยัง
+    try {
+      var parents = file.getParents();
+      var targetId = targetFolder.getId();
+      while (parents.hasNext()) {
+        if (parents.next().getId() === targetId) {
+          return true;
+        }
+      }
+    } catch (pErr) {}
+
+    if (typeof file.moveTo === 'function') {
+      file.moveTo(targetFolder);
+      return true;
+    } else if (typeof targetFolder.addFile === 'function') {
+      targetFolder.addFile(file);
+      try {
+        DriveApp.getRootFolder().removeFile(file);
+      } catch (rmErr) {}
+      return true;
+    }
+  } catch (err) {}
+  return false;
+}
+
+/**
  * สร้าง Google Sheet ใหม่แยกเฉพาะโรงเรียน พร้อมโฟลเดอร์ Google Drive ประจำโรงเรียน
  * ข้อบังคับ Version 5.0:
  * - สร้างเฉพาะโฟลเดอร์โรงเรียน 1 อันเท่านั้น (ชื่อ "[โรงเรียน] <ชื่อโรงเรียน>")
+ * - ย้ายไฟล์ Google Sheet ของโรงเรียนเข้าไปอยู่ในโฟลเดอร์โรงเรียนนั้นทันที!
  * - ห้ามสร้างโฟลเดอร์ย่อยหรือโฟลเดอร์หน้าอื่นๆ อย่างเด็ดขาด!
  */
 function handleCreateSchoolSheet(payload) {
@@ -476,6 +510,10 @@ function handleCreateSchoolSheet(payload) {
         if (isRealSpreadsheetId(ea.googleSheetId)) {
           try {
             var existingSS = SpreadsheetApp.openById(String(ea.googleSheetId).trim());
+            // ย้ายไฟล์ Google Sheet เข้าไปไว้ในโฟลเดอร์โรงเรียนด้วยเสมอ (กรณีไฟล์เดิมอยู่หน้าแรกของ My Drive)
+            if (schoolFolder) {
+              moveFileToFolderSafe(existingSS.getId(), schoolFolder);
+            }
             // อัปเดต driveFolderId & driveFolderUrl ให้ Admin หากยังไม่มี
             if (schoolFolderId && (!ea.driveFolderId || ea.driveFolderId !== schoolFolderId)) {
               var adminHeadersExisting = ['id', 'username', 'password', 'fullName', 'schoolName', 'schoolCode', 'affiliation', 'directorName', 'googleSheetId', 'googleSheetUrl', 'driveFolderId', 'driveFolderUrl', 'isSuspended', 'createdAt'];
@@ -503,7 +541,7 @@ function handleCreateSchoolSheet(payload) {
   var newId = newSS.getId();
   var newUrl = newSS.getUrl();
 
-  // 3. ย้ายไฟล์ Google Sheet ไปไว้ในโฟลเดอร์ประจำโรงเรียนบน Google Drive
+  // 3. ย้ายไฟล์ Google Sheet ไปไว้ในโฟลเดอร์ประจำโรงเรียนบน Google Drive (ใช้ file.moveTo สำหรับ V8)
   try {
     if (!schoolFolder) {
       schoolFolder = getOrCreateSchoolFolder(schoolName, rootFolderId);
@@ -511,15 +549,11 @@ function handleCreateSchoolSheet(payload) {
     if (schoolFolder) {
       schoolFolderId = schoolFolder.getId();
       schoolFolderUrl = schoolFolder.getUrl();
-      var file = DriveApp.getFileById(newId);
-      schoolFolder.addFile(file);
-      try {
-        DriveApp.getRootFolder().removeFile(file);
-      } catch (rmErr) {}
+      moveFileToFolderSafe(newId, schoolFolder);
     }
   } catch (folderErr) {}
 
-  // สร้างแท็บตารางมาตรฐานครบทุกโมดูลใน Google Sheet ของโรงเรียน
+  // สร้างแท็บตารางหลักใน Google Sheet ของโรงเรียน (แท็บอื่นๆ จะถูกสร้างอัตโนมัติผ่าน getOrCreateSheet เมื่อมีการบันทึกข้อมูล เพื่อความรวดเร็วสูงสุด)
   var defaultSheets = [
     { name: 'Settings', headers: ['schoolName', 'schoolCode', 'affiliation', 'address', 'phone', 'email', 'directorName', 'academicYear', 'semester', 'logoUrl', 'driveLogoUrl', 'updatedAt'] },
     { name: 'Students', headers: ['id', 'rollNumber', 'studentCode', 'prefix', 'firstName', 'lastName', 'nickname', 'gender', 'birthDate', 'age', 'religion', 'gradeLevel', 'room', 'address', 'fatherName', 'fatherPhone', 'motherName', 'motherPhone', 'guardianName', 'guardianPhone', 'dailyAllowance', 'photoUrl', 'status', 'fullDataJson'] },
@@ -527,28 +561,11 @@ function handleCreateSchoolSheet(payload) {
     { name: 'Subjects', headers: ['id', 'code', 'name', 'gradeLevel', 'credits', 'hoursPerYear', 'subjectGroup', 'semester', 'academicYear', 'teacherId', 'teacherName', 'scoreRatio', 'assignmentItemsJson'] },
     { name: 'Grades', headers: ['id', 'studentId', 'subjectId', 'semester', 'academicYear', 'assignmentScoresJson', 'collectedScore', 'midtermScore', 'finalScore', 'totalScore', 'grade'] },
     { name: 'Attendance', headers: ['id', 'date', 'studentId', 'status', 'note', 'semester', 'academicYear'] },
-    { name: 'AttendanceConfig', headers: ['id', 'semester', 'academicYear', 'startDate', 'endDate', 'targetDays', 'holidaysJson', 'schoolDaysJson'] },
-    { name: 'Savings', headers: ['id', 'date', 'studentId', 'type', 'amount', 'balanceAfter', 'note', 'recordedBy', 'semester', 'academicYear'] },
-    { name: 'DailyTracking', headers: ['id', 'date', 'studentId', 'milkStatus', 'toothBrushing', 'semester', 'academicYear'] },
     { name: 'Tasks', headers: ['id', 'title', 'description', 'type', 'priority', 'dueDate', 'isCompleted', 'isManualCompleted', 'createdBy', 'assignedTo', 'attachmentUrl', 'submissionsCount', 'submissionsJson'] },
-    { name: 'TaskSubmissions', headers: ['id', 'taskId', 'taskTitle', 'memberId', 'memberName', 'fileName', 'fileSize', 'fileUrl', 'submittedAt'] },
     { name: 'Documents', headers: ['id', 'docNumber', 'title', 'docType', 'category', 'date', 'fileUrl', 'fileName', 'fileSize', 'uploadedBy', 'driveFileId'] },
-    { name: 'Websites', headers: ['id', 'title', 'url', 'category', 'description', 'isOfficial', 'logoUrl'] },
-    { name: 'Calendar', headers: ['id', 'title', 'date', 'type', 'description', 'announcement', 'taskDue', 'taskPriority', 'linkedTaskIdsJson'] },
     { name: 'Members', headers: ['id', 'username', 'password', 'prefix', 'fullName', 'firstName', 'lastName', 'role', 'gradeLevel', 'position', 'learningGroup', 'schoolId', 'schoolName', 'isSuspended', 'avatarUrl'] },
     { name: 'LeaveRequests', headers: ['id', 'teacherName', 'leaveType', 'startDate', 'endDate', 'reason', 'contactAddress', 'mobilePhone', 'directorName', 'personnelOfficer', 'status', 'createdAt', 'priorSickDays', 'priorPersonalDays', 'priorMaternityDays'] },
-    { name: 'DutyAssignments', headers: ['id', 'dayOfWeek', 'teacherNames', 'dutyType', 'location', 'note'] },
-    { name: 'DailyDutyLogs', headers: ['id', 'date', 'dayOfWeek', 'dutyTeachers', 'dutyTimeSlot', 'absentTeachersCount', 'absentTeachersDetail', 'studentsMalePresent', 'studentsFemalePresent', 'incidentMorning', 'incidentNoon', 'incidentAfternoon', 'overallStatus', 'AllowanceNote', 'recorderName', 'createdAt'] },
-    { name: 'BehaviorEvaluations', headers: ['id', 'studentId', 'sessionId', 'academicYear', 'semester', 'score', 'level', 'comment', 'evaluatedBy', 'updatedAt', 'fullDataJson'] },
-    { name: 'CommentSessions', headers: ['id', 'title', 'date', 'academicYear', 'semester', 'createdAt'] },
-    { name: 'PhorPhor6', headers: ['id', 'studentId', 'academicYear', 'semester', 'gradeLevel', 'teacherComment', 'directorComment', 'updatedAt', 'fullDataJson'] },
-    { name: 'Assessment3Booklets', headers: ['id', 'studentId', 'academicYear', 'semester', 'readingScore', 'characteristicsScore', 'competenciesScore', 'activityResult', 'updatedAt', 'fullDataJson'] },
-    { name: 'ReadingWriting', headers: ['id', 'academicYear', 'semester', 'gradeLevel', 'dataJson', 'updatedAt'] },
-    { name: 'WeightHeight', headers: ['id', 'sessionId', 'academicYear', 'semester', 'studentRecordsJson', 'updatedAt'] },
-    { name: 'CustomButtons', headers: ['id', 'label', 'actionUrl', 'category', 'icon', 'color', 'targetRole', 'openInNewTab', 'order', 'schoolId', 'createdAt', 'updatedAt'] },
-    { name: 'CustomPages', headers: ['id', 'title', 'slug', 'description', 'content', 'externalUrl', 'icon', 'targetRole', 'isVisible', 'order', 'schoolId', 'createdAt', 'updatedAt'] },
-    { name: 'DriveFiles', headers: ['id', 'category', 'fileName', 'mimeType', 'fileSize', 'driveFileId', 'driveViewUrl', 'driveDownloadUrl', 'uploadedBy', 'uploadedAt'] },
-    { name: 'SchoolDataKV', headers: ['id', 'updatedAt', 'valueJson', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9', 'c10', 'c11'] }
+    { name: 'DriveFiles', headers: ['id', 'category', 'fileName', 'mimeType', 'fileSize', 'driveFileId', 'driveViewUrl', 'driveDownloadUrl', 'uploadedBy', 'uploadedAt'] }
   ];
 
   defaultSheets.forEach(function(def) {
@@ -871,6 +888,10 @@ function resolveSchoolDriveFolder(payload) {
           if (matchedAdmin.schoolName && savedFolder.getName() !== expectedName) {
             try { savedFolder.setName(expectedName); } catch (rnErr) {}
           }
+          // ย้ายไฟล์ Google Sheet ของโรงเรียนเข้ามาไว้ในโฟลเดอร์โรงเรียนด้วยเสมอ
+          if (isRealSpreadsheetId(matchedAdmin.googleSheetId)) {
+            moveFileToFolderSafe(matchedAdmin.googleSheetId, savedFolder);
+          }
           return savedFolder;
         }
       } catch (savedErr) {}
@@ -883,7 +904,7 @@ function resolveSchoolDriveFolder(payload) {
     : (schoolName || 'โรงเรียนอนุบาลเทศบาลดอนวิทยา');
   var schoolFolder = getOrCreateSchoolFolder(resolvedSchoolName, rootFolderId);
 
-  // 4. บันทึก driveFolderId และ driveFolderUrl กลับลงในตาราง Admins เพื่อผูก 1 Admin = 1 โฟลเดอร์ถาวร
+  // 4. บันทึก driveFolderId และ driveFolderUrl กลับลงในตาราง Admins เพื่อผูก 1 Admin = 1 โฟลเดอร์ถาวร และสร้าง/ย้าย Google Sheet เข้าโฟลเดอร์โรงเรียน
   if (matchedAdmin && masterSS && schoolFolder) {
     try {
       var adminHeaders = ['id', 'username', 'password', 'fullName', 'schoolName', 'schoolCode', 'affiliation', 'directorName', 'googleSheetId', 'googleSheetUrl', 'driveFolderId', 'driveFolderUrl', 'isSuspended', 'createdAt'];
@@ -891,6 +912,15 @@ function resolveSchoolDriveFolder(payload) {
       ensureSheetHeaders(adminsSheet, adminHeaders);
       matchedAdmin.driveFolderId = schoolFolder.getId();
       matchedAdmin.driveFolderUrl = schoolFolder.getUrl();
+      if (isRealSpreadsheetId(matchedAdmin.googleSheetId)) {
+        moveFileToFolderSafe(matchedAdmin.googleSheetId, schoolFolder);
+      } else {
+        var sheetTitleAuto = '[ระบบวิชาการ] ' + resolvedSchoolName + (matchedAdmin.schoolCode ? ' (' + matchedAdmin.schoolCode + ')' : '');
+        var autoSS = SpreadsheetApp.create(sheetTitleAuto);
+        matchedAdmin.googleSheetId = autoSS.getId();
+        matchedAdmin.googleSheetUrl = autoSS.getUrl();
+        moveFileToFolderSafe(autoSS.getId(), schoolFolder);
+      }
       upsertRowInSheet(adminsSheet, adminHeaders, 'id', matchedAdmin);
     } catch (saveFolderErr) {}
   }

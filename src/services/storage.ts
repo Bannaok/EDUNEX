@@ -257,6 +257,7 @@ const CLIENT_ID = `client_${Date.now().toString(36)}_${Math.random().toString(36
 const memoryCache = new Map<string, any>();
 const keyTimestamps = new Map<string, number>();
 const locallyModifiedKeys = new Set<string>();
+const localWriteTimestamps = new Map<string, number>();
 const subscribers = new Set<(changedKeys: string[]) => void>();
 let lastKnownRev = 0;
 let realtimeInitialized = false;
@@ -547,44 +548,23 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
   };
 }
 
-function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], preferIncomingOrder = true): TaskItem[] {
-  if (!Array.isArray(localList)) return Array.isArray(incomingList) ? incomingList : [];
-  if (!Array.isArray(incomingList)) return localList;
-
-  const localMap = new Map<string, TaskItem>();
-  for (const t of localList) {
-    if (t && t.id) localMap.set(t.id, t);
-  }
-
-  const incomingMap = new Map<string, TaskItem>();
-  for (const t of incomingList) {
-    if (t && t.id) incomingMap.set(t.id, t);
-  }
-
-  const result: TaskItem[] = [];
-  const primaryList = preferIncomingOrder ? incomingList : localList;
-
-  for (const item of primaryList) {
-    if (!item || !item.id) continue;
-    const loc = localMap.get(item.id);
-    const inc = incomingMap.get(item.id);
-    if (loc && inc) {
-      result.push(mergeSingleTaskSubmissionsClient(loc, inc, preferIncomingOrder));
-    } else {
-      result.push(item);
-    }
-  }
-
-  return result;
-}
-
-// ============================================================================
-// DOCUMENT CENTER & ORDERS: MERGE LOGIC, DRIVE ID EXTRACTION & TOMBSTONES
-// Prevents documents from ever disappearing ("ห้ามหายเด็ดขาด") until Admin deletes
-// ============================================================================
+const deletedTaskIdsSet = new Set<string>();
 const deletedDocIdsSet = new Set<string>();
 
 if (typeof window !== 'undefined') {
+  try {
+    const rawTasks = localStorage.getItem('ams_deleted_task_ids');
+    if (rawTasks) {
+      const arr = JSON.parse(rawTasks);
+      if (Array.isArray(arr)) {
+        arr.forEach(id => {
+          if (id) deletedTaskIdsSet.add(String(id));
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
   try {
     const raw = localStorage.getItem('ams_deleted_doc_ids');
     if (raw) {
@@ -598,6 +578,57 @@ if (typeof window !== 'undefined') {
   } catch {
     // ignore
   }
+}
+
+function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], preferIncomingOrder = true): TaskItem[] {
+  if (!Array.isArray(localList)) {
+    return Array.isArray(incomingList)
+      ? incomingList.filter(t => t && t.id && !deletedTaskIdsSet.has(t.id))
+      : [];
+  }
+  if (!Array.isArray(incomingList)) {
+    return localList.filter(t => t && t.id && !deletedTaskIdsSet.has(t.id));
+  }
+
+  const localMap = new Map<string, TaskItem>();
+  for (const t of localList) {
+    if (t && t.id && !deletedTaskIdsSet.has(t.id)) {
+      localMap.set(t.id, t);
+    }
+  }
+
+  const incomingMap = new Map<string, TaskItem>();
+  for (const t of incomingList) {
+    if (t && t.id && !deletedTaskIdsSet.has(t.id)) {
+      incomingMap.set(t.id, t);
+    }
+  }
+
+  const result: TaskItem[] = [];
+  const handledIds = new Set<string>();
+  const primaryList = preferIncomingOrder ? incomingList : localList;
+
+  for (const item of primaryList) {
+    if (!item || !item.id || deletedTaskIdsSet.has(item.id)) continue;
+    handledIds.add(item.id);
+    const loc = localMap.get(item.id);
+    const inc = incomingMap.get(item.id);
+    if (loc && inc) {
+      result.push(mergeSingleTaskSubmissionsClient(loc, inc, preferIncomingOrder));
+    } else {
+      result.push(item);
+    }
+  }
+
+  // Preserve any local task that has not arrived in incomingList yet (prevents newly created tasks from disappearing)
+  for (const locItem of localList) {
+    if (!locItem || !locItem.id) continue;
+    if (!handledIds.has(locItem.id) && !deletedTaskIdsSet.has(locItem.id)) {
+      result.push(locItem);
+    }
+  }
+
+  return result;
 }
 
 function extractDriveFileIdClient(urlOrId?: string): string {
@@ -726,6 +757,8 @@ function hasPendingBase64SubmissionInTasks(val: any): boolean {
 function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) {
   if (typeof window === 'undefined' || INTERNAL_SKIP_KEYS.has(resolvedKey)) return;
 
+  localWriteTimestamps.set(resolvedKey, timestamp);
+
   const isTask = isTaskStorageKey(resolvedKey);
   const hasBase64TaskSub = isTask && hasPendingBase64SubmissionInTasks(value);
 
@@ -765,6 +798,11 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
       return r.json();
     })
     .then(data => {
+      const latestLocalWrite = localWriteTimestamps.get(resolvedKey) || 0;
+      // Ignore response if a newer local save happened while this request was in flight
+      if (latestLocalWrite > timestamp) {
+        return;
+      }
       locallyModifiedKeys.delete(resolvedKey);
       if (data && typeof data.rev === 'number' && data.rev > lastKnownRev) {
         lastKnownRev = data.rev;
@@ -785,7 +823,10 @@ function pushToRemoteServer(resolvedKey: string, value: any, timestamp: number) 
       }
     })
     .catch(() => {
-      locallyModifiedKeys.delete(resolvedKey);
+      const latestLocalWrite = localWriteTimestamps.get(resolvedKey) || 0;
+      if (latestLocalWrite <= timestamp) {
+        locallyModifiedKeys.delete(resolvedKey);
+      }
       pushToGoogleCloudKVDirect(resolvedKey, sanitizeValueForSync(value), timestamp);
       // Fallback for static Cloudflare Pages D1 when Express /api/realtime/mutate is unavailable
       fetch('/api/d1?action=saveRealtimeState', {
@@ -811,30 +852,18 @@ function applyIncomingUpdates(
 
   for (const [resolvedKey, rawValue] of Object.entries(updates)) {
     if (INTERNAL_SKIP_KEYS.has(resolvedKey)) continue;
-    const incomingTs = Number(timestamps[resolvedKey]) || now;
+    const incomingTs = Number(timestamps[resolvedKey]) || (fromStorageEvent ? now : 0);
     const localTs = keyTimestamps.get(resolvedKey) || 0;
+    const lastLocalWrite = localWriteTimestamps.get(resolvedKey) || 0;
 
-    // Auto-expire locallyModifiedKeys after 3.5 seconds so clock skew or stale callbacks never block sync
-    if (locallyModifiedKeys.has(resolvedKey) && now - localTs > 3500) {
+    // Auto-expire locallyModifiedKeys after 8 seconds
+    if (locallyModifiedKeys.has(resolvedKey) && now - lastLocalWrite > 8000) {
       locallyModifiedKeys.delete(resolvedKey);
     }
 
     let value = rawValue;
 
-    // For task keys, always union-merge submissions so Member submissions and Admin updates never overwrite each other
-    if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
-      const currentCachedTasks = memoryCache.get(resolvedKey);
-      if (Array.isArray(currentCachedTasks)) {
-        value = mergeTaskListsClient(currentCachedTasks, value, incomingTs >= localTs);
-      }
-    } else if (isDocumentStorageKey(resolvedKey) && Array.isArray(value)) {
-      const currentCachedDocs = memoryCache.get(resolvedKey);
-      if (Array.isArray(currentCachedDocs)) {
-        value = mergeDocumentListsClient(currentCachedDocs, value, incomingTs >= localTs);
-      } else {
-        value = value.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
-      }
-    } else if (resolvedKey === 'ams_deleted_doc_ids' && Array.isArray(value)) {
+    if (resolvedKey === 'ams_deleted_doc_ids' && Array.isArray(value)) {
       let changedTombstones = false;
       for (const dId of value) {
         if (dId && !deletedDocIdsSet.has(String(dId))) {
@@ -849,14 +878,70 @@ function applyIncomingUpdates(
           // ignore
         }
       }
-    } else if (locallyModifiedKeys.has(resolvedKey) && localTs > incomingTs) {
-      continue;
+    } else if (resolvedKey === 'ams_deleted_task_ids' && Array.isArray(value)) {
+      let changedTaskTombstones = false;
+      for (const tId of value) {
+        if (tId && !deletedTaskIdsSet.has(String(tId))) {
+          deletedTaskIdsSet.add(String(tId));
+          changedTaskTombstones = true;
+        }
+      }
+      if (changedTaskTombstones && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_task_ids', JSON.stringify(Array.from(deletedTaskIdsSet).slice(-2000)));
+        } catch {
+          // ignore
+        }
+      }
+    } else if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
+      // Protect recent local task saves from stale background polls unless incomingTs is strictly newer
+      if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+        const currentCachedTasks = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedTasks)) {
+          value = mergeTaskListsClient(currentCachedTasks, value, false);
+        }
+      } else {
+        const currentCachedTasks = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedTasks)) {
+          value = mergeTaskListsClient(currentCachedTasks, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
+        } else {
+          value = value.filter(t => t && t.id && !deletedTaskIdsSet.has(t.id));
+        }
+      }
+    } else if (isDocumentStorageKey(resolvedKey) && Array.isArray(value)) {
+      if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+        const currentCachedDocs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedDocs)) {
+          value = mergeDocumentListsClient(currentCachedDocs, value, false);
+        }
+      } else {
+        const currentCachedDocs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedDocs)) {
+          value = mergeDocumentListsClient(currentCachedDocs, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
+        } else {
+          value = value.filter(d => d && d.id && !deletedDocIdsSet.has(d.id));
+        }
+      }
+    } else {
+      // Strict monotonic protection for all Admin, Member, and Developer keys:
+      // Never allow an older or untimestamped incoming update to overwrite a newer local state!
+      if (!fromStorageEvent) {
+        if (locallyModifiedKeys.has(resolvedKey) && incomingTs <= localTs) {
+          continue;
+        }
+        if (now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+          continue;
+        }
+        if (localTs > 0 && (incomingTs === 0 || incomingTs < localTs)) {
+          continue;
+        }
+      }
     }
 
     if (value === null || value === undefined) {
       if (memoryCache.has(resolvedKey) || (nativeGetItem && nativeGetItem(resolvedKey) !== null)) {
         memoryCache.delete(resolvedKey);
-        keyTimestamps.set(resolvedKey, incomingTs);
+        keyTimestamps.set(resolvedKey, Math.max(localTs, incomingTs || now));
         try {
           window.localStorage.removeItem(resolvedKey);
         } catch {
@@ -877,7 +962,7 @@ function applyIncomingUpdates(
         : null;
 
     memoryCache.set(resolvedKey, value);
-    keyTimestamps.set(resolvedKey, Math.max(localTs, incomingTs));
+    keyTimestamps.set(resolvedKey, Math.max(localTs, incomingTs || 1));
 
     if (serializedIncoming !== serializedCurrent) {
       if (!fromStorageEvent && nativeSetItem) {
@@ -955,6 +1040,7 @@ function setLocal<T>(key: string, value: T, skipRemotePush = false): void {
     const now = Date.now();
     memoryCache.set(resolvedKey, value);
     keyTimestamps.set(resolvedKey, now);
+    localWriteTimestamps.set(resolvedKey, now);
     if (!skipRemotePush) {
       locallyModifiedKeys.add(resolvedKey);
     }
@@ -1063,6 +1149,7 @@ function installLocalStorageSyncHook() {
         const now = Date.now();
         memoryCache.set(resolvedKey, parsed);
         keyTimestamps.set(resolvedKey, now);
+        localWriteTimestamps.set(resolvedKey, now);
         locallyModifiedKeys.add(resolvedKey);
         if (broadcastChannel) {
           broadcastChannel.postMessage({
@@ -1114,7 +1201,7 @@ export const StorageService = {
         const parsed = parseCloudKvRowClient(rawRow);
         if (!parsed) continue;
         incoming[parsed.key] = parsed.value;
-        incomingTs[parsed.key] = parsed.updatedAt || Date.now();
+        incomingTs[parsed.key] = parsed.updatedAt || 0;
       }
 
       if (Object.keys(incoming).length > 0) {
@@ -1139,7 +1226,7 @@ export const StorageService = {
     const mergeInto = (storeObj: Record<string, any>, tsObj: Record<string, number>) => {
       for (const [k, v] of Object.entries(storeObj)) {
         if (!k || INTERNAL_SKIP_KEYS.has(k)) continue;
-        const ts = Number(tsObj[k]) || Date.now();
+        const ts = Number(tsObj[k]) || 0;
         const existingTs = mergedTimestamps[k] || 0;
         if (!(k in mergedStore) || ts >= existingTs) {
           mergedStore[k] = v;
@@ -1193,16 +1280,11 @@ export const StorageService = {
     }
 
     if (serverData && serverData.status === 'up_to_date') {
-      const nowMs = Date.now();
-      if (nowMs - lastDirectCloudPullTime > 3500) {
-        lastDirectCloudPullTime = nowMs;
-        this.pullFromGoogleCloudKV().catch(() => {});
-      }
       return false;
     }
 
-    // Fallback if both Firestore and /api/realtime/state had no keys yet
-    if (!serverReached || Object.keys(mergedStore).length === 0) {
+    // Fallback if both Firestore and /api/realtime/state are unreachable
+    if (!serverReached && Object.keys(mergedStore).length === 0) {
       try {
         const [d1Master, d1Kv, cloudUpdated] = await Promise.all([
           D1Service.fetchAll(),
@@ -1216,24 +1298,23 @@ export const StorageService = {
 
         const incoming: Record<string, any> = {};
         const incomingTs: Record<string, number> = {};
-        const now = Date.now();
 
         if (d1Master.success && d1Master.data) {
           if (d1Master.data.developer) {
             incoming[KEYS.DEVELOPER_ACCOUNT] = d1Master.data.developer;
-            incomingTs[KEYS.DEVELOPER_ACCOUNT] = now;
+            incomingTs[KEYS.DEVELOPER_ACCOUNT] = 1;
           }
           if (Array.isArray(d1Master.data.admins) && d1Master.data.admins.length > 0) {
             incoming[KEYS.ADMINS] = d1Master.data.admins;
-            incomingTs[KEYS.ADMINS] = now;
+            incomingTs[KEYS.ADMINS] = 1;
           }
           if (Array.isArray(d1Master.data.members) && d1Master.data.members.length > 0) {
             incoming[KEYS.MEMBERS] = d1Master.data.members;
-            incomingTs[KEYS.MEMBERS] = now;
+            incomingTs[KEYS.MEMBERS] = 1;
           }
           if (Array.isArray(d1Master.data.academicYears) && d1Master.data.academicYears.length > 0) {
             incoming[KEYS.ACADEMIC_YEARS] = d1Master.data.academicYears;
-            incomingTs[KEYS.ACADEMIC_YEARS] = now;
+            incomingTs[KEYS.ACADEMIC_YEARS] = 1;
           }
         }
 
@@ -1478,7 +1559,20 @@ export const StorageService = {
     let mergedAdmin = admin;
     let updated: SchoolAdminAccount[];
     if (idx >= 0) {
-      mergedAdmin = { ...list[idx], ...admin };
+      const prev = list[idx];
+      mergedAdmin = { ...prev, ...admin };
+      if (
+        prev.googleSheetId &&
+        !prev.googleSheetId.startsWith('sheet_') &&
+        (!admin.googleSheetId || admin.googleSheetId.startsWith('sheet_'))
+      ) {
+        mergedAdmin.googleSheetId = prev.googleSheetId;
+        mergedAdmin.googleSheetUrl = prev.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${prev.googleSheetId}/edit`;
+      }
+      if (prev.driveFolderId && !admin.driveFolderId) {
+        mergedAdmin.driveFolderId = prev.driveFolderId;
+        mergedAdmin.driveFolderUrl = prev.driveFolderUrl || `https://drive.google.com/drive/folders/${prev.driveFolderId}`;
+      }
       updated = [...list];
       updated[idx] = mergedAdmin;
     } else {
@@ -1488,6 +1582,25 @@ export const StorageService = {
     D1Service.saveAdmin(mergedAdmin).catch(() => {});
     this.syncAdminRecordToGoogleSheets(mergedAdmin);
     return updated;
+  },
+
+  updateAdminPassword(adminId: string, newPassword: string): { updated: SchoolAdminAccount[]; targetAdmin?: SchoolAdminAccount } {
+    const cleanPass = newPassword.trim();
+    const list = this.getAdmins();
+    let targetAdmin: SchoolAdminAccount | undefined;
+    const updated = list.map(a => {
+      if (a.id === adminId) {
+        targetAdmin = { ...a, password: cleanPass };
+        return targetAdmin;
+      }
+      return a;
+    });
+    if (targetAdmin) {
+      setLocal(KEYS.ADMINS, updated);
+      D1Service.saveAdmin(targetAdmin).catch(() => {});
+      this.syncAdminRecordToGoogleSheets(targetAdmin);
+    }
+    return { updated, targetAdmin };
   },
 
   deleteAdmin(id: string): SchoolAdminAccount[] {
@@ -1888,6 +2001,21 @@ export const StorageService = {
       spreadsheetId: MASTER_SPREADSHEET_ID
     });
     return updated;
+  },
+
+  updateMemberPassword(memberId: string, newPassword: string): { updated: MemberAccount[]; targetMember?: MemberAccount } {
+    const cleanPass = newPassword.trim();
+    const list = this.getMembers();
+    const found = list.find(m => m.id === memberId);
+    if (!found) {
+      return { updated: list };
+    }
+    const targetMember: MemberAccount = {
+      ...found,
+      password: cleanPass
+    };
+    const updated = this.saveMember(targetMember);
+    return { updated, targetMember };
   },
 
   deleteMember(id: string): MemberAccount[] {
@@ -2389,10 +2517,21 @@ export const StorageService = {
 
   // Tasks
   getTasks(): TaskItem[] {
-    return getLocal<TaskItem[]>(KEYS.TASKS, INITIAL_TASKS);
+    const list = getLocal<TaskItem[]>(KEYS.TASKS, INITIAL_TASKS);
+    if (!Array.isArray(list)) return [];
+    if (deletedTaskIdsSet.size === 0) return list;
+    return list.filter(t => t && t.id && !deletedTaskIdsSet.has(t.id));
   },
 
   saveTask(task: TaskItem): TaskItem[] {
+    if (deletedTaskIdsSet.has(task.id)) {
+      deletedTaskIdsSet.delete(task.id);
+      try {
+        localStorage.setItem('ams_deleted_task_ids', JSON.stringify(Array.from(deletedTaskIdsSet).slice(-2000)));
+      } catch {
+        // ignore
+      }
+    }
     const list = this.getTasks();
     const idx = list.findIndex(t => t.id === task.id);
     let mergedTask = task;
@@ -2626,7 +2765,17 @@ export const StorageService = {
     const allTasks = this.getTasks();
     const targetTask = allTasks.find(t => t.id === id);
     const updated = allTasks.filter(t => t.id !== id);
+
+    deletedTaskIdsSet.add(id);
+    try {
+      localStorage.setItem('ams_deleted_task_ids', JSON.stringify(Array.from(deletedTaskIdsSet).slice(-2000)));
+    } catch {
+      // ignore
+    }
+
     setLocal(KEYS.TASKS, updated);
+    pushToRemoteServer('ams_deleted_task_ids', Array.from(deletedTaskIdsSet).slice(-2000), Date.now());
+
     this.syncPostToGoogle('deleteTask', {
       id,
       attachmentUrl: targetTask?.attachmentUrl,
@@ -2858,9 +3007,9 @@ export const StorageService = {
       if (res && res.website && res.website.logoUrl && res.website.logoUrl.startsWith('http')) {
         const curWebs = this.getWebsites();
         const wIdx = curWebs.findIndex(w => w.id === site.id);
-        if (wIdx >= 0) {
+        if (wIdx >= 0 && curWebs[wIdx].logoUrl !== res.website.logoUrl) {
           const nextWebs = [...curWebs];
-          nextWebs[wIdx] = { ...nextWebs[wIdx], ...res.website };
+          nextWebs[wIdx] = { ...nextWebs[wIdx], logoUrl: res.website.logoUrl };
           setLocal(KEYS.WEBSITES, nextWebs, true);
         }
       }
@@ -2930,6 +3079,7 @@ export const StorageService = {
             (t.description && targetEvent.title === `แจ้ง: ${t.description.slice(0, 30)}`));
 
         if (isLinkedById || isLegacyLinked) {
+          deletedTaskIdsSet.add(t.id);
           this.syncPostToGoogle('deleteTask', { id: t.id });
           return false;
         }
@@ -2937,7 +3087,11 @@ export const StorageService = {
       });
 
       if (remainingTasks.length !== allTasks.length) {
+        try {
+          localStorage.setItem('ams_deleted_task_ids', JSON.stringify(Array.from(deletedTaskIdsSet).slice(-2000)));
+        } catch {}
         setLocal(KEYS.TASKS, remainingTasks);
+        pushToRemoteServer('ams_deleted_task_ids', Array.from(deletedTaskIdsSet).slice(-2000), Date.now());
       }
     }
 
@@ -3470,6 +3624,17 @@ export const StorageService = {
     const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
     if (!gasUrl) return;
 
+    const existing = this.getAdmins().find(a => a.id === admin.id);
+    const resolvedSheetId =
+      admin.googleSheetId && !admin.googleSheetId.startsWith('sheet_')
+        ? admin.googleSheetId
+        : existing?.googleSheetId && !existing.googleSheetId.startsWith('sheet_')
+        ? existing.googleSheetId
+        : '';
+    const resolvedSheetUrl = resolvedSheetId
+      ? admin.googleSheetUrl || existing?.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${resolvedSheetId}/edit`
+      : '';
+
     const adminRow = {
       id: admin.id,
       username: admin.username,
@@ -3479,23 +3644,34 @@ export const StorageService = {
       schoolCode: admin.schoolCode || '',
       affiliation: admin.affiliation || '',
       directorName: admin.directorName || '',
-      googleSheetId: admin.googleSheetId || '',
-      googleSheetUrl: admin.googleSheetUrl || '',
+      googleSheetId: resolvedSheetId,
+      googleSheetUrl: resolvedSheetUrl,
+      driveFolderId: admin.driveFolderId || existing?.driveFolderId || '',
+      driveFolderUrl: admin.driveFolderUrl || existing?.driveFolderUrl || '',
       isSuspended: Boolean(admin.isSuspended),
       createdAt: admin.createdAt || new Date().toISOString().split('T')[0]
     };
 
-    fetch(gasUrl, {
+    const reqBody = {
+      gasUrl,
+      action: 'saveEntity',
+      spreadsheetId: MASTER_SPREADSHEET_ID,
+      sheetName: 'Admins',
+      keyField: 'id',
+      data: adminRow
+    };
+
+    fetch('/api/google/proxy', {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        action: 'saveEntity',
-        spreadsheetId: MASTER_SPREADSHEET_ID,
-        sheetName: 'Admins',
-        keyField: 'id',
-        data: adminRow
-      })
-    }).catch(() => {});
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reqBody)
+    }).catch(() => {
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(reqBody)
+      }).catch(() => {});
+    });
   },
 
   // Delete Admin row, cascade members, tenant Cloud KV keys, and trash dedicated School Google Sheet
@@ -3577,62 +3753,77 @@ export const StorageService = {
   ): Promise<{ success: boolean; spreadsheetId: string; spreadsheetUrl: string; driveFolderId?: string; driveFolderUrl?: string; message: string }> {
     const config = this.getGoogleConfig();
     const gasUrl = config.webAppUrl || DEFAULT_GAS_WEBAPP_URL;
-    const fallbackSheetId = `sheet_${adminId || Date.now().toString(36)}_${Math.random().toString(36).substring(2, 7)}`;
-    const fallbackSheetUrl = `https://docs.google.com/spreadsheets/d/${fallbackSheetId}/edit`;
 
-    if (!gasUrl) {
-      return {
-        success: true,
-        spreadsheetId: fallbackSheetId,
-        spreadsheetUrl: fallbackSheetUrl,
-        message: `สร้างรหัสแยก Google Sheet ประจำโรงเรียน "${schoolName}" เรียบร้อยแล้ว`
-      };
-    }
+    const payload = {
+      action: 'createSchoolSheet',
+      schoolName,
+      schoolCode: schoolCode || '',
+      adminId: adminId || '',
+      username: extraAdminInfo?.username || '',
+      password: extraAdminInfo?.password || '123456',
+      fullName: extraAdminInfo?.fullName || `ผู้ดูแลระบบ ${schoolName}`,
+      affiliation: extraAdminInfo?.affiliation || 'สพป.',
+      directorName: extraAdminInfo?.directorName || '',
+      masterSpreadsheetId: MASTER_SPREADSHEET_ID,
+      folderId: config.driveFolderId || '11IXjrNHXyGpf3A-7ZT38t8B_jXtoFGS9'
+    };
 
+    // 1. Primary path: server-side reliable Google Sheet + Drive Folder provisioning (no CORS / browser timeout issues)
     try {
-      const response = await fetch(gasUrl, {
+      const serverRes = await fetch('/api/google/create-school-sheet', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'createSchoolSheet',
-          schoolName,
-          schoolCode: schoolCode || '',
-          adminId: adminId || '',
-          username: extraAdminInfo?.username || '',
-          password: extraAdminInfo?.password || '',
-          fullName: extraAdminInfo?.fullName || '',
-          affiliation: extraAdminInfo?.affiliation || '',
-          directorName: extraAdminInfo?.directorName || '',
-          masterSpreadsheetId: MASTER_SPREADSHEET_ID,
-          folderId: config.driveFolderId || ''
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
-      const data = await response.json();
-      if (data && data.status === 'success' && data.spreadsheetId) {
-        const finalUrl = data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`;
-        return {
-          success: true,
-          spreadsheetId: data.spreadsheetId,
-          spreadsheetUrl: finalUrl,
-          driveFolderId: data.driveFolderId,
-          driveFolderUrl: data.driveFolderUrl,
-          message: data.message || `สร้าง Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
-        };
+      if (serverRes.ok) {
+        const sData = await serverRes.json();
+        if (sData && sData.status === 'success' && sData.spreadsheetId && !String(sData.spreadsheetId).startsWith('sheet_')) {
+          const finalUrl = sData.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${sData.spreadsheetId}/edit`;
+          return {
+            success: true,
+            spreadsheetId: sData.spreadsheetId,
+            spreadsheetUrl: finalUrl,
+            driveFolderId: sData.driveFolderId,
+            driveFolderUrl: sData.driveFolderUrl,
+            message: sData.message || `สร้าง Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
+          };
+        }
       }
-      return {
-        success: true,
-        spreadsheetId: fallbackSheetId,
-        spreadsheetUrl: fallbackSheetUrl,
-        message: `สร้างตาราง Google Sheet แยกเฉพาะสำหรับโรงเรียน ${schoolName} เรียบร้อยแล้ว`
-      };
     } catch {
-      return {
-        success: true,
-        spreadsheetId: fallbackSheetId,
-        spreadsheetUrl: fallbackSheetUrl,
-        message: `สร้างตาราง Google Sheet แยกเฉพาะสำหรับโรงเรียน ${schoolName} เรียบร้อยแล้ว`
-      };
+      // fall through to direct GAS call
     }
+
+    // 2. Fallback path: direct GAS call
+    if (gasUrl) {
+      try {
+        const response = await fetch(gasUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        if (data && data.status === 'success' && data.spreadsheetId && !String(data.spreadsheetId).startsWith('sheet_')) {
+          const finalUrl = data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${data.spreadsheetId}/edit`;
+          return {
+            success: true,
+            spreadsheetId: data.spreadsheetId,
+            spreadsheetUrl: finalUrl,
+            driveFolderId: data.driveFolderId,
+            driveFolderUrl: data.driveFolderUrl,
+            message: data.message || `สร้าง Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน ${schoolName} เรียบร้อยแล้ว`
+          };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      success: false,
+      spreadsheetId: '',
+      spreadsheetUrl: '',
+      message: `ไม่สามารถติดต่อ Google Apps Script เพื่อสร้าง Google Sheet สำหรับ "${schoolName}" ได้ กรุณากดปุ่มสร้าง Sheet อีกครั้ง`
+    };
   },
 
   // Background Google Apps Script sync with Per-School Spreadsheet Routing

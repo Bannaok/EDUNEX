@@ -318,8 +318,10 @@ function deleteServerHostedFile(fileId: string): boolean {
   return false;
 }
 
-// Server-side Document Center Tombstones
+// Server-side Tombstones & Recent Mutation Protection
 const deletedDocIdsServer = new Set<string>();
+const deletedTaskIdsServer = new Set<string>();
+const recentServerMutationTs = new Map<string, number>();
 
 // Load initial state from disk
 let state: PersistedState = {
@@ -347,6 +349,11 @@ if (fs.existsSync(STORE_FILE)) {
       if (Array.isArray(state.store['ams_deleted_doc_ids'])) {
         for (const id of state.store['ams_deleted_doc_ids']) {
           if (id) deletedDocIdsServer.add(String(id));
+        }
+      }
+      if (Array.isArray(state.store['ams_deleted_task_ids'])) {
+        for (const id of state.store['ams_deleted_task_ids']) {
+          if (id) deletedTaskIdsServer.add(String(id));
         }
       }
     }
@@ -498,18 +505,40 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
     });
 
     const resolvedList = await Promise.all(tasks);
+    const nowMs = Date.now();
     for (const item of resolvedList) {
       if (!item) continue;
       remoteTimestamps.set(item.key, item.updatedAt);
 
+      if (item.key === 'ams_deleted_doc_ids' && Array.isArray(item.value)) {
+        for (const id of item.value) {
+          if (id) deletedDocIdsServer.add(String(id));
+        }
+      } else if (item.key === 'ams_deleted_task_ids' && Array.isArray(item.value)) {
+        for (const id of item.value) {
+          if (id) deletedTaskIdsServer.add(String(id));
+        }
+      }
+
+      if (pendingCloudPushKeys.has(item.key) || inFlightCloudPushKeys.has(item.key)) continue;
+
       const localTs = Number(state.timestamps[item.key]) || 0;
+      const lastMutated = recentServerMutationTs.get(item.key) || 0;
+      if (nowMs - lastMutated < 15000 && item.updatedAt <= localTs) {
+        continue;
+      }
+
       const isTask = isTaskKeyName(item.key);
       const isDoc = isDocumentKeyName(item.key);
       const nextValue =
         isTask && item.key in state.store
-          ? mergeTaskListsServer(state.store[item.key], item.value)
+          ? item.updatedAt >= localTs
+            ? mergeTaskListsServer(state.store[item.key], item.value)
+            : mergeTaskListsServer(item.value, state.store[item.key])
           : isDoc && item.key in state.store
-          ? mergeDocumentListsServer(state.store[item.key], item.value)
+          ? item.updatedAt >= localTs
+            ? mergeDocumentListsServer(state.store[item.key], item.value)
+            : mergeDocumentListsServer(item.value, state.store[item.key])
           : item.value;
       const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
       const remoteSerialized = JSON.stringify(item.value);
@@ -572,6 +601,7 @@ function startServerFirestoreListener() {
 
         const appliedUpdates: Record<string, any> = {};
         const appliedTimestamps: Record<string, number> = {};
+        const nowMs = Date.now();
 
         for (const change of changes) {
           if (change.type === 'added' || change.type === 'modified') {
@@ -580,14 +610,35 @@ function startServerFirestoreListener() {
             const resolved = await resolveFirestoreDocServer(raw);
             if (!resolved) continue;
 
+            if (resolved.key === 'ams_deleted_doc_ids' && Array.isArray(resolved.value)) {
+              for (const id of resolved.value) {
+                if (id) deletedDocIdsServer.add(String(id));
+              }
+            } else if (resolved.key === 'ams_deleted_task_ids' && Array.isArray(resolved.value)) {
+              for (const id of resolved.value) {
+                if (id) deletedTaskIdsServer.add(String(id));
+              }
+            }
+
+            if (pendingCloudPushKeys.has(resolved.key) || inFlightCloudPushKeys.has(resolved.key)) continue;
+
             const localTs = Number(state.timestamps[resolved.key]) || 0;
+            const lastMutated = recentServerMutationTs.get(resolved.key) || 0;
+            if (nowMs - lastMutated < 15000 && resolved.updatedAt <= localTs) {
+              continue;
+            }
+
             const isTask = isTaskKeyName(resolved.key);
             const isDoc = isDocumentKeyName(resolved.key);
             const nextValue =
               isTask && resolved.key in state.store
-                ? mergeTaskListsServer(state.store[resolved.key], resolved.value)
+                ? resolved.updatedAt >= localTs
+                  ? mergeTaskListsServer(state.store[resolved.key], resolved.value)
+                  : mergeTaskListsServer(resolved.value, state.store[resolved.key])
                 : isDoc && resolved.key in state.store
-                ? mergeDocumentListsServer(state.store[resolved.key], resolved.value)
+                ? resolved.updatedAt >= localTs
+                  ? mergeDocumentListsServer(state.store[resolved.key], resolved.value)
+                  : mergeDocumentListsServer(resolved.value, state.store[resolved.key])
                 : resolved.value;
             const prevSerialized =
               resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
@@ -950,22 +1001,47 @@ function mergeSingleTaskSubmissionsServer(existingTask: any, incomingTask: any):
 }
 
 function mergeTaskListsServer(existingList: any, incomingList: any): any {
-  if (!Array.isArray(incomingList)) return incomingList;
-  if (!Array.isArray(existingList) || existingList.length === 0) return incomingList;
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(existingList)
+      ? existingList.filter(t => t && t.id && !deletedTaskIdsServer.has(String(t.id)))
+      : [];
+  }
+  if (!Array.isArray(existingList) || existingList.length === 0) {
+    return incomingList.filter(t => t && t.id && !deletedTaskIdsServer.has(String(t.id)));
+  }
 
   const existingById = new Map<string, any>();
   for (const t of existingList) {
-    if (t && t.id) {
+    if (t && t.id && !deletedTaskIdsServer.has(String(t.id))) {
       existingById.set(String(t.id), t);
     }
   }
 
-  return incomingList.map(incTask => {
-    if (!incTask || !incTask.id) return incTask;
-    const exTask = existingById.get(String(incTask.id));
-    if (!exTask) return incTask;
-    return mergeSingleTaskSubmissionsServer(exTask, incTask);
-  });
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+
+  for (const incTask of incomingList) {
+    if (!incTask || !incTask.id || deletedTaskIdsServer.has(String(incTask.id))) continue;
+    const taskId = String(incTask.id);
+    handledIds.add(taskId);
+    const exTask = existingById.get(taskId);
+    if (exTask) {
+      result.push(mergeSingleTaskSubmissionsServer(exTask, incTask));
+    } else {
+      result.push(incTask);
+    }
+  }
+
+  // Preserve any task in existingList that has not arrived in incomingList yet (prevents tasks from disappearing)
+  for (const exTask of existingList) {
+    if (!exTask || !exTask.id) continue;
+    const taskId = String(exTask.id);
+    if (!handledIds.has(taskId) && !deletedTaskIdsServer.has(taskId)) {
+      result.push(exTask);
+    }
+  }
+
+  return result;
 }
 
 function isTaskKeyName(key: string): boolean {
@@ -1193,26 +1269,47 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
     const appliedTimestamps: Record<string, number> = {};
     const keysToPushBack: string[] = [];
 
+    const nowMs = Date.now();
     for (const rawRow of json.data) {
       const parsed = parseCloudKvRow(rawRow);
       if (!parsed) continue;
       const { key, value, updatedAt } = parsed;
 
+      if (key === 'ams_deleted_doc_ids' && Array.isArray(value)) {
+        for (const id of value) {
+          if (id) deletedDocIdsServer.add(String(id));
+        }
+      } else if (key === 'ams_deleted_task_ids' && Array.isArray(value)) {
+        for (const id of value) {
+          if (id) deletedTaskIdsServer.add(String(id));
+        }
+      }
+
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
 
       const localTs = Number(state.timestamps[key]) || 0;
+      const lastMutated = recentServerMutationTs.get(key) || 0;
+      // Never allow lagging Google Sheets RealtimeCloudKV rows to overwrite recent server mutations
+      if (nowMs - lastMutated < 20000 && updatedAt <= localTs) {
+        continue;
+      }
+
       const isTask = isTaskKeyName(key);
       const isDoc = isDocumentKeyName(key);
       const nextValue = isTask
-        ? mergeTaskListsServer(state.store[key], value)
+        ? updatedAt >= localTs
+          ? mergeTaskListsServer(state.store[key], value)
+          : mergeTaskListsServer(value, state.store[key])
         : isDoc
-        ? mergeDocumentListsServer(state.store[key], value)
+        ? updatedAt >= localTs
+          ? mergeDocumentListsServer(state.store[key], value)
+          : mergeDocumentListsServer(value, state.store[key])
         : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
       const remoteSerialized = JSON.stringify(value);
       const cloudSerialized = JSON.stringify(nextValue);
 
-      if (!(key in state.store) || updatedAt > localTs || ((isTask || isDoc) && localSerialized !== cloudSerialized)) {
+      if (!(key in state.store) || updatedAt > localTs) {
         const effTs = Math.max(localTs, updatedAt || Date.now());
         state.store[key] = nextValue;
         state.timestamps[key] = effTs;
@@ -2269,10 +2366,55 @@ async function startServer() {
                 state.store[k] = state.store[k].filter((d: any) => d && d.id && !deletedDocIdsServer.has(String(d.id)));
               }
             }
+          } else if (key === 'ams_deleted_task_ids' && Array.isArray(value)) {
+            for (const tId of value) {
+              if (tId) deletedTaskIdsServer.add(String(tId));
+            }
+            // Purge deleted tasks from all loaded stores immediately
+            for (const k of Object.keys(state.store)) {
+              if (isTaskKeyName(k) && Array.isArray(state.store[k])) {
+                state.store[k] = state.store[k].filter((t: any) => t && t.id && !deletedTaskIdsServer.has(String(t.id)));
+              }
+            }
+          } else if (key === 'ams_school_admins' && Array.isArray(value)) {
+            const existingAdmins: any[] = Array.isArray(state.store['ams_school_admins'])
+              ? state.store['ams_school_admins']
+              : [];
+            finalValue = value.map((adm: any) => {
+              if (!adm || typeof adm !== 'object') return adm;
+              const prev = existingAdmins.find(
+                e =>
+                  e &&
+                  (e.id === adm.id ||
+                    (e.username && adm.username && String(e.username).toLowerCase() === String(adm.username).toLowerCase()))
+              );
+              const merged = prev ? { ...prev, ...adm } : { ...adm };
+              // Never overwrite a real Google Sheet ID or Drive Folder ID with an empty or placeholder 'sheet_...' ID
+              if (
+                prev &&
+                prev.googleSheetId &&
+                !String(prev.googleSheetId).startsWith('sheet_') &&
+                (!adm.googleSheetId || String(adm.googleSheetId).startsWith('sheet_'))
+              ) {
+                merged.googleSheetId = prev.googleSheetId;
+                merged.googleSheetUrl = prev.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${prev.googleSheetId}/edit`;
+              }
+              if (prev && prev.driveFolderId && !adm.driveFolderId) {
+                merged.driveFolderId = prev.driveFolderId;
+                merged.driveFolderUrl = prev.driveFolderUrl || `https://drive.google.com/drive/folders/${prev.driveFolderId}`;
+              }
+              if (!merged.googleSheetId || String(merged.googleSheetId).startsWith('sheet_')) {
+                setTimeout(() => {
+                  provisionSchoolSheetOnServer(merged).catch(() => {});
+                }, 50);
+              }
+              return merged;
+            });
           }
           state.store[key] = finalValue;
         }
         state.timestamps[key] = effectiveTs;
+        recentServerMutationTs.set(key, effectiveTs);
         appliedUpdates[key] = finalValue;
         appliedTimestamps[key] = effectiveTs;
       }
@@ -2293,6 +2435,250 @@ async function startServer() {
       mergedUpdates: appliedUpdates,
       serverTime: now
     });
+  });
+
+  const inFlightSheetProvisions = new Map<string, Promise<any>>();
+
+  function isRealSheetIdServer(id?: string): boolean {
+    if (!id || typeof id !== 'string') return false;
+    const t = id.trim();
+    return t.length >= 15 && !t.startsWith('sheet_');
+  }
+
+  function syncAdminToMasterSheetServer(admin: any): void {
+    if (!admin || !admin.id) return;
+    const gasUrl = getGasWebAppUrl();
+    const adminRow = {
+      id: admin.id,
+      username: admin.username || '',
+      password: admin.password || '123456',
+      fullName: admin.fullName || `ผู้ดูแลระบบ ${admin.schoolName || ''}`,
+      schoolName: admin.schoolName || '',
+      schoolCode: admin.schoolCode || '',
+      affiliation: admin.affiliation || '',
+      directorName: admin.directorName || '',
+      googleSheetId: isRealSheetIdServer(admin.googleSheetId) ? admin.googleSheetId : '',
+      googleSheetUrl: isRealSheetIdServer(admin.googleSheetId)
+        ? admin.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${admin.googleSheetId}/edit`
+        : '',
+      driveFolderId: admin.driveFolderId || '',
+      driveFolderUrl: admin.driveFolderUrl || '',
+      isSuspended: Boolean(admin.isSuspended),
+      createdAt: admin.createdAt || new Date().toISOString().split('T')[0]
+    };
+
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveEntity',
+        spreadsheetId: MASTER_SPREADSHEET_ID,
+        sheetName: 'Admins',
+        keyField: 'id',
+        data: adminRow
+      })
+    }).catch(() => {});
+  }
+
+  function syncMemberToSheetsServer(member: any): void {
+    if (!member || !member.id) return;
+    const gasUrl = getGasWebAppUrl();
+    const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+    const matchedAdmin = admins.find(
+      a => a && (a.id === member.schoolId || (a.schoolName && member.schoolName && a.schoolName === member.schoolName))
+    );
+
+    if (matchedAdmin && isRealSheetIdServer(matchedAdmin.googleSheetId)) {
+      fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'saveMember',
+          spreadsheetId: matchedAdmin.googleSheetId,
+          schoolId: matchedAdmin.id,
+          schoolName: matchedAdmin.schoolName,
+          member
+        })
+      }).catch(() => {});
+    }
+
+    fetch(gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveMember',
+        spreadsheetId: MASTER_SPREADSHEET_ID,
+        member
+      })
+    }).catch(() => {});
+  }
+
+  async function provisionSchoolSheetOnServer(adminInput: any): Promise<any> {
+    const adminId = String(adminInput?.adminId || adminInput?.id || '').trim();
+    const schoolName = String(adminInput?.schoolName || '').trim();
+    if (!schoolName) {
+      return { status: 'error', message: 'Missing schoolName' };
+    }
+
+    // Check if this Admin already has a real Google Sheet ID in state.store
+    const currentAdmins: any[] = Array.isArray(state.store['ams_school_admins']) ? state.store['ams_school_admins'] : [];
+    const existingAdmin = currentAdmins.find(
+      a => a && ((adminId && a.id === adminId) || (a.schoolName && String(a.schoolName).trim() === schoolName))
+    );
+    if (existingAdmin && isRealSheetIdServer(existingAdmin.googleSheetId) && !adminInput?.forceRecreate) {
+      return {
+        status: 'success',
+        spreadsheetId: existingAdmin.googleSheetId,
+        spreadsheetUrl:
+          existingAdmin.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${existingAdmin.googleSheetId}/edit`,
+        driveFolderId: existingAdmin.driveFolderId || '',
+        driveFolderUrl: existingAdmin.driveFolderUrl || '',
+        schoolName,
+        message: `เชื่อมต่อ Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน "${schoolName}" สำเร็จ`
+      };
+    }
+
+    const lockKey = adminId || schoolName;
+    if (inFlightSheetProvisions.has(lockKey)) {
+      return inFlightSheetProvisions.get(lockKey)!;
+    }
+
+    const task = (async () => {
+      const gasUrl = getGasWebAppUrl();
+      const folderId = adminInput?.folderId || getDriveFolderId();
+      let lastError = 'ไม่สามารถสร้าง Google Sheet ได้';
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const response = await fetch(gasUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'createSchoolSheet',
+              schoolName,
+              schoolCode: adminInput?.schoolCode || existingAdmin?.schoolCode || '',
+              adminId: adminId || existingAdmin?.id || '',
+              username: adminInput?.username || existingAdmin?.username || '',
+              password: adminInput?.password || existingAdmin?.password || '123456',
+              fullName: adminInput?.fullName || existingAdmin?.fullName || `ผู้ดูแลระบบ ${schoolName}`,
+              affiliation: adminInput?.affiliation || existingAdmin?.affiliation || 'สพป.',
+              directorName: adminInput?.directorName || existingAdmin?.directorName || '',
+              masterSpreadsheetId: MASTER_SPREADSHEET_ID,
+              folderId
+            })
+          });
+
+          const text = await response.text();
+          let data: any = null;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            lastError = 'GAS response was not valid JSON';
+          }
+
+          if (data && data.status === 'success' && isRealSheetIdServer(data.spreadsheetId)) {
+            const spreadsheetId = String(data.spreadsheetId).trim();
+            const spreadsheetUrl =
+              data.spreadsheetUrl || `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            const driveFolderId = data.driveFolderId || existingAdmin?.driveFolderId || '';
+            const driveFolderUrl =
+              data.driveFolderUrl ||
+              (driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : '');
+
+            // Update state.store['ams_school_admins'] immediately and broadcast to all connected clients
+            const latestAdmins: any[] = Array.isArray(state.store['ams_school_admins'])
+              ? [...state.store['ams_school_admins']]
+              : [];
+            const targetIdx = latestAdmins.findIndex(
+              a => a && ((adminId && a.id === adminId) || (a.schoolName && String(a.schoolName).trim() === schoolName))
+            );
+
+            if (targetIdx >= 0) {
+              const updatedAdmin = {
+                ...latestAdmins[targetIdx],
+                googleSheetId: spreadsheetId,
+                googleSheetUrl: spreadsheetUrl,
+                driveFolderId: driveFolderId || latestAdmins[targetIdx].driveFolderId,
+                driveFolderUrl: driveFolderUrl || latestAdmins[targetIdx].driveFolderUrl
+              };
+              latestAdmins[targetIdx] = updatedAdmin;
+              const nowTs = Math.max(Date.now(), (Number(state.timestamps['ams_school_admins']) || 0) + 1);
+              state.store['ams_school_admins'] = latestAdmins;
+              state.timestamps['ams_school_admins'] = nowTs;
+              recentServerMutationTs.set('ams_school_admins', nowTs);
+              state.rev += 1;
+              scheduleDiskSave();
+              broadcastDelta(
+                'server-sheet-provisioned',
+                { ams_school_admins: latestAdmins },
+                { ams_school_admins: nowTs }
+              );
+              scheduleCloudKvPush(['ams_school_admins']);
+              syncAdminToMasterSheetServer(updatedAdmin);
+            }
+
+            return {
+              status: 'success',
+              spreadsheetId,
+              spreadsheetUrl,
+              driveFolderId,
+              driveFolderUrl,
+              schoolName,
+              message:
+                data.message ||
+                `สร้างไฟล์ Google Sheet และโฟลเดอร์ Google Drive ประจำโรงเรียน "${schoolName}" สำเร็จเรียบร้อยแล้ว`
+            };
+          } else if (data && data.message) {
+            lastError = data.message;
+          }
+        } catch (err: any) {
+          lastError = err?.message || String(err);
+        }
+
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1200 * attempt));
+        }
+      }
+
+      return { status: 'error', message: lastError };
+    })();
+
+    inFlightSheetProvisions.set(lockKey, task);
+    try {
+      return await task;
+    } finally {
+      inFlightSheetProvisions.delete(lockKey);
+    }
+  }
+
+  // Server-side Google Sheet Provisioning & Proxy Endpoints
+  app.post('/api/google/create-school-sheet', async (req, res) => {
+    try {
+      const result = await provisionSchoolSheetOnServer(req.body || {});
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err?.message || 'Internal error' });
+    }
+  });
+
+  app.post('/api/google/proxy', async (req, res) => {
+    try {
+      const payload = req.body || {};
+      const gasUrl = payload.gasUrl || getGasWebAppUrl();
+      const response = await fetch(gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const text = await response.text();
+      try {
+        res.json(JSON.parse(text));
+      } catch {
+        res.json({ status: 'success', raw: text });
+      }
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err?.message || 'GAS proxy error' });
+    }
   });
 
   // 4. Compatible /api/d1 Endpoint
@@ -2346,6 +2732,7 @@ async function startServer() {
           const effTs = Math.max(now, Number(state.timestamps[key]) + 1 || 0, Number(updatedAt) || 0);
           state.store[key] = finalVal;
           state.timestamps[key] = effTs;
+          recentServerMutationTs.set(key, effTs);
           state.rev += 1;
           scheduleDiskSave();
           broadcastDelta(clientId, { [key]: finalVal }, { [key]: effTs });
@@ -2357,11 +2744,13 @@ async function startServer() {
 
       if (action === 'updateDevPassword') {
         const dev = { username: 'airfan', password: body.password || '456789' };
+        const effTs = Math.max(now, (Number(state.timestamps['ams_developer_account']) || 0) + 1);
         state.store['ams_developer_account'] = dev;
-        state.timestamps['ams_developer_account'] = now;
+        state.timestamps['ams_developer_account'] = effTs;
+        recentServerMutationTs.set('ams_developer_account', effTs);
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_developer_account: dev }, { ams_developer_account: now });
+        broadcastDelta('server-d1', { ams_developer_account: dev }, { ams_developer_account: effTs });
         scheduleCloudKvPush(['ams_developer_account']);
         res.json({ status: 'success', message: 'Updated developer password' });
         return;
@@ -2369,16 +2758,42 @@ async function startServer() {
 
       if (action === 'saveAdmin') {
         const admins: any[] = Array.isArray(state.store['ams_school_admins']) ? [...state.store['ams_school_admins']] : [];
-        const idx = admins.findIndex(a => a.id === body.id);
-        if (idx >= 0) admins[idx] = { ...admins[idx], ...body };
-        else admins.unshift(body);
+        const idx = admins.findIndex(
+          a =>
+            a &&
+            (a.id === body.id ||
+              (a.username && body.username && String(a.username).toLowerCase() === String(body.username).toLowerCase()))
+        );
+        let savedAdmin: any;
+        if (idx >= 0) {
+          const prev = admins[idx];
+          savedAdmin = { ...prev, ...body };
+          if (isRealSheetIdServer(prev.googleSheetId) && !isRealSheetIdServer(body.googleSheetId)) {
+            savedAdmin.googleSheetId = prev.googleSheetId;
+            savedAdmin.googleSheetUrl = prev.googleSheetUrl || `https://docs.google.com/spreadsheets/d/${prev.googleSheetId}/edit`;
+          }
+          if (prev.driveFolderId && !body.driveFolderId) {
+            savedAdmin.driveFolderId = prev.driveFolderId;
+            savedAdmin.driveFolderUrl = prev.driveFolderUrl || `https://drive.google.com/drive/folders/${prev.driveFolderId}`;
+          }
+          admins[idx] = savedAdmin;
+        } else {
+          savedAdmin = { ...body };
+          admins.unshift(savedAdmin);
+        }
+        const effTs = Math.max(now, (Number(state.timestamps['ams_school_admins']) || 0) + 1);
         state.store['ams_school_admins'] = admins;
-        state.timestamps['ams_school_admins'] = now;
+        state.timestamps['ams_school_admins'] = effTs;
+        recentServerMutationTs.set('ams_school_admins', effTs);
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_school_admins: admins }, { ams_school_admins: now });
+        broadcastDelta('server-d1', { ams_school_admins: admins }, { ams_school_admins: effTs });
         scheduleCloudKvPush(['ams_school_admins']);
-        res.json({ status: 'success', message: 'Saved admin' });
+        syncAdminToMasterSheetServer(savedAdmin);
+        if (!isRealSheetIdServer(savedAdmin.googleSheetId)) {
+          provisionSchoolSheetOnServer(savedAdmin).catch(() => {});
+        }
+        res.json({ status: 'success', message: 'Saved admin', admin: savedAdmin });
         return;
       }
 
@@ -2390,18 +2805,21 @@ async function startServer() {
         const nextMembers = members.filter(
           m => m.schoolId !== body.id && (!targetAdmin || m.schoolName !== targetAdmin.schoolName)
         );
+        const effTs = Math.max(now, (Number(state.timestamps['ams_school_admins']) || 0) + 1);
         state.store['ams_school_admins'] = nextAdmins;
         state.store['ams_members'] = nextMembers;
-        state.timestamps['ams_school_admins'] = now;
-        state.timestamps['ams_members'] = now;
+        state.timestamps['ams_school_admins'] = effTs;
+        state.timestamps['ams_members'] = effTs;
+        recentServerMutationTs.set('ams_school_admins', effTs);
+        recentServerMutationTs.set('ams_members', effTs);
 
         const deltaUpdates: Record<string, any> = {
           ams_school_admins: nextAdmins,
           ams_members: nextMembers
         };
         const deltaTimestamps: Record<string, number> = {
-          ams_school_admins: now,
-          ams_members: now
+          ams_school_admins: effTs,
+          ams_members: effTs
         };
 
         // Cascade delete tenant-scoped keys for this school
@@ -2409,9 +2827,10 @@ async function startServer() {
         for (const k of Object.keys(state.store)) {
           if (k.endsWith(suffix)) {
             delete state.store[k];
-            state.timestamps[k] = now;
+            state.timestamps[k] = effTs;
+            recentServerMutationTs.set(k, effTs);
             deltaUpdates[k] = null;
-            deltaTimestamps[k] = now;
+            deltaTimestamps[k] = effTs;
           }
         }
 
@@ -2442,27 +2861,38 @@ async function startServer() {
 
       if (action === 'saveMember') {
         const members: any[] = Array.isArray(state.store['ams_members']) ? [...state.store['ams_members']] : [];
-        const idx = members.findIndex(m => m.id === body.id);
-        if (idx >= 0) members[idx] = { ...members[idx], ...body };
-        else members.unshift(body);
+        const idx = members.findIndex(m => m && m.id === body.id);
+        let savedMember: any;
+        if (idx >= 0) {
+          savedMember = { ...members[idx], ...body };
+          members[idx] = savedMember;
+        } else {
+          savedMember = { ...body };
+          members.unshift(savedMember);
+        }
+        const effTs = Math.max(now, (Number(state.timestamps['ams_members']) || 0) + 1);
         state.store['ams_members'] = members;
-        state.timestamps['ams_members'] = now;
+        state.timestamps['ams_members'] = effTs;
+        recentServerMutationTs.set('ams_members', effTs);
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_members: members }, { ams_members: now });
+        broadcastDelta('server-d1', { ams_members: members }, { ams_members: effTs });
         scheduleCloudKvPush(['ams_members']);
-        res.json({ status: 'success', message: 'Saved member' });
+        syncMemberToSheetsServer(savedMember);
+        res.json({ status: 'success', message: 'Saved member', member: savedMember });
         return;
       }
 
       if (action === 'deleteMember') {
         const members: any[] = Array.isArray(state.store['ams_members']) ? state.store['ams_members'] : [];
         const nextMembers = members.filter(m => m.id !== body.id);
+        const effTs = Math.max(now, (Number(state.timestamps['ams_members']) || 0) + 1);
         state.store['ams_members'] = nextMembers;
-        state.timestamps['ams_members'] = now;
+        state.timestamps['ams_members'] = effTs;
+        recentServerMutationTs.set('ams_members', effTs);
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_members: nextMembers }, { ams_members: now });
+        broadcastDelta('server-d1', { ams_members: nextMembers }, { ams_members: effTs });
         scheduleCloudKvPush(['ams_members']);
         res.json({ status: 'success', message: 'Deleted member' });
         return;
@@ -2474,11 +2904,13 @@ async function startServer() {
           years.push(body.year);
           years.sort((a, b) => Number(a) - Number(b));
         }
+        const effTs = Math.max(now, (Number(state.timestamps['ams_academic_years']) || 0) + 1);
         state.store['ams_academic_years'] = years;
-        state.timestamps['ams_academic_years'] = now;
+        state.timestamps['ams_academic_years'] = effTs;
+        recentServerMutationTs.set('ams_academic_years', effTs);
         state.rev += 1;
         scheduleDiskSave();
-        broadcastDelta('server-d1', { ams_academic_years: years }, { ams_academic_years: now });
+        broadcastDelta('server-d1', { ams_academic_years: years }, { ams_academic_years: effTs });
         scheduleCloudKvPush(['ams_academic_years']);
         res.json({ status: 'success', message: 'Saved academic year' });
         return;
@@ -2619,10 +3051,10 @@ async function startServer() {
     syncWithFirestoreServer(false).catch(() => {});
     startServerFirestoreListener();
     pullFromCloudKV(false).catch(() => {});
-    // Continuous background cloud KV reconciliation every 2.5 seconds
+    // Continuous background cloud KV reconciliation every 15 seconds (primary live sync is via SSE + Firestore onSnapshot)
     setInterval(() => {
       pullFromCloudKV(false).catch(() => {});
-    }, 2500);
+    }, 15000);
   });
 }
 

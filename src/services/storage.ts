@@ -368,7 +368,18 @@ function sanitizeValueForSync(val: any): any {
   if (typeof val === 'object') {
     const res: Record<string, any> = {};
     for (const [k, v] of Object.entries(val)) {
-      res[k] = sanitizeValueForSync(v);
+      if (
+        (k === 'fileUrl' || k === 'fileData') &&
+        typeof v === 'string' &&
+        v.startsWith('data:') &&
+        v.includes(';base64,') &&
+        typeof val.localHostedUrl === 'string' &&
+        val.localHostedUrl
+      ) {
+        res[k] = k === 'fileUrl' ? val.localHostedUrl : '';
+      } else {
+        res[k] = sanitizeValueForSync(v);
+      }
     }
     return res;
   }
@@ -487,9 +498,17 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
     } else {
       const prevTime = prev.submittedAt ? new Date(prev.submittedAt).getTime() : 0;
       const nextTime = s.submittedAt ? new Date(s.submittedAt).getTime() : 0;
-      const mergedSub: TaskSubmission = nextTime >= prevTime ? { ...prev, ...s } : { ...s, ...prev };
-      // Prefer real Google Drive URL or data: URL over /api/files/ or stripped empty string
-      const prevUrl = prev.fileUrl || (prev as any).downloadUrl || '';
+      const isReplacedWithNewFile =
+        nextTime > prevTime &&
+        Boolean(s.fileName && prev.fileName && s.fileName.trim() !== prev.fileName.trim());
+
+      const mergedSub: TaskSubmission = isReplacedWithNewFile
+        ? { ...s }
+        : nextTime >= prevTime
+        ? { ...prev, ...s }
+        : { ...s, ...prev };
+
+      const prevUrl = isReplacedWithNewFile ? '' : prev.fileUrl || (prev as any).downloadUrl || '';
       const nextUrl = s.fileUrl || (s as any).downloadUrl || '';
       if (nextUrl.startsWith('http')) {
         mergedSub.fileUrl = nextUrl;
@@ -500,11 +519,18 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
       } else if (prevUrl.startsWith('data:')) {
         mergedSub.fileUrl = prevUrl;
       } else {
-        const fallbackDriveId = (s as any).driveFileId || (prev as any).driveFileId;
+        const fallbackDriveId =
+          (s as any).driveFileId || (isReplacedWithNewFile ? '' : (prev as any).driveFileId);
         if (fallbackDriveId) {
-          mergedSub.fileUrl = `https://lh3.googleusercontent.com/d/${fallbackDriveId}`;
+          mergedSub.fileUrl = `https://drive.google.com/file/d/${fallbackDriveId}/view?usp=sharing`;
+          mergedSub.driveFileId = fallbackDriveId;
         } else {
-          mergedSub.fileUrl = nextUrl || prevUrl || (s as any).localHostedUrl || (prev as any).localHostedUrl || '';
+          mergedSub.fileUrl =
+            nextUrl ||
+            prevUrl ||
+            (s as any).localHostedUrl ||
+            (isReplacedWithNewFile ? '' : (prev as any).localHostedUrl) ||
+            '';
         }
       }
       subMap.set(k, mergedSub);
@@ -2445,9 +2471,28 @@ export const StorageService = {
       t =>
         t &&
         Array.isArray(t.submissions) &&
-        t.submissions.some(s => s && s.fileName && (!s.fileUrl || s.fileUrl.startsWith('/api/files/')))
+        t.submissions.some(
+          s =>
+            s &&
+            s.fileName &&
+            (!s.fileUrl || s.fileUrl.startsWith('/api/files/') || !extractDriveFileIdClient(s.fileUrl))
+        )
     );
     if (!needsRecovery) return false;
+
+    const getExtLower = (name: string) => {
+      const idx = name.lastIndexOf('.');
+      return idx >= 0 ? name.slice(idx).toLowerCase() : '';
+    };
+    const isStrictNameMatch = (rowFileName: string, targetName: string) => {
+      const r = String(rowFileName || '').trim().toLowerCase();
+      const t = String(targetName || '').trim().toLowerCase();
+      if (!r || !t) return false;
+      const rExt = getExtLower(r);
+      const tExt = getExtLower(t);
+      if (tExt && rExt && tExt !== rExt) return false;
+      return r === t || r.endsWith('_' + t);
+    };
 
     try {
       const config = this.getGoogleConfig();
@@ -2460,22 +2505,30 @@ export const StorageService = {
       const matchedAdmin = admins.find(a => a.id === activeSchoolId);
       const spreadsheetId = matchedAdmin?.googleSheetId || this.getCurrentSchoolSpreadsheetId() || '';
 
-      const q = new URLSearchParams({
-        action: 'getSheet',
-        sheet: 'DriveFiles',
-        ...(spreadsheetId ? { spreadsheetId } : {}),
-        ...(activeSchoolId ? { schoolId: activeSchoolId } : {}),
-        _t: String(Date.now())
-      });
+      const fetchSheetRows = async (sheetName: string): Promise<any[]> => {
+        try {
+          const q = new URLSearchParams({
+            action: 'getSheet',
+            sheet: sheetName,
+            ...(spreadsheetId ? { spreadsheetId } : {}),
+            ...(activeSchoolId ? { schoolId: activeSchoolId } : {}),
+            _t: String(Date.now())
+          });
+          const res = await fetch(`${gasUrl}?${q.toString()}`);
+          if (!res.ok) return [];
+          const json = await res.json();
+          return json && json.status === 'success' && Array.isArray(json.data) ? json.data : [];
+        } catch {
+          return [];
+        }
+      };
 
-      const res = await fetch(`${gasUrl}?${q.toString()}`);
-      if (!res.ok) return false;
-      const json = await res.json();
-      if (!json || json.status !== 'success' || !Array.isArray(json.data) || json.data.length === 0) {
-        return false;
-      }
+      const [subRows, driveRows] = await Promise.all([
+        fetchSheetRows('TaskSubmissions'),
+        fetchSheetRows('DriveFiles')
+      ]);
+      if (subRows.length === 0 && driveRows.length === 0) return false;
 
-      const driveRows = json.data;
       let updatedAny = false;
       const latestTasks = this.getTasks();
       const nextTasks = latestTasks.map(t => {
@@ -2483,22 +2536,56 @@ export const StorageService = {
         let taskUpdated = false;
         let nextMainUrl = t.submittedFileUrl;
         const nextSubs = t.submissions.map(s => {
-          if (!s || !s.fileName || (s.fileUrl && s.fileUrl.startsWith('http'))) return s;
-          const targetName = s.fileName.trim().toLowerCase();
+          if (!s || !s.fileName) return s;
+          if (s.driveFileId || extractDriveFileIdClient(s.fileUrl)) return s;
+
+          // 1. Check TaskSubmissions sheet by taskId + memberId + strict filename extension match
+          for (let i = subRows.length - 1; i >= 0; i--) {
+            const row = subRows[i];
+            if (!row) continue;
+            const rowTaskId = String(row.taskId || '').trim();
+            const rowMemberId = String(row.memberId || '').trim();
+            const rowFileName = String(row.fileName || '').trim();
+            const matchesTaskMember =
+              rowTaskId === t.id &&
+              rowMemberId === s.memberId &&
+              (!rowFileName || isStrictNameMatch(rowFileName, s.fileName));
+            if (matchesTaskMember || isStrictNameMatch(rowFileName, s.fileName)) {
+              const fid =
+                String(row.driveFileId || '').trim() ||
+                extractDriveFileIdClient(String(row.fileUrl || row.downloadUrl || ''));
+              if (fid) {
+                const viewUrl = `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
+                taskUpdated = true;
+                updatedAny = true;
+                if (!nextMainUrl || t.submittedBy === s.memberId) nextMainUrl = viewUrl;
+                return {
+                  ...s,
+                  fileUrl: viewUrl,
+                  driveFileId: fid
+                };
+              }
+            }
+          }
+
+          // 2. Check DriveFiles sheet with strict filename + extension match
           for (let i = driveRows.length - 1; i >= 0; i--) {
             const row = driveRows[i];
             if (!row) continue;
-            const rName = String(row.fileName || '').trim().toLowerCase();
-            if (rName === targetName || rName.endsWith('_' + targetName) || rName.includes(targetName)) {
-              const fid = String(row.driveFileId || '').trim();
-              const viewUrl = String(row.driveViewUrl || (fid ? `https://lh3.googleusercontent.com/d/${fid}` : ''));
-              if (viewUrl && viewUrl.startsWith('http')) {
+            const rName = String(row.fileName || '').trim();
+            if (isStrictNameMatch(rName, s.fileName)) {
+              const fid =
+                String(row.driveFileId || '').trim() ||
+                extractDriveFileIdClient(String(row.driveViewUrl || row.downloadUrl || ''));
+              if (fid) {
+                const viewUrl = `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
                 taskUpdated = true;
                 updatedAny = true;
-                if (!nextMainUrl) nextMainUrl = viewUrl;
+                if (!nextMainUrl || t.submittedBy === s.memberId) nextMainUrl = viewUrl;
                 return {
                   ...s,
-                  fileUrl: viewUrl
+                  fileUrl: viewUrl,
+                  driveFileId: fid
                 };
               }
             }

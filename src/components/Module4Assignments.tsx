@@ -164,11 +164,25 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
   // Submission modal state (for members) with 0-100% progress tracking
   const [submittingTaskId, setSubmittingTaskId] = useState<string | null>(null);
-  const [submittedFile, setSubmittedFile] = useState<{ name: string; url: string; size: string } | null>(null);
+  const [submittedFile, setSubmittedFile] = useState<{
+    name: string;
+    url: string;
+    size: string;
+    hostedUrl?: string;
+    driveFileId?: string;
+    driveUrl?: string;
+    downloadUrl?: string;
+  } | null>(null);
   const [isUploadingSubmission, setIsUploadingSubmission] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [uploadStepText, setUploadStepText] = useState<string>('');
-  const uploadPromiseRef = useRef<Promise<string> | null>(null);
+  const uploadPromiseRef = useRef<Promise<{
+    url: string;
+    hostedUrl?: string;
+    driveFileId?: string;
+    driveUrl?: string;
+    downloadUrl?: string;
+  }> | null>(null);
 
   // Drag and drop state for reordering
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -271,20 +285,31 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     return undefined;
   };
 
-  const resolveSubmissionDriveUrl = (s?: TaskSubmission, fallbackTaskUrl?: string): string => {
+  const resolveSubmissionDriveUrl = (s?: TaskSubmission, fallbackTaskUrl?: string, task?: TaskItem): string => {
     if (!s) return fallbackTaskUrl || '';
-    const fid =
+    const ownFid =
       s.driveFileId ||
       extractDriveFileId(s.fileUrl) ||
-      extractDriveFileId((s as any).downloadUrl) ||
-      extractDriveFileId(fallbackTaskUrl);
-    if (fid) {
-      if (isImageFile(s.fileName)) {
-        return `https://lh3.googleusercontent.com/d/${fid}`;
-      }
-      return `https://drive.google.com/file/d/${fid}/view?usp=sharing`;
+      extractDriveFileId((s as any).downloadUrl);
+    if (ownFid) {
+      return `https://drive.google.com/file/d/${ownFid}/view?usp=sharing`;
     }
-    return s.fileUrl || (s as any).downloadUrl || (s as any).localHostedUrl || fallbackTaskUrl || '';
+    const ownDirectUrl = s.fileUrl || (s as any).localHostedUrl || (s as any).downloadUrl;
+    if (ownDirectUrl) {
+      return ownDirectUrl;
+    }
+    const canUseTaskFallback =
+      !task ||
+      task.submittedBy === s.memberId ||
+      (s.fileName && task.submittedFileName === s.fileName);
+    if (canUseTaskFallback && fallbackTaskUrl) {
+      const fallbackFid = extractDriveFileId(fallbackTaskUrl);
+      if (fallbackFid) {
+        return `https://drive.google.com/file/d/${fallbackFid}/view?usp=sharing`;
+      }
+      return fallbackTaskUrl;
+    }
+    return '';
   };
 
   const getMySubmission = (task: TaskItem): TaskSubmission | undefined => {
@@ -302,7 +327,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     if (found) {
       return {
         ...found,
-        fileUrl: resolveSubmissionDriveUrl(found, task.submittedFileUrl)
+        fileUrl: resolveSubmissionDriveUrl(found, task.submittedFileUrl, task)
       };
     }
 
@@ -317,9 +342,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
         memberId: user.id,
         memberName: user.fullName,
         fileUrl: task.driveFileId
-          ? isImageFile(task.submittedFileName)
-            ? `https://lh3.googleusercontent.com/d/${task.driveFileId}`
-            : `https://drive.google.com/file/d/${task.driveFileId}/view?usp=sharing`
+          ? `https://drive.google.com/file/d/${task.driveFileId}/view?usp=sharing`
           : task.submittedFileUrl,
         fileName: task.submittedFileName || 'ไฟล์งานที่ส่ง',
         fileSize: task.submittedFileSize || '1.0 MB',
@@ -340,7 +363,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       const key = String(s.memberId || s.memberName || '').trim().toLowerCase();
       if (!key || seenKeys.has(key)) return;
       seenKeys.add(key);
-      const effectiveUrl = resolveSubmissionDriveUrl(s, task.submittedFileUrl);
+      const effectiveUrl = resolveSubmissionDriveUrl(s, task.submittedFileUrl, task);
       result.push({
         ...s,
         memberName: fallbackName || s.memberName || s.memberId || 'สมาชิก',
@@ -551,6 +574,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const sizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+    const activeTaskId = submittingTaskId || 'task';
+    const detId =
+      'sub_' +
+      String(activeTaskId).replace(/[^a-zA-Z0-9_-]/g, '_') +
+      '_' +
+      String(user.id || 'member').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const deterministicHostedUrl = `/api/files/${detId}`;
+
     setUploadProgress(15);
     setUploadStepText(`กำลังอ่านไฟล์ "${file.name}"...`);
 
@@ -564,32 +595,100 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
-      setSubmittedFile({ name: file.name, url: base64, size: sizeStr });
+      setSubmittedFile({
+        name: file.name,
+        url: base64,
+        size: sizeStr,
+        hostedUrl: deterministicHostedUrl
+      });
       setUploadProgress(50);
       setUploadStepText('เลือกไฟล์พร้อมส่งเรียบร้อย กดยืนยันการส่งงานได้ทันที');
       onShowToast('info', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) กดยืนยันการส่งงานได้เลย`);
 
-      // Pre-upload to fast local server cache for instant Admin access
-      fetch('/api/files/upload', {
+      // Upload binary to local server cache + Firestore chunks + Google Drive in one unified call
+      const uploadPromise = fetch('/api/files/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, dataUrl: base64 })
-      }).catch(() => {});
-
-      // Pre-upload to Google Drive immediately and track promise so handleFinalSubmitTask can await it
-      const uploadPromise = StorageService.uploadFileToGoogleDrive(
-        base64,
-        file.name,
-        `TaskSubmissions_${currentAcademicYear}`
-      )
-        .then(driveUrl => {
-          if (driveUrl && driveUrl.startsWith('http')) {
-            setSubmittedFile(prev => (prev && prev.name === file.name ? { ...prev, url: driveUrl } : prev));
-            return driveUrl;
-          }
-          return base64;
+        body: JSON.stringify({
+          id: detId,
+          fileName: file.name,
+          dataUrl: base64,
+          schoolId: user.schoolId,
+          category: `TaskSubmissions_${currentAcademicYear}`,
+          uploadedBy: user.fullName || user.id,
+          uploadToDrive: true,
+          taskId: activeTaskId,
+          memberId: user.id
         })
-        .catch(() => base64);
+      })
+        .then(async res => {
+          if (!res.ok) throw new Error('upload failed');
+          const data = await res.json();
+          const hostedUrl = data?.url || deterministicHostedUrl;
+          const driveFileId = data?.driveFileId || extractDriveFileId(data?.driveUrl) || '';
+          const driveUrl =
+            data?.driveUrl ||
+            (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view?usp=sharing` : '');
+          const downloadUrl =
+            data?.downloadUrl ||
+            (driveFileId ? `https://drive.google.com/uc?export=download&id=${driveFileId}` : hostedUrl);
+          const bestUrl = driveUrl || hostedUrl;
+
+          setSubmittedFile(prev =>
+            prev && prev.name === file.name
+              ? {
+                  ...prev,
+                  url: bestUrl,
+                  hostedUrl,
+                  driveFileId: driveFileId || prev.driveFileId,
+                  driveUrl: driveUrl || prev.driveUrl,
+                  downloadUrl: downloadUrl || prev.downloadUrl
+                }
+              : prev
+          );
+          return {
+            url: bestUrl,
+            hostedUrl,
+            driveFileId,
+            driveUrl,
+            downloadUrl
+          };
+        })
+        .catch(async () => {
+          // Fallback to client-side Google Drive upload if server uploadToDrive timed out
+          try {
+            const driveUrl = await StorageService.uploadFileToGoogleDrive(
+              base64,
+              file.name,
+              `TaskSubmissions_${currentAcademicYear}`
+            );
+            const driveFileId = extractDriveFileId(driveUrl);
+            const bestUrl = driveUrl && driveUrl.startsWith('http') ? driveUrl : deterministicHostedUrl;
+            setSubmittedFile(prev =>
+              prev && prev.name === file.name
+                ? {
+                    ...prev,
+                    url: bestUrl,
+                    hostedUrl: deterministicHostedUrl,
+                    driveFileId: driveFileId || prev.driveFileId,
+                    driveUrl: driveUrl.startsWith('http') ? driveUrl : prev.driveUrl
+                  }
+                : prev
+            );
+            return {
+              url: bestUrl,
+              hostedUrl: deterministicHostedUrl,
+              driveFileId,
+              driveUrl: driveUrl.startsWith('http') ? driveUrl : ''
+            };
+          } catch {
+            return {
+              url: deterministicHostedUrl,
+              hostedUrl: deterministicHostedUrl
+            };
+          }
+        });
+
       uploadPromiseRef.current = uploadPromise;
     };
     reader.readAsDataURL(file);
@@ -604,6 +703,13 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
+    const detId =
+      'sub_' +
+      String(taskId).replace(/[^a-zA-Z0-9_-]/g, '_') +
+      '_' +
+      String(user.id || 'member').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const deterministicHostedUrl = submittedFile.hostedUrl || `/api/files/${detId}`;
+
     setIsUploadingSubmission(true);
     setUploadProgress(prev => Math.max(prev, 55));
     setUploadStepText('กำลังอัปโหลดและเชื่อมโยงไฟล์กับ Google Drive...');
@@ -617,37 +723,67 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       }
     }, 150);
 
-    let finalFileUrl = submittedFile.url;
+    let resolvedHostedUrl = deterministicHostedUrl;
+    let resolvedDriveFileId = submittedFile.driveFileId || extractDriveFileId(submittedFile.driveUrl || submittedFile.url) || '';
+    let resolvedDriveUrl =
+      submittedFile.driveUrl ||
+      (resolvedDriveFileId ? `https://drive.google.com/file/d/${resolvedDriveFileId}/view?usp=sharing` : '');
+    let resolvedDownloadUrl = submittedFile.downloadUrl || '';
+
     try {
-      if (finalFileUrl.startsWith('data:')) {
-        if (uploadPromiseRef.current) {
-          const awaitedUrl = await Promise.race([
-            uploadPromiseRef.current,
-            new Promise<string>(r => setTimeout(() => r(''), 8000))
-          ]);
-          if (awaitedUrl && awaitedUrl.startsWith('http')) {
-            finalFileUrl = awaitedUrl;
-          }
-        }
-        if (finalFileUrl.startsWith('data:')) {
-          const directDriveUrl = await Promise.race([
-            StorageService.uploadFileToGoogleDrive(
-              finalFileUrl,
-              submittedFile.name,
-              `TaskSubmissions_${currentAcademicYear}`
-            ),
-            new Promise<string>(r => setTimeout(() => r(''), 8000))
-          ]);
-          if (directDriveUrl && directDriveUrl.startsWith('http')) {
-            finalFileUrl = directDriveUrl;
+      if (uploadPromiseRef.current) {
+        const awaited = await Promise.race([
+          uploadPromiseRef.current,
+          new Promise<null>(r => setTimeout(() => r(null), 12000))
+        ]);
+        if (awaited) {
+          if (awaited.hostedUrl) resolvedHostedUrl = awaited.hostedUrl;
+          if (awaited.driveFileId) resolvedDriveFileId = awaited.driveFileId;
+          if (awaited.driveUrl) resolvedDriveUrl = awaited.driveUrl;
+          if (awaited.downloadUrl) resolvedDownloadUrl = awaited.downloadUrl;
+          if (!resolvedDriveUrl && awaited.url && awaited.url.startsWith('http')) {
+            resolvedDriveUrl = awaited.url;
+            resolvedDriveFileId = resolvedDriveFileId || extractDriveFileId(awaited.url);
           }
         }
       }
+
+      if (!resolvedDriveUrl && submittedFile.url.startsWith('data:')) {
+        const directRes = await Promise.race([
+          fetch('/api/files/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: detId,
+              fileName: submittedFile.name,
+              dataUrl: submittedFile.url,
+              schoolId: user.schoolId,
+              category: `TaskSubmissions_${currentAcademicYear}`,
+              uploadedBy: user.fullName || user.id,
+              uploadToDrive: true,
+              taskId,
+              memberId: user.id
+            })
+          }).then(r => (r.ok ? r.json() : null)),
+          new Promise<null>(r => setTimeout(() => r(null), 10000))
+        ]);
+        if (directRes) {
+          if (directRes.url) resolvedHostedUrl = directRes.url;
+          if (directRes.driveFileId) resolvedDriveFileId = directRes.driveFileId;
+          if (directRes.driveUrl) resolvedDriveUrl = directRes.driveUrl;
+          if (directRes.downloadUrl) resolvedDownloadUrl = directRes.downloadUrl;
+        }
+      }
     } catch {
-      // Keep finalFileUrl if offline
+      // Keep resolvedHostedUrl fallback if offline
     } finally {
       clearInterval(progressInterval);
     }
+
+    if (resolvedDriveFileId && !resolvedDriveUrl) {
+      resolvedDriveUrl = `https://drive.google.com/file/d/${resolvedDriveFileId}/view?usp=sharing`;
+    }
+    const finalFileUrl = resolvedDriveUrl || resolvedHostedUrl;
 
     setUploadProgress(100);
     setUploadStepText('อัปโหลดและส่งงานเสร็จสมบูรณ์ 100%');
@@ -659,6 +795,11 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       fileUrl: finalFileUrl,
       fileName: submittedFile.name,
       fileSize: submittedFile.size,
+      driveFileId: resolvedDriveFileId || undefined,
+      localHostedUrl: resolvedHostedUrl,
+      downloadUrl:
+        resolvedDownloadUrl ||
+        (resolvedDriveFileId ? `https://drive.google.com/uc?export=download&id=${resolvedDriveFileId}` : resolvedHostedUrl),
       submittedAt: nowIso
     };
 
@@ -686,7 +827,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       submissions: updatedSubs,
       deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isAllMembersDone,
-      submittedFileUrl: finalFileUrl.startsWith('http') ? finalFileUrl : undefined,
+      submittedFileUrl: finalFileUrl,
+      driveFileId: resolvedDriveFileId || task.driveFileId,
       submittedFileName: submittedFile.name,
       submittedFileSize: submittedFile.size,
       submittedBy: user.id,
@@ -789,15 +931,21 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     onShowToast('info', 'ลบงานแล้ว', 'ลบงานที่สมาชิกส่งเรียบร้อยแล้ว');
   };
 
-  const handleDownloadFile = async (url: string, filename: string, key?: string) => {
-    if ((!url || url === '#') && !filename) {
+  const handleDownloadFile = async (
+    url: string,
+    filename: string,
+    key?: string,
+    taskId?: string,
+    memberId?: string
+  ) => {
+    if ((!url || url === '#') && !filename && !taskId) {
       onShowToast('info', 'ไม่มีไฟล์', 'รายการนี้ยังไม่มีไฟล์แนบ');
       return;
     }
     const safeKey = key || filename || url;
     setDownloadingFileKey(safeKey);
     try {
-      const ok = await downloadRealFile(url, filename, undefined, user.schoolId);
+      const ok = await downloadRealFile(url, filename, undefined, user.schoolId, undefined, taskId, memberId);
       if (ok) {
         onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลด "${filename || 'ไฟล์งาน'}" เรียบร้อยแล้ว`);
       } else {
@@ -1167,17 +1315,30 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                           <>
                             {mySubmission?.fileUrl && (
                               <>
-                                <a
-                                  href={getDirectFileDownloadUrl(mySubmission.fileUrl, mySubmission.fileName, user.schoolId)}
-                                  download={mySubmission.fileName}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs no-underline"
+                                <button
+                                  type="button"
+                                  disabled={downloadingFileKey === `my-sub-${task.id}`}
+                                  onClick={() =>
+                                    handleDownloadFile(
+                                      mySubmission.fileUrl,
+                                      mySubmission.fileName,
+                                      `my-sub-${task.id}`,
+                                      task.id,
+                                      user.id
+                                    )
+                                  }
+                                  className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-white hover:bg-emerald-50 disabled:opacity-60 text-emerald-700 border border-emerald-300 rounded-xl text-[11px] sm:text-xs font-bold inline-flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs"
                                   title={`ดาวน์โหลดไฟล์ที่ส่งแล้ว (${mySubmission.fileName})`}
                                 >
-                                  <Download className="w-3.5 h-3.5 shrink-0" />
-                                  <span className="hidden md:inline">ดาวน์โหลด</span>
-                                </a>
+                                  {downloadingFileKey === `my-sub-${task.id}` ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <Download className="w-3.5 h-3.5 shrink-0" />
+                                  )}
+                                  <span className="hidden md:inline">
+                                    {downloadingFileKey === `my-sub-${task.id}` ? 'กำลังโหลด...' : 'ดาวน์โหลด'}
+                                  </span>
+                                </button>
 
                                 {/* ไอคอนแก้ไขสำหรับสมาชิก: แก้ไขโดยลบไฟล์เก่าและอัปโหลดไฟล์ใหม่ */}
                                 <button
@@ -1339,7 +1500,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         <button
                           type="button"
                           disabled={downloadingFileKey === `attach-${task.id}`}
-                          onClick={() => handleDownloadFile(task.attachmentUrl!, 'announcement-attachment', `attach-${task.id}`)}
+                          onClick={() =>
+                            handleDownloadFile(
+                              task.attachmentUrl!,
+                              task.submittedFileName || task.title || 'เอกสารแนบประกาศ',
+                              `attach-${task.id}`,
+                              task.id
+                            )
+                          }
                           className="h-7 px-2 sm:h-auto sm:px-2.5 sm:py-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 text-indigo-700 rounded-xl text-[11px] sm:text-xs font-semibold inline-flex items-center gap-1 cursor-pointer shrink-0"
                           title="ดาวน์โหลดไฟล์แนบ"
                         >
@@ -1423,8 +1591,9 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   {schoolMembers.map((mem, idx) => {
                     const submission = findMemberSubmission(liveStatusTask, mem);
                     const hasSubmitted = !!submission;
-                    const effectiveFileUrl = resolveSubmissionDriveUrl(submission, liveStatusTask.submittedFileUrl);
+                    const effectiveFileUrl = resolveSubmissionDriveUrl(submission, liveStatusTask.submittedFileUrl, liveStatusTask);
                     const overdue = isOverdue(liveStatusTask.dueDate);
+                    const dlKey = `sub-${liveStatusTask.id}-${mem.id}`;
 
                     return (
                       <div 
@@ -1467,12 +1636,20 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             {/* Download button - In-page direct download without navigating away */}
                             <button
                               type="button"
-                              disabled={downloadingFileKey === (submission.fileName || mem.id)}
-                              onClick={() => handleDownloadFile(effectiveFileUrl, submission.fileName, submission.fileName || mem.id)}
+                              disabled={downloadingFileKey === dlKey}
+                              onClick={() =>
+                                handleDownloadFile(
+                                  effectiveFileUrl,
+                                  submission.fileName,
+                                  dlKey,
+                                  liveStatusTask.id,
+                                  submission.memberId || mem.id
+                                )
+                              }
                               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                              title="ดาวน์โหลดไฟล์ต้นฉบับแท้จาก Google Drive"
+                              title="ดาวน์โหลดไฟล์ต้นฉบับแท้"
                             >
-                              {downloadingFileKey === (submission.fileName || mem.id) ? (
+                              {downloadingFileKey === dlKey ? (
                                 <>
                                   <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                                   <span>กำลังดาวน์โหลด...</span>
@@ -1525,7 +1702,8 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   {(liveStatusTask.submissions || [])
                     .filter(s => s && !schoolMembers.some(m => findMemberSubmission(liveStatusTask, m)?.memberId === s.memberId || findMemberSubmission(liveStatusTask, m)?.memberName === s.memberName))
                     .map((sub, extraIdx) => {
-                      const effectiveFileUrl = resolveSubmissionDriveUrl(sub, liveStatusTask.submittedFileUrl);
+                      const effectiveFileUrl = resolveSubmissionDriveUrl(sub, liveStatusTask.submittedFileUrl, liveStatusTask);
+                      const extraDlKey = `sub-extra-${liveStatusTask.id}-${sub.memberId || extraIdx}`;
                       return (
                         <div
                           key={`extra-${sub.memberId}-${extraIdx}`}
@@ -1550,12 +1728,20 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                             {/* Download button - In-page direct download without navigating away */}
                             <button
                               type="button"
-                              disabled={downloadingFileKey === (sub.fileName || sub.memberId)}
-                              onClick={() => handleDownloadFile(effectiveFileUrl, sub.fileName, sub.fileName || sub.memberId)}
+                              disabled={downloadingFileKey === extraDlKey}
+                              onClick={() =>
+                                handleDownloadFile(
+                                  effectiveFileUrl,
+                                  sub.fileName,
+                                  extraDlKey,
+                                  liveStatusTask.id,
+                                  sub.memberId
+                                )
+                              }
                               className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                              title="ดาวน์โหลดไฟล์ต้นฉบับแท้จาก Google Drive"
+                              title="ดาวน์โหลดไฟล์ต้นฉบับแท้"
                             >
-                              {downloadingFileKey === (sub.fileName || sub.memberId) ? (
+                              {downloadingFileKey === extraDlKey ? (
                                 <>
                                   <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
                                   <span>กำลังดาวน์โหลด...</span>
@@ -1824,7 +2010,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     <button
                       type="button"
                       disabled={downloadingFileKey === mySub.fileName}
-                      onClick={() => handleDownloadFile(mySub.fileUrl, mySub.fileName, mySub.fileName)}
+                      onClick={() => handleDownloadFile(mySub.fileUrl, mySub.fileName, mySub.fileName, currentTask?.id, user.id)}
                       className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 inline-flex items-center gap-1 cursor-pointer"
                     >
                       {downloadingFileKey === mySub.fileName ? (
@@ -2045,7 +2231,14 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                 <button
                   type="button"
                   disabled={downloadingFileKey === 'task-attachment'}
-                  onClick={() => handleDownloadFile(selectedTaskDetailModal.attachmentUrl!, 'task-attachment', 'task-attachment')}
+                  onClick={() =>
+                    handleDownloadFile(
+                      selectedTaskDetailModal.attachmentUrl!,
+                      selectedTaskDetailModal.submittedFileName || selectedTaskDetailModal.title || 'เอกสารแนบ',
+                      'task-attachment',
+                      selectedTaskDetailModal.id
+                    )
+                  }
                   className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-60 text-indigo-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   {downloadingFileKey === 'task-attachment' ? (
@@ -2079,7 +2272,15 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                         <button
                           type="button"
                           disabled={downloadingFileKey === mySubInModal.fileName}
-                          onClick={() => handleDownloadFile(mySubInModal.fileUrl, mySubInModal.fileName, mySubInModal.fileName)}
+                          onClick={() =>
+                            handleDownloadFile(
+                              mySubInModal.fileUrl,
+                              mySubInModal.fileName,
+                              mySubInModal.fileName,
+                              selectedTaskDetailModal.id,
+                              user.id
+                            )
+                          }
                           className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 shrink-0 inline-flex items-center gap-1 cursor-pointer"
                         >
                           {downloadingFileKey === mySubInModal.fileName ? (

@@ -366,6 +366,8 @@ export interface TaskSubmission {
   fileSize: string;
   submittedAt: string;
   driveFileId?: string;
+  localHostedUrl?: string;
+  downloadUrl?: string;
 }
 
 export interface TaskItem {

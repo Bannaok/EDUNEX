@@ -14,8 +14,11 @@ import {
   X, 
   Upload, 
   UserCheck, 
-  Lock 
+  Lock,
+  Phone,
+  Calendar
 } from 'lucide-react';
+import { cleanTeacherName } from './ModuleDataOthers';
 
 interface SettingsProps {
   user: UserSession;
@@ -59,7 +62,14 @@ export const SettingsView: React.FC<SettingsProps> = ({
   const [userAvatarUrl, setUserAvatarUrl] = useState<string>(
     user.avatarUrl || ''
   );
+  const [userPhone, setUserPhone] = useState<string>(user.phone || '');
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Leave Round selection state (Admin control: ครั้งที่ 1 vs ครั้งที่ 2)
+  const [selectedLeaveRound, setSelectedLeaveRound] = useState<'1' | '2'>(schoolInfo.leaveRound || '1');
+  const [selectedLeaveFiscalYear, setSelectedLeaveFiscalYear] = useState<string>(
+    schoolInfo.leaveRoundFiscalYear || schoolInfo.academicYear || '2569'
+  );
 
   // School Logo state
   const [schoolLogoUrl, setSchoolLogoUrl] = useState<string>(schoolInfo.logoUrl || '');
@@ -179,7 +189,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Handle Save Profile Form (Requirement 10.2)
+  // Handle Save Profile Form (Requirement: include contact phone)
   const handleSaveProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const full = `${userPrefix} ${userFirstName} ${userLastName}`.trim();
@@ -190,6 +200,7 @@ export const SettingsView: React.FC<SettingsProps> = ({
       firstName: userFirstName,
       lastName: userLastName,
       fullName: full || user.fullName,
+      phone: userPhone,
       assignedGrade: userGradeLevel === 'ไม่ได้เป็นครูประจำชั้น' ? undefined : userGradeLevel,
       learningGroup: userLearningGroup,
       avatarUrl: userAvatarUrl
@@ -210,13 +221,35 @@ export const SettingsView: React.FC<SettingsProps> = ({
         firstName: userFirstName,
         lastName: userLastName,
         fullName: full || foundMem.fullName,
+        phone: userPhone,
         gradeLevel: (userGradeLevel === 'ไม่ได้เป็นครูประจำชั้น' ? undefined : userGradeLevel) as GradeLevel,
         learningGroup: userLearningGroup,
         avatarUrl: userAvatarUrl
       });
     }
 
-    onShowToast('success', 'บันทึกข้อมูลส่วนตัวสำเร็จ 🎉', 'อัปเดตข้อมูลส่วนตัว รูปโปรไฟล์ และกลุ่มสาระการเรียนรู้เรียบร้อยแล้ว');
+    // Also synchronize phone to matching Personnel record so leave requests and official forms have the phone
+    try {
+      const allPersonnel = StorageService.getPersonnel();
+      const matchedP = allPersonnel.find(p => 
+        p.id === user.id || 
+        cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) === cleanTeacherName(full) ||
+        cleanTeacherName(`${p.firstName} ${p.lastName}`) === cleanTeacherName(full)
+      );
+      if (matchedP) {
+        StorageService.savePersonnel({
+          ...matchedP,
+          phone: userPhone || matchedP.phone,
+          prefix: userPrefix || matchedP.prefix,
+          firstName: userFirstName || matchedP.firstName,
+          lastName: userLastName || matchedP.lastName
+        });
+      }
+    } catch {
+      // ignore sync errors
+    }
+
+    onShowToast('success', 'บันทึกข้อมูลส่วนตัวสำเร็จ 🎉', 'อัปเดตข้อมูลส่วนตัว เบอร์โทรติดต่อ และรูปโปรไฟล์เรียบร้อยแล้ว');
   };
 
   return (
@@ -479,6 +512,24 @@ export const SettingsView: React.FC<SettingsProps> = ({
                   </div>
                 </div>
 
+                {/* 4. Contact Phone (Requirement: เบอร์โทรติดต่อสำหรับสมาชิก) */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>เบอร์โทรติดต่อ (สำหรับสมาชิกเพื่อนำไปใช้ในระบบการลาและเอกสารราชการ)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={userPhone}
+                    onChange={(e) => setUserPhone(e.target.value)}
+                    placeholder="เช่น 081-234-5678"
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    * เมื่อบันทึกแล้ว เบอร์โทรนี้จะถูกเชื่อมโยงไปยังแบบใบลาป่วย ลากิจส่วนตัว และข้อมูลติดต่ออัตโนมัติ
+                  </p>
+                </div>
+
                 <div className="pt-3 border-t border-slate-100 flex justify-end">
                   <button
                     type="submit"
@@ -512,10 +563,12 @@ export const SettingsView: React.FC<SettingsProps> = ({
                     affiliation: fd.get('affiliation') as string,
                     logoUrl: schoolLogoUrl,
                     academicYear: fd.get('academicYear') as string,
-                    semester: fd.get('semester') as string
+                    semester: fd.get('semester') as string,
+                    leaveRound: selectedLeaveRound,
+                    leaveRoundFiscalYear: selectedLeaveFiscalYear
                   };
                   onSaveSchoolInfo(updated);
-                  onShowToast('success', 'บันทึกสำเร็จ', 'อัปเดตข้อมูลโรงเรียนและตราสัญลักษณ์เรียบร้อยแล้ว');
+                  onShowToast('success', 'บันทึกสำเร็จ', 'อัปเดตข้อมูลโรงเรียนและระบบรอบการลาเรียบร้อยแล้ว');
                 }}
                 className="space-y-4"
               >
@@ -682,6 +735,114 @@ export const SettingsView: React.FC<SettingsProps> = ({
                     <div>
                       <strong>ล็อกการแสดงผลของสมาชิก (ครูประจำชั้น):</strong> ปีการศึกษาและภาคเรียนนี้จะถูกใช้เป็นค่าหลักในทุกระบบ (เวลาเรียน, งานวัดผล, ธุรการ, ปฏิทินวิชาการ) ทำให้สมาชิกแสดงข้อมูลตรงกันและไม่สามารถกดเปลี่ยนเองได้
                     </div>
+                  </div>
+                </div>
+
+                {/* ADMIN LEAVE SYSTEM ROUND CONFIGURATION CARD */}
+                <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-blue-50/50 to-slate-50 rounded-2xl border border-indigo-100/90 shadow-2xs space-y-3.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-indigo-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                          <span>ระบบการลา: กำหนดรอบการประเมินและการนับสถิติ</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white shadow-2xs">
+                            Admin กำหนด
+                          </span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          เมื่อ Admin กำหนดเลือกครั้งที่... แล้ว สมาชิกจะแสดงครั้งนั้นๆ และการนับสถิติการลาจะเริ่มนับใหม่ตามรอบที่เลือก
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-indigo-950 font-bold bg-white px-3 py-1 rounded-xl border border-indigo-200">
+                      <span>ปีงบประมาณ:</span>
+                      <select
+                        value={selectedLeaveFiscalYear}
+                        onChange={(e) => setSelectedLeaveFiscalYear(e.target.value)}
+                        className="font-bold text-indigo-700 bg-transparent focus:outline-none cursor-pointer"
+                      >
+                        {academicYears.map(yr => (
+                          <option key={yr} value={yr}>พ.ศ. {yr}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* 2 Big Choice Buttons: ครั้งที่ 1 vs ครั้งที่ 2 */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLeaveRound('1')}
+                      className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
+                        selectedLeaveRound === '1'
+                          ? 'bg-white border-indigo-600 shadow-md ring-2 ring-indigo-200'
+                          : 'bg-white/70 border-slate-200 hover:bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3 h-3 rounded-full flex items-center justify-center ${
+                            selectedLeaveRound === '1' ? 'bg-indigo-600 ring-2 ring-indigo-200' : 'bg-slate-300'
+                          }`}>
+                            {selectedLeaveRound === '1' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </span>
+                          <strong className="text-xs font-bold text-slate-900">
+                            ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)
+                          </strong>
+                        </div>
+                        <p className="text-[11px] text-slate-500 pl-5">
+                          รอบการประเมินครึ่งปีแรก เริ่มนับสถิติการลาใหม่จาก 0 วัน
+                        </p>
+                      </div>
+                      {selectedLeaveRound === '1' && (
+                        <span className="p-1.5 bg-indigo-600 text-white rounded-xl shrink-0 shadow-2xs">
+                          <Check className="w-4 h-4" />
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLeaveRound('2')}
+                      className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer flex items-start justify-between gap-3 relative ${
+                        selectedLeaveRound === '2'
+                          ? 'bg-white border-blue-600 shadow-md ring-2 ring-blue-200'
+                          : 'bg-white/70 border-slate-200 hover:bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="space-y-1 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-3 h-3 rounded-full flex items-center justify-center ${
+                            selectedLeaveRound === '2' ? 'bg-blue-600 ring-2 ring-blue-200' : 'bg-slate-300'
+                          }`}>
+                            {selectedLeaveRound === '2' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </span>
+                          <strong className="text-xs font-bold text-slate-900">
+                            ครั้งที่ 2 (1 เมษายน – 30 กันยายน)
+                          </strong>
+                        </div>
+                        <p className="text-[11px] text-slate-500 pl-5">
+                          รอบการประเมินครึ่งปีหลัง เริ่มนับสถิติการลาใหม่จาก 0 วัน
+                        </p>
+                      </div>
+                      {selectedLeaveRound === '2' && (
+                        <span className="p-1.5 bg-blue-600 text-white rounded-xl shrink-0 shadow-2xs">
+                          <Check className="w-4 h-4" />
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="text-[11px] text-indigo-900 bg-white/90 p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between">
+                    <span>
+                      📌 <strong>รอบที่เลือกใช้งาน:</strong> ครั้งที่ {selectedLeaveRound} ({selectedLeaveRound === '1' ? '1 ตุลาคม – 31 มีนาคม' : '1 เมษายน – 30 กันยายน'}) ปีงบประมาณ {selectedLeaveFiscalYear}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                      สมาชิกจะแสดงรอบนี้โดยอัตโนมัติ
+                    </span>
                   </div>
                 </div>
 

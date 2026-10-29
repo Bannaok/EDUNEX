@@ -9,6 +9,7 @@ export interface UserSession {
   lastName?: string;
   role: Role;
   position?: string;
+  phone?: string; // เบอร์โทรติดต่อ
   assignedGrade?: GradeLevel | string;
   learningGroup?: string;
   avatarUrl?: string;
@@ -186,6 +187,8 @@ export interface SchoolInfo {
   logoUrl?: string;
   academicYear: string;
   semester: string;
+  leaveRound?: '1' | '2'; // รอบการลา ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม) หรือ ครั้งที่ 2 (1 เมษายน – 30 กันยายน)
+  leaveRoundFiscalYear?: string; // ปีงบประมาณของรอบการลา เช่น '2569'
   customFields?: { label: string; value: string }[];
   googleSheetId?: string;
   googleSheetUrl?: string;
@@ -451,6 +454,7 @@ export interface MemberAccount {
   firstName?: string;
   lastName?: string;
   role: Role;
+  phone?: string; // เบอร์โทรติดต่อ
   gradeLevel?: GradeLevel;
   position: string;
   learningGroup?: string;
@@ -520,6 +524,7 @@ export interface LeaveRequestRecord {
   personnelOfficer?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
   fiscalYear?: number;
+  leaveRound?: '1' | '2';
   schoolId?: string;
   createdAt: string;
 }

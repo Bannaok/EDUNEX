@@ -48,7 +48,7 @@ import {
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import { StudentCardBatchModal } from './StudentCardBatchModal';
+import { StudentCardBatchModal, captureElementAsA4Canvas } from './StudentCardBatchModal';
 import { ThaiDatePicker, formatIsoToThaiDisplay } from './ThaiDatePicker';
 
 export const RELIGION_OPTIONS = ['พุทธ', 'อิสลาม', 'คริสต์', 'พราหมณ์-ฮินดู', 'ซิกข์', 'ไม่มีศาสนา', 'อื่นๆ'];
@@ -117,6 +117,7 @@ export interface LeaveRequest {
   personnelOfficer?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
   fiscalYear?: number;
+  leaveRound?: '1' | '2';
   schoolId?: string;
   createdAt: string;
 }
@@ -137,6 +138,39 @@ export const getThaiFiscalYear = (dateStr?: string): number => {
     return m >= 10 ? thaiYear + 1 : thaiYear;
   }
   return 2569;
+};
+
+export interface LeaveRoundInfo {
+  fiscalYear: number;
+  round: '1' | '2';
+  roundTitle: string;
+  roundShort: string;
+  periodDateRange: string;
+}
+
+export const getLeaveRoundInfo = (dateStr?: string): LeaveRoundInfo => {
+  const fy = getThaiFiscalYear(dateStr);
+  let round: '1' | '2' = '1';
+  if (dateStr) {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length >= 2) {
+      const m = parseInt(parts[1], 10);
+      // ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม): เดือน 10, 11, 12, 1, 2, 3
+      // ครั้งที่ 2 (1 เมษายน – 30 กันยายน): เดือน 4, 5, 6, 7, 8, 9
+      round = (m >= 10 || m <= 3) ? '1' : '2';
+    }
+  } else {
+    const now = new Date();
+    const m = now.getMonth() + 1;
+    round = (m >= 10 || m <= 3) ? '1' : '2';
+  }
+  return {
+    fiscalYear: fy,
+    round,
+    roundTitle: round === '1' ? 'ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)' : 'ครั้งที่ 2 (1 เมษายน – 30 กันยายน)',
+    roundShort: round === '1' ? 'ครั้งที่ 1' : 'ครั้งที่ 2',
+    periodDateRange: round === '1' ? '1 ต.ค. – 31 มี.ค.' : '1 เม.ย. – 30 ก.ย.'
+  };
 };
 
 export const cleanTeacherName = (str?: string): string =>
@@ -517,35 +551,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     if (!previewLeave || isDownloadingLeavePdf) return;
     setIsDownloadingLeavePdf(true);
     try {
-      if (document.fonts) {
-        await document.fonts.ready;
-      }
-
       const element = document.getElementById('leave-official-a4-print');
       if (!element) {
         setIsDownloadingLeavePdf(false);
         return;
       }
 
-      const origShadow = element.style.boxShadow;
-      const origBorder = element.style.border;
-      element.style.boxShadow = 'none';
-      element.style.border = 'none';
-
-      const canvas = await html2canvas(element, {
-        scale: 2.2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        scrollY: 0,
-        scrollX: 0,
-        ignoreElements: (el) => !!(el.classList && el.classList.contains('no-print')),
-      });
-
-      element.style.boxShadow = origShadow;
-      element.style.border = origBorder;
-
+      const canvas = await captureElementAsA4Canvas(element);
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -568,16 +580,6 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       setIsDownloadingLeavePdf(false);
     }
   };
-
-  // Auto-download Leave Request PDF immediately upon opening preview modal (Requirement 8.2 & 10)
-  useEffect(() => {
-    if (previewLeave) {
-      const timer = setTimeout(() => {
-        handleDownloadLeavePdf();
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [previewLeave]);
   const [leaveForm, setLeaveForm] = useState<{
     teacherName: string;
     leaveType: string;
@@ -600,9 +602,31 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
   const isAdmin = user.role === 'admin' || user.role === 'developer';
   const currentFiscalYear = useMemo(() => getThaiFiscalYear(), []);
-  const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(() => String(getThaiFiscalYear()));
+  const activeLeaveRound: '1' | '2' = schoolInfo.leaveRound || '1';
+  const activeLeaveFiscalYear: string = schoolInfo.leaveRoundFiscalYear || schoolInfo.academicYear || String(currentFiscalYear);
+
+  const [selectedLeaveRound, setSelectedLeaveRound] = useState<'1' | '2'>(activeLeaveRound);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<string>(() => activeLeaveFiscalYear);
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('all');
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<string>('all');
+
+  // Sync when Admin updates schoolInfo.leaveRound or leaveRoundFiscalYear
+  useEffect(() => {
+    if (schoolInfo.leaveRound) {
+      setSelectedLeaveRound(schoolInfo.leaveRound);
+    }
+    if (schoolInfo.leaveRoundFiscalYear) {
+      setSelectedFiscalYear(schoolInfo.leaveRoundFiscalYear);
+    }
+  }, [schoolInfo.leaveRound, schoolInfo.leaveRoundFiscalYear]);
+
+  // Helper to resolve which round ('1' or '2') a leave request belongs to
+  const getReqLeaveRound = useCallback((req: LeaveRequest): '1' | '2' => {
+    if (req.leaveRound === '1' || req.leaveRound === '2') {
+      return req.leaveRound;
+    }
+    return getLeaveRoundInfo(req.startDate || req.createdAt).round;
+  }, []);
 
   // Helper to check if a leave request belongs to the current user
   const isMyLeave = useCallback((req: LeaveRequest) => {
@@ -636,9 +660,15 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     return Array.from(set).sort((a, b) => b - a);
   }, [currentFiscalYear, leaveRequests]);
 
-  // Filtered list by fiscal year, teacher filter (admin only), and status
+  // Effective round: Members strictly see the round configured by Admin; Admin sees selectedLeaveRound
+  const effectiveLeaveRound: '1' | '2' = isAdmin ? selectedLeaveRound : activeLeaveRound;
+
+  // Filtered list by active round (ครั้งที่ 1 / ครั้งที่ 2), teacher filter (admin only), and status
   const visibleLeaveRequests = useMemo(() => {
     return baseLeaveRequests.filter(req => {
+      const reqRound = getReqLeaveRound(req);
+      if (reqRound !== effectiveLeaveRound) return false;
+
       if (selectedFiscalYear !== 'all') {
         const fy = req.fiscalYear || getThaiFiscalYear(req.startDate || req.createdAt);
         if (fy !== Number(selectedFiscalYear)) return false;
@@ -651,19 +681,22 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       }
       return true;
     });
-  }, [baseLeaveRequests, selectedFiscalYear, selectedTeacherFilter, leaveStatusFilter, isAdmin]);
+  }, [baseLeaveRequests, effectiveLeaveRound, selectedFiscalYear, selectedTeacherFilter, leaveStatusFilter, isAdmin, getReqLeaveRound]);
 
-  // Cumulative leave stats for each request within its own fiscal year
+  // Cumulative leave stats for each request strictly within its own Round (ครั้งที่ 1 or ครั้งที่ 2) & Fiscal Year
+  // When a new round starts (ครั้งที่ 2), prior leaves from ครั้งที่ 1 are NOT included -> starts fresh from 1
   const getLeaveStatsForRequest = useCallback((req: LeaveRequest) => {
     const fy = req.fiscalYear || getThaiFiscalYear(req.startDate || req.createdAt);
+    const reqRound = getReqLeaveRound(req);
     const teacherKey = cleanTeacherName(req.teacherName);
     
-    // All non-rejected leaves of this teacher in this SAME fiscal year
-    const teacherLeavesInYear = leaveRequests.filter(r => {
+    // All non-rejected leaves of this teacher in this SAME fiscal year AND SAME round (ครั้งที่ 1 or ครั้งที่ 2)
+    const teacherLeavesInRound = leaveRequests.filter(r => {
       if (r.status === 'ไม่อนุมัติ') return false;
       if (cleanTeacherName(r.teacherName) !== teacherKey) return false;
       const rFy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
-      return rFy === fy;
+      const rRound = getReqLeaveRound(r);
+      return rFy === fy && rRound === reqRound;
     }).sort((a, b) => {
       const dateA = a.startDate || a.createdAt || '';
       const dateB = b.startDate || b.createdAt || '';
@@ -671,10 +704,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       return (a.createdAt || '').localeCompare(b.createdAt || '');
     });
 
-    const reqIndex = teacherLeavesInYear.findIndex(r => r.id === req.id);
+    const reqIndex = teacherLeavesInRound.findIndex(r => r.id === req.id);
     const priorLeaves = reqIndex !== -1
-      ? teacherLeavesInYear.slice(0, reqIndex)
-      : teacherLeavesInYear.filter(r => (r.startDate || r.createdAt || '') < (req.startDate || req.createdAt || ''));
+      ? teacherLeavesInRound.slice(0, reqIndex)
+      : teacherLeavesInRound.filter(r => (r.startDate || r.createdAt || '') < (req.startDate || req.createdAt || ''));
 
     let priorDays = 0;
     let priorSick = 0;
@@ -697,6 +730,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
     return {
       fiscalYear: fy,
+      evalRound: reqRound,
+      evalRoundLabel: reqRound === '1' ? 'ครั้งที่ 1 (1 ต.ค. – 31 มี.ค.)' : 'ครั้งที่ 2 (1 เม.ย. – 30 ก.ย.)',
       roundNumber,
       priorDays,
       priorSick,
@@ -706,15 +741,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       currentDays,
       totalAccumulated
     };
-  }, [leaveRequests]);
+  }, [leaveRequests, getReqLeaveRound]);
 
-  // Fiscal Year KPI Summary
+  // Round KPI Summary
   const fiscalYearSummary = useMemo(() => {
     const targetYear = selectedFiscalYear === 'all' ? currentFiscalYear : Number(selectedFiscalYear);
     
-    const yearLeaves = baseLeaveRequests.filter(r => {
+    const roundLeaves = baseLeaveRequests.filter(r => {
       const fy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
       if (fy !== targetYear) return false;
+      if (getReqLeaveRound(r) !== effectiveLeaveRound) return false;
       if (isAdmin && selectedTeacherFilter !== 'all') {
         if (cleanTeacherName(r.teacherName) !== cleanTeacherName(selectedTeacherFilter)) return false;
       }
@@ -729,7 +765,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     let approvedCount = 0;
     let pendingCount = 0;
 
-    yearLeaves.forEach(r => {
+    roundLeaves.forEach(r => {
       if (r.status === 'ไม่อนุมัติ') return;
       const days = calculateLeaveDaysCount(r.startDate, r.endDate);
       totalDays += days;
@@ -744,7 +780,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
     return {
       fiscalYear: targetYear,
-      totalRequests: yearLeaves.length,
+      evalRound: effectiveLeaveRound,
+      totalRequests: roundLeaves.length,
       totalDays,
       sickDays,
       personalDays,
@@ -753,7 +790,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       approvedCount,
       pendingCount
     };
-  }, [baseLeaveRequests, selectedFiscalYear, currentFiscalYear, isAdmin, selectedTeacherFilter]);
+  }, [baseLeaveRequests, selectedFiscalYear, currentFiscalYear, effectiveLeaveRound, isAdmin, selectedTeacherFilter, getReqLeaveRound]);
 
   const THAI_MONTHS_NAMES = [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -4220,24 +4257,63 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             </button>
           </div>
 
-          {/* Filter Bar (Fiscal Year & Teacher & Status) */}
+          {/* Filter Bar (Round 1 / Round 2 & Teacher & Status) */}
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-2xs flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2.5">
-              {/* Fiscal Year Filter */}
-              <div className="flex items-center gap-1.5">
-                <label className="text-[11px] font-bold text-slate-600 shrink-0">รอบปีงบประมาณ:</label>
-                <select
-                  value={selectedFiscalYear}
-                  onChange={(e) => setSelectedFiscalYear(e.target.value)}
-                  className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                >
-                  {availableFiscalYears.map(fy => (
-                    <option key={fy} value={String(fy)}>
-                      ปีงบประมาณ พ.ศ. {fy} {fy === currentFiscalYear ? '⭐ (ปีปัจจุบัน)' : ''}
-                    </option>
-                  ))}
-                  <option value="all">ทุกปีงบประมาณ</option>
-                </select>
+              {/* Leave Evaluation Round Filter (Replaced Fiscal Year with ครั้งที่ 1 / ครั้งที่ 2) */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="text-[11px] font-bold text-slate-600 shrink-0">รอบการลา:</label>
+                {isAdmin ? (
+                  <div className="inline-flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLeaveRound('1');
+                        onSaveSchoolInfo({
+                          ...schoolInfo,
+                          leaveRound: '1',
+                          leaveRoundFiscalYear: selectedFiscalYear === 'all' ? String(currentFiscalYear) : selectedFiscalYear
+                        });
+                        onShowToast('success', 'กำหนดรอบการลาสำเร็จ', 'ตั้งค่าระบบการลาเป็น ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม) เรียบร้อยแล้ว');
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        effectiveLeaveRound === '1'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-white'
+                      }`}
+                    >
+                      ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLeaveRound('2');
+                        onSaveSchoolInfo({
+                          ...schoolInfo,
+                          leaveRound: '2',
+                          leaveRoundFiscalYear: selectedFiscalYear === 'all' ? String(currentFiscalYear) : selectedFiscalYear
+                        });
+                        onShowToast('success', 'กำหนดรอบการลาสำเร็จ', 'ตั้งค่าระบบการลาเป็น ครั้งที่ 2 (1 เมษายน – 30 กันยายน) เรียบร้อยแล้ว');
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        effectiveLeaveRound === '2'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:bg-white'
+                      }`}
+                    >
+                      ครั้งที่ 2 (1 เมษายน – 30 กันยายน)
+                    </button>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-bold">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>
+                      {effectiveLeaveRound === '1'
+                        ? 'ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)'
+                        : 'ครั้งที่ 2 (1 เมษายน – 30 กันยายน)'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Admin Teacher Filter */}
@@ -4295,7 +4371,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       <span className="hidden sm:inline">ตั้งแต่วันที่ - ถึงวันที่</span>
                       <span className="sm:hidden">จำนวนวันลา</span>
                     </th>
-                    <th className="py-3 px-3 text-center">รอบปีงบฯ & สถิติสะสม</th>
+                    <th className="py-3 px-3 text-center">รอบการลา & สถิติสะสม</th>
                     <th className="py-3 px-4 hidden sm:table-cell">เหตุผลการลา</th>
                     <th className="py-3 px-3 text-center hidden sm:table-cell">สถานะ</th>
                     <th className="py-3 px-3 text-right">จัดการ</th>
@@ -4307,9 +4383,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       <td colSpan={7} className="py-10 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Calendar className="w-8 h-8 text-slate-300" />
-                          <p className="font-medium">ไม่พบรายการยื่นคำขอลาในเงื่อนไขที่เลือก</p>
+                          <p className="font-medium">
+                            ไม่พบรายการยื่นคำขอลาใน {effectiveLeaveRound === '1' ? 'ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)' : 'ครั้งที่ 2 (1 เมษายน – 30 กันยายน)'}
+                          </p>
                           <p className="text-[11px] text-slate-400">
-                            {isAdmin ? 'ยังไม่มีข้อมูลการลาในรอบปีงบประมาณนี้' : 'คุณยังไม่มีประวัติการยื่นลาในรอบปีงบประมาณนี้ สามารถกด "+ ยื่นคำขอลา" ได้เลย'}
+                            {isAdmin
+                              ? 'ยังไม่มีข้อมูลการลาในรอบที่เลือก (สถิติการลาจะเริ่มนับใหม่ในแต่ละรอบ)'
+                              : 'คุณยังไม่มีประวัติการยื่นลาในรอบนี้ สามารถกด "+ ยื่นคำขอลา" เพื่อเริ่มนับสถิติใหม่ได้เลย'}
                           </p>
                         </div>
                       </td>
@@ -4348,13 +4428,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                           <td className="py-3 px-3 text-center">
                             <div className="flex flex-col items-center gap-0.5">
                               <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md font-bold text-[10px] border border-indigo-200">
-                                ปีงบฯ {stats.fiscalYear}
+                                {stats.evalRoundLabel}
                               </span>
                               <span className="text-[11px] font-semibold text-slate-700">
                                 ครั้งที่ {stats.roundNumber} • สะสม {stats.totalAccumulated} วัน
                               </span>
                               <span className="text-[10px] text-slate-400">
-                                {stats.priorDays === 0 ? '(ครั้งแรกในปีงบฯ)' : `(ก่อนหน้านี้ ${stats.priorDays} วัน)`}
+                                {stats.priorDays === 0 ? '(เริ่มนับใหม่ในรอบนี้)' : `(ก่อนหน้านี้ ${stats.priorDays} วัน)`}
                               </span>
                             </div>
                           </td>
@@ -5090,7 +5170,9 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   return;
                 }
                 const finalLeaveType = leaveForm.leaveType === 'อื่นๆ' ? (leaveForm.customLeaveType.trim() || 'อื่นๆ') : leaveForm.leaveType;
-                const computedFiscalYear = getThaiFiscalYear(leaveForm.startDate);
+                const computedFiscalYear = selectedFiscalYear === 'all'
+                  ? getThaiFiscalYear(leaveForm.startDate)
+                  : Number(selectedFiscalYear);
                 if (editingLeaveId) {
                   const targetRecord = leaveRequests.find(r => r.id === editingLeaveId);
                   const updatedReq: LeaveRequest = {
@@ -5104,6 +5186,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     directorName: leaveForm.directorName,
                     personnelOfficer: leaveForm.personnelOfficer,
                     fiscalYear: computedFiscalYear,
+                    leaveRound: targetRecord?.leaveRound || effectiveLeaveRound,
                     status: targetRecord?.status || (isAdmin ? 'อนุมัติ' : 'รออนุมัติ'),
                     createdAt: targetRecord?.createdAt || new Date().toISOString()
                   };
@@ -5124,6 +5207,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     personnelOfficer: leaveForm.personnelOfficer,
                     status: isAdmin ? 'อนุมัติ' : 'รออนุมัติ',
                     fiscalYear: computedFiscalYear,
+                    leaveRound: effectiveLeaveRound,
                     createdAt: new Date().toISOString()
                   };
                   const updated = StorageService.saveLeaveRequest(newReq);
@@ -5266,9 +5350,11 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 </div>
               </div>
 
-              {/* Live Fiscal Year & Cumulative Leave Statistics Box */}
+              {/* Live Leave Round & Cumulative Leave Statistics Box */}
               {(() => {
-                const modalFiscalYear = getThaiFiscalYear(leaveForm.startDate);
+                const modalFiscalYear = selectedFiscalYear === 'all'
+                  ? getThaiFiscalYear(leaveForm.startDate)
+                  : Number(selectedFiscalYear);
                 const modalDays = calculateLeaveDaysCount(leaveForm.startDate, leaveForm.endDate);
                 const targetTeacherClean = cleanTeacherName(leaveForm.teacherName);
 
@@ -5277,7 +5363,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   if (r.status === 'ไม่อนุมัติ') return false;
                   if (cleanTeacherName(r.teacherName) !== targetTeacherClean) return false;
                   const rFy = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
-                  return rFy === modalFiscalYear;
+                  const rRound = getReqLeaveRound(r);
+                  return rFy === modalFiscalYear && rRound === effectiveLeaveRound;
                 });
 
                 const priorDays = priorLeaves.reduce((sum, r) => sum + calculateLeaveDaysCount(r.startDate, r.endDate), 0);
@@ -5290,19 +5377,23 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     <div className="flex items-center justify-between font-bold text-slate-800">
                       <span className="flex items-center gap-1.5 text-blue-900">
                         <Calendar className="w-3.5 h-3.5 text-blue-600" />
-                        <span>รอบปีงบประมาณ พ.ศ. {modalFiscalYear}</span>
+                        <span>
+                          {effectiveLeaveRound === '1'
+                            ? 'ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม)'
+                            : 'ครั้งที่ 2 (1 เมษายน – 30 กันยายน)'}
+                        </span>
                       </span>
                       <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold border border-blue-200">
-                        {priorLeaves.length === 0 ? '✨ ครั้งแรกในปีงบฯ (เริ่มนับ 1 ใหม่)' : `ครั้งที่ ${roundNumber} ในปีงบฯ`}
+                        {priorLeaves.length === 0 ? '✨ ครั้งแรกในรอบนี้ (เริ่มนับ 1 ใหม่)' : `ครั้งที่ ${roundNumber} ในรอบนี้`}
                       </span>
                     </div>
                     <div className="text-slate-600 text-[11px] flex items-center justify-between">
-                      <span>สถิติสะสมก่อนหน้านี้:</span>
+                      <span>สถิติสะสมในรอบนี้ก่อนหน้า:</span>
                       <strong className="text-slate-800">{priorDays} วัน (ป่วย {priorSick} วัน, กิจ {priorPersonal} วัน)</strong>
                     </div>
                     <div className="text-blue-900 font-bold text-[11px] flex items-center justify-between pt-1 border-t border-blue-100">
                       <span>ยื่นลาครั้งนี้ ({modalDays} วัน):</span>
-                      <span className="text-blue-800 font-black text-xs">สะสมรวมจะเป็น {priorDays + modalDays} วัน</span>
+                      <span className="text-blue-800 font-black text-xs">สะสมรวมในรอบนี้จะเป็น {priorDays + modalDays} วัน</span>
                     </div>
                   </div>
                 );
@@ -5351,10 +5442,19 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         
         const matchedTeacher = personnel.find(p => 
           `${p.prefix}${p.firstName} ${p.lastName}` === previewLeave.teacherName || 
-          `${p.firstName} ${p.lastName}` === previewLeave.teacherName
+          `${p.firstName} ${p.lastName}` === previewLeave.teacherName ||
+          cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) === cleanTeacherName(previewLeave.teacherName)
         );
-        const teacherPosition = matchedTeacher?.position || 'ครู';
-        const teacherPhone = matchedTeacher?.phone || schoolInfo.phone || '081-2345678';
+        const matchedMember = StorageService.getMembers().find(m =>
+          cleanTeacherName(m.fullName) === cleanTeacherName(previewLeave.teacherName)
+        );
+        const teacherPosition = matchedTeacher?.position || matchedMember?.position || 'ครู';
+        const teacherPhone =
+          matchedTeacher?.phone ||
+          matchedMember?.phone ||
+          (isMyLeave(previewLeave) && user.phone ? user.phone : '') ||
+          schoolInfo.phone ||
+          '081-2345678';
 
         const isSick = previewLeave.leaveType.includes('ป่วย');
         const isPersonal = previewLeave.leaveType.includes('กิจ');
@@ -5362,14 +5462,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const isOther = !isSick && !isPersonal && !isMaternity;
 
         const currentLeaveFiscalYear = previewLeave.fiscalYear || getThaiFiscalYear(previewLeave.startDate || previewLeave.createdAt);
+        const currentLeaveRound = getReqLeaveRound(previewLeave);
         const targetTeacherName = cleanTeacherName(previewLeave.teacherName);
 
-        // Get all leave records belonging to this teacher in the same fiscal year (excluding rejected)
-        const teacherLeavesInYear = leaveRequests.filter(r => {
+        // Get all leave records belonging to this teacher in the same fiscal year AND same round (ครั้งที่ 1 / ครั้งที่ 2)
+        // When a new round starts, prior statistics reset and start fresh
+        const teacherLeavesInRound = leaveRequests.filter(r => {
           if (r.status === 'ไม่อนุมัติ') return false;
           if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
           const rFiscalYear = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
-          return rFiscalYear === currentLeaveFiscalYear;
+          const rRound = getReqLeaveRound(r);
+          return rFiscalYear === currentLeaveFiscalYear && rRound === currentLeaveRound;
         }).sort((a, b) => {
           const dateA = a.startDate || a.createdAt || '';
           const dateB = b.startDate || b.createdAt || '';
@@ -5377,11 +5480,11 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           return (a.createdAt || '').localeCompare(b.createdAt || '');
         });
 
-        // Determine prior leaves in this fiscal year up to this specific leave request
-        const currentLeaveIndex = teacherLeavesInYear.findIndex(r => r.id === previewLeave.id);
+        // Determine prior leaves in this round up to this specific leave request
+        const currentLeaveIndex = teacherLeavesInRound.findIndex(r => r.id === previewLeave.id);
         const priorLeavesThisYear = currentLeaveIndex !== -1
-          ? teacherLeavesInYear.slice(0, currentLeaveIndex)
-          : teacherLeavesInYear.filter(r => (r.startDate || r.createdAt || '') < (previewLeave.startDate || previewLeave.createdAt || ''));
+          ? teacherLeavesInRound.slice(0, currentLeaveIndex)
+          : teacherLeavesInRound.filter(r => (r.startDate || r.createdAt || '') < (previewLeave.startDate || previewLeave.createdAt || ''));
 
         let priorSick = 0;
         let priorPersonal = 0;
@@ -5398,22 +5501,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         const currPersonal = isPersonal ? leaveDays : 0;
         const currMaternity = isMaternity ? leaveDays : 0;
 
-        // Last leave round taken by this teacher (prior to this current leave)
-        const allPriorLeavesEver = leaveRequests.filter(r => {
-          if (r.id === previewLeave.id) return false;
-          if (r.status === 'ไม่อนุมัติ') return false;
-          if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
-          const rDate = r.startDate || r.createdAt || '';
-          const currDate = previewLeave.startDate || previewLeave.createdAt || '';
-          return rDate <= currDate;
-        }).sort((a, b) => {
-          const dateA = a.startDate || a.createdAt || '';
-          const dateB = b.startDate || b.createdAt || '';
-          if (dateA !== dateB) return dateA.localeCompare(dateB);
-          return (a.createdAt || '').localeCompare(b.createdAt || '');
-        });
+        // Last leave taken by this teacher within this round (prior to this current leave)
+        const allPriorLeavesInRound = priorLeavesThisYear;
 
-        const lastLeave = allPriorLeavesEver.length > 0 ? allPriorLeavesEver[allPriorLeavesEver.length - 1] : null;
+        const lastLeave = allPriorLeavesInRound.length > 0 ? allPriorLeavesInRound[allPriorLeavesInRound.length - 1] : null;
         const lastLeaveSick = lastLeave ? lastLeave.leaveType.includes('ป่วย') : false;
         const lastLeavePersonal = lastLeave ? lastLeave.leaveType.includes('กิจ') : false;
         const lastLeaveMaternity = lastLeave ? lastLeave.leaveType.includes('คลอด') : false;

@@ -13,6 +13,7 @@ import {
   Loader2
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import { domToCanvas } from 'modern-screenshot';
 import { jsPDF } from 'jspdf';
 
 interface StudentCardBatchModalProps {
@@ -27,6 +28,217 @@ interface StudentCardBatchModalProps {
 }
 
 const CARDS_PER_A4_PAGE = 8; // 2 columns x 4 rows fits standard CR80 (85.6mm x 54mm) on A4 Portrait
+
+/**
+ * Converts unsupported CSS Color 4 functions (oklch, oklab, lab, lch, color-mix, color)
+ * and gradient interpolation tokens ("in oklab", "in oklch") into standard rgb/rgba
+ * inside html2canvas's cloned document so html2canvas renders 100% faithfully without crashing.
+ */
+export const sanitizeOklchForHtml2Canvas = (clonedDoc: Document): void => {
+  try {
+    const canvas = clonedDoc.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+
+    const colorCache = new Map<string, string>();
+
+    const singleColorToRgb = (cssColor: string): string => {
+      const trimmed = cssColor.trim();
+      if (!trimmed || trimmed.includes('var(')) return cssColor;
+      const cached = colorCache.get(trimmed);
+      if (cached) return cached;
+
+      try {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+        ctx.fillStyle = trimmed;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        const result =
+          a === 0
+            ? 'rgba(0, 0, 0, 0)'
+            : a === 255
+            ? `rgb(${r}, ${g}, ${b})`
+            : `rgba(${r}, ${g}, ${b}, ${+(a / 255).toFixed(3)})`;
+        colorCache.set(trimmed, result);
+        return result;
+      } catch {
+        return cssColor;
+      }
+    };
+
+    const sanitizeCssText = (cssText: string): string => {
+      if (!cssText) return cssText;
+      let out = cssText;
+
+      // Remove CSS Color 4 gradient color-space interpolation tokens unsupported by html2canvas
+      if (out.includes('in ')) {
+        out = out.replace(
+          /\bin\s+(?:oklab|oklch|srgb-linear|srgb|hsl|hwb|lab|lch|xyz|xyz-d50|xyz-d65)(?:\s+(?:shorter|longer|increasing|decreasing)\s+hue)?\s*,/gi,
+          'to bottom,'
+        );
+        out = out.replace(
+          /\s*\bin\s+(?:oklab|oklch|srgb-linear|srgb|hsl|hwb|lab|lch|xyz|xyz-d50|xyz-d65)(?:\s+(?:shorter|longer|increasing|decreasing)\s+hue)?\b/gi,
+          ''
+        );
+      }
+
+      if (
+        !out.includes('oklch') &&
+        !out.includes('oklab') &&
+        !out.includes('lch(') &&
+        !out.includes('lab(') &&
+        !out.includes('color(') &&
+        !out.includes('color-mix(')
+      ) {
+        return out;
+      }
+
+      // 1. Replace direct oklch(...), oklab(...), lch(...), lab(...), color(...)
+      out = out.replace(
+        /\b(?:oklch|oklab|lch|lab|color)\(\s*[^()]+\)/gi,
+        (match) => singleColorToRgb(match)
+      );
+
+      // 2. Replace color-mix(...) that have no unresolved var()
+      out = out.replace(
+        /\bcolor-mix\((?:[^()]+|\([^()]*\))*\)/gi,
+        (match) => singleColorToRgb(match)
+      );
+
+      return out;
+    };
+
+    // Sanitize all <style> tags in the cloned document first
+    const styleTags = Array.from(clonedDoc.querySelectorAll('style'));
+    for (const styleTag of styleTags) {
+      if (styleTag.textContent) {
+        styleTag.textContent = sanitizeCssText(styleTag.textContent);
+      }
+    }
+
+    // Sanitize computed styles on all elements in the cloned document
+    const win = clonedDoc.defaultView || window;
+    const colorProps: Array<[keyof CSSStyleDeclaration, string]> = [
+      ['color', 'color'],
+      ['backgroundColor', 'background-color'],
+      ['borderTopColor', 'border-top-color'],
+      ['borderRightColor', 'border-right-color'],
+      ['borderBottomColor', 'border-bottom-color'],
+      ['borderLeftColor', 'border-left-color'],
+      ['outlineColor', 'outline-color'],
+      ['textDecorationColor', 'text-decoration-color'],
+      ['boxShadow', 'box-shadow'],
+      ['textShadow', 'text-shadow'],
+      ['backgroundImage', 'background-image'],
+      ['fill' as keyof CSSStyleDeclaration, 'fill'],
+      ['stroke' as keyof CSSStyleDeclaration, 'stroke'],
+    ];
+
+    const allElements = [
+      clonedDoc.documentElement,
+      clonedDoc.body,
+      ...Array.from(clonedDoc.querySelectorAll<HTMLElement | SVGElement>('*')),
+    ].filter(Boolean);
+
+    for (const el of allElements) {
+      if (!el || !('style' in el)) continue;
+      const computed = win.getComputedStyle(el as Element);
+      if (!computed) continue;
+
+      for (const [jsProp, cssProp] of colorProps) {
+        const val = computed[jsProp] as unknown as string;
+        if (
+          typeof val === 'string' &&
+          (val.includes('oklch') ||
+            val.includes('oklab') ||
+            val.includes('lch(') ||
+            val.includes('lab(') ||
+            val.includes('color(') ||
+            val.includes('color-mix(') ||
+            val.includes('in '))
+        ) {
+          const sanitized = sanitizeCssText(val);
+          if (sanitized !== val) {
+            (el as HTMLElement).style.setProperty(cssProp, sanitized, 'important');
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('sanitizeOklchForHtml2Canvas warning:', e);
+  }
+};
+
+/**
+ * Renders an A4 DOM element into a high-resolution HTMLCanvasElement with 100% visual fidelity.
+ * Uses native browser rendering via modern-screenshot (SVG foreignObject) so Thai typography,
+ * flexbox/grid alignment, gradients, and object-fit images match the screen preview 100%,
+ * with an automatic fallback to html2canvas.
+ */
+export const captureElementAsA4Canvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
+  if (document.fonts) {
+    await document.fonts.ready;
+  }
+
+  // Wait for any images inside the element to finish decoding
+  const imgs = Array.from(element.querySelectorAll('img'));
+  await Promise.all(
+    imgs.map((img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+    })
+  );
+
+  const origShadow = element.style.boxShadow;
+  const origBorder = element.style.border;
+  const origMargin = element.style.margin;
+  element.style.boxShadow = 'none';
+  element.style.border = 'none';
+  element.style.margin = '0';
+
+  try {
+    const canvas = await domToCanvas(element, {
+      scale: 3,
+      backgroundColor: '#ffffff',
+      style: {
+        boxShadow: 'none',
+        border: 'none',
+        margin: '0',
+        transform: 'none',
+      },
+      filter: (node) => {
+        if (node instanceof HTMLElement && node.classList.contains('no-print')) {
+          return false;
+        }
+        return true;
+      },
+    });
+    return canvas;
+  } catch (primaryErr) {
+    console.warn('Primary domToCanvas fallback to html2canvas:', primaryErr);
+    return await html2canvas(element, {
+      scale: 2.5,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+      logging: false,
+      scrollY: 0,
+      scrollX: 0,
+      ignoreElements: (el) => !!(el.classList && el.classList.contains('no-print')),
+      onclone: (clonedDoc) => sanitizeOklchForHtml2Canvas(clonedDoc),
+    });
+  } finally {
+    element.style.boxShadow = origShadow;
+    element.style.border = origBorder;
+    element.style.margin = origMargin;
+  }
+};
 
 /**
  * Stage mapping helper:
@@ -154,8 +366,6 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
 
   const [isDownloading, setIsDownloading] = useState(false);
 
-  if (!isOpen) return null;
-
   const handlePrint = () => {
     window.print();
     if (onShowToast) {
@@ -197,26 +407,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
           pdf.addPage('a4', 'portrait');
         }
 
-        // Temporarily strip screen preview shadow/border during capture so it renders 100% clean A4
-        const origShadow = pageEl.style.boxShadow;
-        const origBorder = pageEl.style.border;
-        pageEl.style.boxShadow = 'none';
-        pageEl.style.border = 'none';
-
-        const canvas = await html2canvas(pageEl, {
-          scale: 2.2,
-          useCORS: true,
-          allowTaint: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-          scrollY: 0,
-          scrollX: 0,
-          ignoreElements: (el) => !!(el.classList && el.classList.contains('no-print')),
-        });
-
-        pageEl.style.boxShadow = origShadow;
-        pageEl.style.border = origBorder;
-
+        const canvas = await captureElementAsA4Canvas(pageEl);
         const imgData = canvas.toDataURL('image/jpeg', 0.98);
         pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       }
@@ -237,15 +428,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
     }
   };
 
-  // Auto-download PDF immediately upon opening modal (1-click automatic download requirement)
-  React.useEffect(() => {
-    if (isOpen) {
-      const timer = setTimeout(() => {
-        handleDownloadPDF();
-      }, 400);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen]);
+  if (!isOpen) return null;
 
   // Helper date formatter
   const formatThaiBirthDate = (dateStr?: string) => {
@@ -413,15 +596,22 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
           studentPages.map((pageStudents, pageIdx) => (
             <div
               key={`a4-page-${pageIdx}`}
-              className="student-card-a4-page bg-white shadow-2xl mb-8 border border-slate-300/80 grid grid-cols-2 justify-center items-center relative"
+              className="student-card-a4-page bg-white shadow-2xl mb-8 border border-slate-300/80 relative shrink-0"
               style={{
                 width: '210mm',
+                minWidth: '210mm',
+                maxWidth: '210mm',
                 minHeight: '297mm',
                 maxHeight: '297mm',
                 height: '297mm',
-                padding: '11mm 13.5mm',
+                padding: '14mm 15.15mm',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 85.6mm)',
+                gridTemplateRows: 'repeat(4, 54mm)',
                 columnGap: '8.5mm',
                 rowGap: '6.5mm',
+                justifyContent: 'center',
+                alignContent: 'start',
                 boxSizing: 'border-box'
               }}
             >
@@ -454,7 +644,12 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                       /* ===================== FRONT OF CARD (หน้าบัตร 85.6 x 54 mm) ===================== */
                       <div className="w-full h-full flex flex-col justify-between bg-white relative">
                         {/* Decorative Top Background Header */}
-                        <div className="h-[13mm] bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white px-2.5 py-1 flex items-center justify-between relative overflow-hidden shrink-0">
+                        <div
+                          className="h-[13mm] bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white px-2.5 py-1 flex items-center justify-between relative overflow-hidden shrink-0"
+                          style={{
+                            backgroundImage: 'linear-gradient(90deg, #1d4ed8 0%, #1e40af 50%, #312e81 100%)'
+                          }}
+                        >
                           {/* Subtle background crest accent */}
                           <div className="absolute -right-3 -bottom-3 w-16 h-16 rounded-full bg-white/5 pointer-events-none" />
 

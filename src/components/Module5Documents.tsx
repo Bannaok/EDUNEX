@@ -87,9 +87,14 @@ export const Module5Documents: React.FC<Module5Props> = ({
     StorageService.pullRemoteState(false).catch(() => {});
     const timer = setInterval(() => {
       StorageService.pullRemoteState(false).catch(() => {});
-    }, 1200);
+    }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Immediately pull remote state when switching between ศูนย์เอกสาร and หนังสือคำสั่ง
+  useEffect(() => {
+    StorageService.pullRemoteState(false).catch(() => {});
+  }, [activeTab]);
 
   // Helper: Format date string to Thai พ.ศ. format (e.g. 2026-09-10 -> 10-09-2569)
   const formatThaiDocDate = (dateStr?: string) => {
@@ -116,6 +121,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
 
   // Helper: check if an order (หนังสือคำสั่ง) belongs to the selected academic year
   const isOrderInYear = (doc: DocumentItem, yr: string = currentAcademicYear) => {
+    if (!yr) return true;
     if (doc.academicYear) {
       return doc.academicYear === yr;
     }
@@ -129,9 +135,8 @@ export const Module5Documents: React.FC<Module5Props> = ({
       if (doc.date.includes(yr)) return true;
       const gregYear = String(Number(yr) - 543);
       if (!isNaN(Number(yr)) && doc.date.includes(gregYear)) return true;
-      return false;
     }
-    return yr === '2569' || yr === '2568';
+    return yr === '2569' || yr === '2568' || true;
   };
 
   // Filter and sort documents for active tab (ศูนย์เอกสารไม่มีปีการศึกษา, เฉพาะหนังสือคำสั่งแสดงตามปีการศึกษาที่ Admin เลือก)
@@ -179,13 +184,20 @@ export const Module5Documents: React.FC<Module5Props> = ({
     setIsUploadModalOpen(true);
   };
 
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit per file
+
   // Process selected file (both click-to-upload and drag-and-drop)
   // เขียนชื่อเรื่องอัตโนมัติตามชื่อไฟล์ที่อัปโหลด ทั้งหน้าศูนย์เอกสารและหนังสือคำสั่ง
   const processSelectedFile = (file: File) => {
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      onShowToast('warning', 'ไฟล์มีขนาดใหญ่เกินไป', 'กรุณาเลือกไฟล์ขนาดไม่เกิน 50MB');
+    // Constraint 3: Strict 5MB file limit
+    if (file.size > MAX_FILE_SIZE) {
+      onShowToast(
+        'warning',
+        'ขนาดไฟล์เกินกำหนด (สูงสุด 5MB)',
+        `ไฟล์ "${file.name}" มีขนาด ${(file.size / (1024 * 1024)).toFixed(2)} MB ซึ่งเกินขนาดสูงสุด 5MB ต่อไฟล์ เพื่อประหยัดพื้นที่จัดเก็บ กรุณาเลือกไฟล์ที่มีขนาดไม่เกิน 5MB`
+      );
       return;
     }
 
@@ -210,6 +222,9 @@ export const Module5Documents: React.FC<Module5Props> = ({
       }
     }
 
+    const cleanDocId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    const deterministicHostedUrl = `/api/files/${cleanDocId}`;
+
     setIsUploadingFile(true);
     setUploadPercent(15);
     setUploadStatusText(`กำลังอ่านไฟล์ "${file.name}" (${sizeStr})...`);
@@ -222,38 +237,54 @@ export const Module5Documents: React.FC<Module5Props> = ({
       }
     };
 
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const base64 = event.target?.result as string;
-      setFileData(base64);
-      setFileUrl(base64);
-      setUploadPercent(55);
-      setUploadStatusText('กำลังจัดเก็บและเชื่อมโยงกับ Google Drive ประจำโรงเรียน...');
+      setFileUrl(deterministicHostedUrl);
+      setFileData(''); // Keep local state clean without multi-megabyte base64
+      setUploadPercent(50);
+      setUploadStatusText('กำลังจัดเก็บและซิงค์ข้อมูลกับ Google Drive ประจำโรงเรียน...');
 
-      // 1. Fast cache locally so members can download it immediately with 0ms delay
-      fetch('/api/files/upload', {
+      const category = `Documents_${modalTargetType === 'order' ? currentAcademicYear : 'General'}`;
+
+      // Upload binary to server cache & Google Drive in one call for instantaneous fast sync
+      const uploadPromise = fetch('/api/files/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: file.name, dataUrl: base64 })
-      }).catch(() => {});
-
-      // 2. Pre-upload directly to Google Drive dedicated school folder
-      const category = `Documents_${modalTargetType === 'order' ? currentAcademicYear : 'General'}`;
-      const uploadPromise = StorageService.uploadFileToGoogleDrive(base64, file.name, category)
-        .then(driveUrl => {
-          if (driveUrl && driveUrl.startsWith('http')) {
-            setFileUrl(driveUrl);
-            setUploadPercent(100);
-            setUploadStatusText('จัดเก็บลง Google Drive ประจำโรงเรียนเรียบร้อย');
-            return driveUrl;
-          }
-          setUploadPercent(100);
-          setUploadStatusText('พร้อมบันทึกเอกสาร');
-          return base64;
+        body: JSON.stringify({
+          id: cleanDocId,
+          fileName: file.name,
+          dataUrl: base64,
+          schoolId: user.schoolId,
+          category,
+          uploadedBy: user.fullName || user.id,
+          uploadToDrive: true
         })
-        .catch(() => {
+      })
+        .then(async res => {
+          if (!res.ok) throw new Error('upload failed');
+          const data = await res.json();
+          const driveFileId = data?.driveFileId || '';
+          const driveUrl = data?.driveUrl || (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view?usp=sharing` : '');
+          const bestUrl = driveUrl || data?.url || deterministicHostedUrl;
+          setFileUrl(bestUrl);
+          setUploadPercent(100);
+          setUploadStatusText('จัดเก็บลง Google Drive ประจำโรงเรียนเรียบร้อย');
+          return bestUrl;
+        })
+        .catch(async () => {
+          try {
+            const clientDriveUrl = await StorageService.uploadFileToGoogleDrive(base64, file.name, category);
+            if (clientDriveUrl && clientDriveUrl.startsWith('http')) {
+              setFileUrl(clientDriveUrl);
+              setUploadPercent(100);
+              setUploadStatusText('จัดเก็บลง Google Drive ประจำโรงเรียนเรียบร้อย');
+              return clientDriveUrl;
+            }
+          } catch {}
+          setFileUrl(deterministicHostedUrl);
           setUploadPercent(100);
           setUploadStatusText('พร้อมบันทึกเอกสาร');
-          return base64;
+          return deterministicHostedUrl;
         })
         .finally(() => {
           setIsUploadingFile(false);
@@ -295,24 +326,20 @@ export const Module5Documents: React.FC<Module5Props> = ({
       return;
     }
 
-    let finalFileUrl = fileUrl || fileData || (editingDoc ? editingDoc.fileUrl : '#');
+    let finalFileUrl = fileUrl || (editingDoc ? editingDoc.fileUrl : '#');
 
-    // If Google Drive upload is still in progress, wait up to 5 seconds to get the real Google Drive URL
-    if (driveUploadPromiseRef.current && finalFileUrl.startsWith('data:')) {
-      setIsUploadingFile(true);
-      setUploadStatusText('กำลังซิงค์และบันทึกลง Google Drive ประจำโรงเรียน...');
+    // If Google Drive upload is still in progress, wait up to 3 seconds to get the real Google Drive URL
+    if (driveUploadPromiseRef.current && (!finalFileUrl || finalFileUrl.startsWith('data:') || finalFileUrl.startsWith('/api/files/'))) {
       try {
         const driveUrl = await Promise.race([
           driveUploadPromiseRef.current,
-          new Promise<string>(r => setTimeout(() => r(''), 5000))
+          new Promise<string>(r => setTimeout(() => r(''), 3000))
         ]);
         if (driveUrl && driveUrl.startsWith('http')) {
           finalFileUrl = driveUrl;
         }
       } catch {
         // continue
-      } finally {
-        setIsUploadingFile(false);
       }
     }
 
@@ -340,7 +367,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
       fileUrl: finalFileUrl,
       fileName: fileName.trim() || (editingDoc ? editingDoc.fileName : trimmedTitle),
       fileSize: fileSize || (editingDoc ? editingDoc.fileSize : '1.0 MB'),
-      fileData: finalFileUrl.startsWith('data:') ? finalFileUrl : (fileData || editingDoc?.fileData),
+      fileData: undefined, // Never bloat document store with multi-megabyte base64
       driveFileId: extractedDriveId,
       uploadedBy: editingDoc ? editingDoc.uploadedBy : user.fullName
     };
@@ -348,6 +375,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
     onSaveDocument(newDoc);
     setIsUploadModalOpen(false);
     driveUploadPromiseRef.current = null;
+    StorageService.pullRemoteState(true).catch(() => {});
     onShowToast('success', 'บันทึกสำเร็จ', `${editingDoc ? 'แก้ไข' : 'บันทึก'} "${newDoc.title}" จัดเก็บลง Google Drive โรงเรียนเรียบร้อยแล้ว`);
   };
 
@@ -915,7 +943,7 @@ export const Module5Documents: React.FC<Module5Props> = ({
                         คลิกหรือลากไฟล์เอกสารมาวางที่นี่
                       </div>
                       <div className="text-[10px] text-slate-500 mt-0.5">
-                        รองรับไฟล์ทุกประเภท (PDF, Word, Excel, PowerPoint, ZIP ฯลฯ สูงสุด 50MB)
+                        รองรับไฟล์ทุกประเภท (PDF, Word, Excel, PowerPoint, ZIP ฯลฯ สูงสุดไม่เกิน 5MB ต่อไฟล์)
                       </div>
                     </div>
                   </div>

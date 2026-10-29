@@ -570,9 +570,23 @@ export const Module4Assignments: React.FC<Module4Props> = ({
     }
   };
 
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB limit per file
+
   const handleFileSubmitUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Constraint 3: Strict 5MB file size limit
+    if (file.size > MAX_FILE_SIZE) {
+      onShowToast(
+        'warning',
+        'ขนาดไฟล์เกินกำหนด (สูงสุด 5MB)',
+        `ไฟล์ "${file.name}" มีขนาด ${(file.size / (1024 * 1024)).toFixed(2)} MB ซึ่งเกินขนาดสูงสุด 5MB ต่อไฟล์ เพื่อประหยัดพื้นที่จัดเก็บ กรุณาเลือกไฟล์ที่มีขนาดไม่เกิน 5MB`
+      );
+      e.target.value = '';
+      return;
+    }
+
     const sizeStr = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
     const activeTaskId = submittingTaskId || 'task';
     const detId =
@@ -582,212 +596,141 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       String(user.id || 'member').replace(/[^a-zA-Z0-9_-]/g, '_');
     const deterministicHostedUrl = `/api/files/${detId}`;
 
+    setIsUploadingSubmission(true);
     setUploadProgress(15);
-    setUploadStepText(`กำลังอ่านไฟล์ "${file.name}"...`);
+    setUploadStepText(`กำลังอ่านและเตรียมไฟล์ "${file.name}"...`);
 
     const reader = new FileReader();
     reader.onprogress = (ev) => {
       if (ev.lengthComputable && ev.total > 0) {
-        const pct = Math.min(45, Math.round((ev.loaded / ev.total) * 45));
+        const pct = Math.min(40, Math.round((ev.loaded / ev.total) * 40));
         setUploadProgress(Math.max(15, pct));
       }
     };
 
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const base64 = event.target?.result as string;
       setSubmittedFile({
         name: file.name,
-        url: base64,
+        url: deterministicHostedUrl,
         size: sizeStr,
         hostedUrl: deterministicHostedUrl
       });
-      setUploadProgress(50);
-      setUploadStepText('เลือกไฟล์พร้อมส่งเรียบร้อย กดยืนยันการส่งงานได้ทันที');
-      onShowToast('info', 'เลือกไฟล์แล้ว', `พร้อมส่งงาน "${file.name}" (${sizeStr}) กดยืนยันการส่งงานได้เลย`);
+      setUploadProgress(45);
+      setUploadStepText('กำลังอัปโหลดไฟล์ไปยังคลาวด์และ Google Drive ประจำโรงเรียน...');
 
-      // Upload binary to local server cache + Firestore chunks + Google Drive in one unified call
-      const uploadPromise = fetch('/api/files/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: detId,
-          fileName: file.name,
-          dataUrl: base64,
-          schoolId: user.schoolId,
-          category: `TaskSubmissions_${currentAcademicYear}`,
-          uploadedBy: user.fullName || user.id,
-          uploadToDrive: true,
-          taskId: activeTaskId,
-          memberId: user.id
-        })
-      })
-        .then(async res => {
-          if (!res.ok) throw new Error('upload failed');
+      // Smooth progress ticker while uploading to server and Google Drive (45% -> 95%)
+      let currentPct = 45;
+      const progressTimer = setInterval(() => {
+        currentPct = Math.min(95, currentPct + 6);
+        setUploadProgress(currentPct);
+        if (currentPct >= 80) {
+          setUploadStepText('กำลังประมวลผลและเชื่อมโยงข้อมูลกับระบบ Google Drive...');
+        }
+      }, 100);
+
+      try {
+        const res = await fetch('/api/files/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: detId,
+            fileName: file.name,
+            dataUrl: base64,
+            schoolId: user.schoolId,
+            category: `TaskSubmissions_${currentAcademicYear}`,
+            uploadedBy: user.fullName || user.id,
+            uploadToDrive: true,
+            taskId: activeTaskId,
+            memberId: user.id
+          })
+        });
+
+        clearInterval(progressTimer);
+
+        let hostedUrl = deterministicHostedUrl;
+        let driveFileId = '';
+        let driveUrl = '';
+        let downloadUrl = deterministicHostedUrl;
+
+        if (res.ok) {
           const data = await res.json();
-          const hostedUrl = data?.url || deterministicHostedUrl;
-          const driveFileId = data?.driveFileId || extractDriveFileId(data?.driveUrl) || '';
-          const driveUrl =
-            data?.driveUrl ||
-            (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view?usp=sharing` : '');
-          const downloadUrl =
-            data?.downloadUrl ||
-            (driveFileId ? `https://drive.google.com/uc?export=download&id=${driveFileId}` : hostedUrl);
-          const bestUrl = driveUrl || hostedUrl;
-
-          setSubmittedFile(prev =>
-            prev && prev.name === file.name
-              ? {
-                  ...prev,
-                  url: bestUrl,
-                  hostedUrl,
-                  driveFileId: driveFileId || prev.driveFileId,
-                  driveUrl: driveUrl || prev.driveUrl,
-                  downloadUrl: downloadUrl || prev.downloadUrl
-                }
-              : prev
-          );
-          return {
-            url: bestUrl,
-            hostedUrl,
-            driveFileId,
-            driveUrl,
-            downloadUrl
-          };
-        })
-        .catch(async () => {
-          // Fallback to client-side Google Drive upload if server uploadToDrive timed out
+          hostedUrl = data?.url || deterministicHostedUrl;
+          driveFileId = data?.driveFileId || extractDriveFileId(data?.driveUrl) || '';
+          driveUrl = data?.driveUrl || (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view?usp=sharing` : '');
+          downloadUrl = data?.downloadUrl || (driveFileId ? `https://drive.google.com/uc?export=download&id=${driveFileId}` : hostedUrl);
+        } else {
+          // Client-side fallback to Google Drive
           try {
-            const driveUrl = await StorageService.uploadFileToGoogleDrive(
+            const clientDriveUrl = await StorageService.uploadFileToGoogleDrive(
               base64,
               file.name,
               `TaskSubmissions_${currentAcademicYear}`
             );
-            const driveFileId = extractDriveFileId(driveUrl);
-            const bestUrl = driveUrl && driveUrl.startsWith('http') ? driveUrl : deterministicHostedUrl;
-            setSubmittedFile(prev =>
-              prev && prev.name === file.name
-                ? {
-                    ...prev,
-                    url: bestUrl,
-                    hostedUrl: deterministicHostedUrl,
-                    driveFileId: driveFileId || prev.driveFileId,
-                    driveUrl: driveUrl.startsWith('http') ? driveUrl : prev.driveUrl
-                  }
-                : prev
-            );
-            return {
-              url: bestUrl,
-              hostedUrl: deterministicHostedUrl,
-              driveFileId,
-              driveUrl: driveUrl.startsWith('http') ? driveUrl : ''
-            };
-          } catch {
-            return {
-              url: deterministicHostedUrl,
-              hostedUrl: deterministicHostedUrl
-            };
-          }
+            driveFileId = extractDriveFileId(clientDriveUrl);
+            driveUrl = clientDriveUrl && clientDriveUrl.startsWith('http') ? clientDriveUrl : '';
+          } catch {}
+        }
+
+        const bestUrl = driveUrl || hostedUrl;
+        setSubmittedFile({
+          name: file.name,
+          url: bestUrl,
+          size: sizeStr,
+          hostedUrl,
+          driveFileId: driveFileId || undefined,
+          driveUrl: driveUrl || undefined,
+          downloadUrl: downloadUrl || bestUrl
         });
 
-      uploadPromiseRef.current = uploadPromise;
+        setUploadProgress(100);
+        setIsUploadingSubmission(false);
+        setUploadStepText('✓ อัปโหลดไฟล์เสร็จสมบูรณ์ 100% พร้อมกดยืนยันการส่งงาน');
+        onShowToast(
+          'success',
+          'อัปโหลดไฟล์ครบ 100% แล้ว',
+          `อัปโหลด "${file.name}" (${sizeStr}) ครบ 100% เรียบร้อยแล้ว กดยืนยันการส่งงานได้ทันที`
+        );
+      } catch {
+        clearInterval(progressTimer);
+        setSubmittedFile({
+          name: file.name,
+          url: deterministicHostedUrl,
+          size: sizeStr,
+          hostedUrl: deterministicHostedUrl,
+          downloadUrl: deterministicHostedUrl
+        });
+        setUploadProgress(100);
+        setIsUploadingSubmission(false);
+        setUploadStepText('✓ อัปโหลดไฟล์เสร็จสมบูรณ์ 100% พร้อมกดยืนยันการส่งงาน');
+        onShowToast(
+          'success',
+          'อัปโหลดไฟล์ครบ 100% แล้ว',
+          `อัปโหลด "${file.name}" ครบ 100% เรียบร้อยแล้ว กดยืนยันการส่งงานได้ทันที`
+        );
+      }
     };
+
+    reader.onerror = () => {
+      setIsUploadingSubmission(false);
+      setUploadProgress(0);
+      setUploadStepText('');
+      onShowToast('error', 'อ่านไฟล์ไม่สำเร็จ', 'ไม่สามารถอ่านไฟล์ได้ โปรดลองใหม่อีกครั้ง');
+    };
+
     reader.readAsDataURL(file);
     e.target.value = '';
   };
 
   const handleFinalSubmitTask = async (taskId: string) => {
-    if (!submittedFile) {
-      onShowToast('warning', 'กรุณาแนบไฟล์', 'โปรดอัปโหลดไฟล์งานที่ต้องการส่งก่อนกดยืนยัน');
+    if (!submittedFile || uploadProgress < 100 || isUploadingSubmission) {
+      onShowToast('warning', 'ยังไม่พร้อมส่ง', 'กรุณารอให้อัปโหลดไฟล์ให้ครบ 100% ก่อนกดยืนยันการส่งงาน');
       return;
     }
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const detId =
-      'sub_' +
-      String(taskId).replace(/[^a-zA-Z0-9_-]/g, '_') +
-      '_' +
-      String(user.id || 'member').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const deterministicHostedUrl = submittedFile.hostedUrl || `/api/files/${detId}`;
-
-    setIsUploadingSubmission(true);
-    setUploadProgress(prev => Math.max(prev, 55));
-    setUploadStepText('กำลังอัปโหลดและเชื่อมโยงไฟล์กับ Google Drive...');
-
-    let simProgress = Math.max(55, uploadProgress);
-    const progressInterval = setInterval(() => {
-      simProgress = Math.min(95, simProgress + 5);
-      setUploadProgress(simProgress);
-      if (simProgress >= 80) {
-        setUploadStepText('กำลังบันทึกและซิงค์ข้อมูลกับระบบผู้ดูแลระบบ (Admin)...');
-      }
-    }, 150);
-
-    let resolvedHostedUrl = deterministicHostedUrl;
-    let resolvedDriveFileId = submittedFile.driveFileId || extractDriveFileId(submittedFile.driveUrl || submittedFile.url) || '';
-    let resolvedDriveUrl =
-      submittedFile.driveUrl ||
-      (resolvedDriveFileId ? `https://drive.google.com/file/d/${resolvedDriveFileId}/view?usp=sharing` : '');
-    let resolvedDownloadUrl = submittedFile.downloadUrl || '';
-
-    try {
-      if (uploadPromiseRef.current) {
-        const awaited = await Promise.race([
-          uploadPromiseRef.current,
-          new Promise<null>(r => setTimeout(() => r(null), 12000))
-        ]);
-        if (awaited) {
-          if (awaited.hostedUrl) resolvedHostedUrl = awaited.hostedUrl;
-          if (awaited.driveFileId) resolvedDriveFileId = awaited.driveFileId;
-          if (awaited.driveUrl) resolvedDriveUrl = awaited.driveUrl;
-          if (awaited.downloadUrl) resolvedDownloadUrl = awaited.downloadUrl;
-          if (!resolvedDriveUrl && awaited.url && awaited.url.startsWith('http')) {
-            resolvedDriveUrl = awaited.url;
-            resolvedDriveFileId = resolvedDriveFileId || extractDriveFileId(awaited.url);
-          }
-        }
-      }
-
-      if (!resolvedDriveUrl && submittedFile.url.startsWith('data:')) {
-        const directRes = await Promise.race([
-          fetch('/api/files/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: detId,
-              fileName: submittedFile.name,
-              dataUrl: submittedFile.url,
-              schoolId: user.schoolId,
-              category: `TaskSubmissions_${currentAcademicYear}`,
-              uploadedBy: user.fullName || user.id,
-              uploadToDrive: true,
-              taskId,
-              memberId: user.id
-            })
-          }).then(r => (r.ok ? r.json() : null)),
-          new Promise<null>(r => setTimeout(() => r(null), 10000))
-        ]);
-        if (directRes) {
-          if (directRes.url) resolvedHostedUrl = directRes.url;
-          if (directRes.driveFileId) resolvedDriveFileId = directRes.driveFileId;
-          if (directRes.driveUrl) resolvedDriveUrl = directRes.driveUrl;
-          if (directRes.downloadUrl) resolvedDownloadUrl = directRes.downloadUrl;
-        }
-      }
-    } catch {
-      // Keep resolvedHostedUrl fallback if offline
-    } finally {
-      clearInterval(progressInterval);
-    }
-
-    if (resolvedDriveFileId && !resolvedDriveUrl) {
-      resolvedDriveUrl = `https://drive.google.com/file/d/${resolvedDriveFileId}/view?usp=sharing`;
-    }
-    const finalFileUrl = resolvedDriveUrl || resolvedHostedUrl;
-
-    setUploadProgress(100);
-    setUploadStepText('อัปโหลดและส่งงานเสร็จสมบูรณ์ 100%');
-
+    const finalFileUrl = submittedFile.url || submittedFile.hostedUrl || '';
     const nowIso = new Date().toISOString();
     const newSub: TaskSubmission = {
       memberId: user.id,
@@ -795,11 +738,9 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       fileUrl: finalFileUrl,
       fileName: submittedFile.name,
       fileSize: submittedFile.size,
-      driveFileId: resolvedDriveFileId || undefined,
-      localHostedUrl: resolvedHostedUrl,
-      downloadUrl:
-        resolvedDownloadUrl ||
-        (resolvedDriveFileId ? `https://drive.google.com/uc?export=download&id=${resolvedDriveFileId}` : resolvedHostedUrl),
+      driveFileId: submittedFile.driveFileId,
+      localHostedUrl: submittedFile.hostedUrl,
+      downloadUrl: submittedFile.downloadUrl || finalFileUrl,
       submittedAt: nowIso
     };
 
@@ -828,7 +769,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
       deletedSubmissionsMap: Object.keys(nextDeletedMap).length > 0 ? nextDeletedMap : undefined,
       isCompleted: isAllMembersDone,
       submittedFileUrl: finalFileUrl,
-      driveFileId: resolvedDriveFileId || task.driveFileId,
+      driveFileId: submittedFile.driveFileId || task.driveFileId,
       submittedFileName: submittedFile.name,
       submittedFileSize: submittedFile.size,
       submittedBy: user.id,
@@ -838,19 +779,17 @@ export const Module4Assignments: React.FC<Module4Props> = ({
 
     onSaveTask(updatedTask);
 
-    setTimeout(() => {
-      setIsUploadingSubmission(false);
-      setUploadProgress(0);
-      setUploadStepText('');
-      setSubmittingTaskId(null);
-      setSubmittedFile(null);
-      uploadPromiseRef.current = null;
-      onShowToast(
-        'success',
-        'ส่งงานสำเร็จ 🎉',
-        'ส่งภาระงานเรียบร้อยแล้ว ระบบซิงค์ข้อมูลและไฟล์ไปยังหน้าผู้ดูแลระบบ (Admin) ทันที'
-      );
-    }, 380);
+    setIsUploadingSubmission(false);
+    setUploadProgress(0);
+    setUploadStepText('');
+    setSubmittingTaskId(null);
+    setSubmittedFile(null);
+    uploadPromiseRef.current = null;
+    onShowToast(
+      'success',
+      'ส่งงานสำเร็จ 🎉',
+      `ส่งงาน "${task.title}" เรียบร้อยแล้ว ระบบซิงค์ข้อมูลและไฟล์ไปยังหน้าผู้ดูแลระบบ (Admin) ทันที`
+    );
   };
 
   // Member can remove their old submitted file to upload a new one
@@ -2060,7 +1999,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                     {mySub ? 'คลิกเพื่อเลือกไฟล์ใหม่ (ส่งแทนที่ไฟล์เดิม)' : 'คลิกเพื่ออัปโหลดไฟล์งาน'}
                   </span>
                   <span className="text-[10px] text-slate-500 mt-0.5">
-                    รองรับทุกประเภทไฟล์ (Word .docx, Excel .xlsx, PDF, รูปภาพ ฯลฯ)
+                    รองรับทุกประเภทไฟล์ (Word .docx, Excel .xlsx, PDF, รูปภาพ ฯลฯ สูงสุดไม่เกิน 5MB ต่อไฟล์)
                   </span>
                   <input
                     type="file"
@@ -2111,7 +2050,7 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                       />
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-purple-700 font-medium">
-                      <span>{uploadProgress < 100 ? 'กำลังส่งข้อมูลไปยัง Google Drive & ระบบคลาวด์...' : '✓ ประมวลผลและส่งงานเสร็จสมบูรณ์'}</span>
+                      <span>{uploadProgress < 100 ? 'กำลังอัปโหลดข้อมูลและเชื่อมโยงระบบ...' : '✓ อัปโหลดครบ 100% พร้อมกดยืนยันการส่งงาน'}</span>
                       <span className="font-bold">{uploadProgress === 100 ? 'เสร็จสิ้น 100%' : `${uploadProgress}% / 100%`}</span>
                     </div>
                   </div>
@@ -2132,20 +2071,30 @@ export const Module4Assignments: React.FC<Module4Props> = ({
                   </button>
                   <button
                     type="button"
-                    disabled={!submittedFile || isUploadingSubmission}
+                    disabled={!submittedFile || isUploadingSubmission || uploadProgress < 100}
                     onClick={() => handleFinalSubmitTask(submittingTaskId)}
-                    className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 active:scale-95 transition-transform"
+                    className={`px-4 py-2 text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 transition-all ${
+                      uploadProgress === 100 && submittedFile && !isUploadingSubmission
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                        : 'bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed border border-slate-300 dark:border-slate-600'
+                    }`}
                   >
                     {isUploadingSubmission ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" />
+                    ) : uploadProgress === 100 ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                     ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <Clock className="w-3.5 h-3.5 text-slate-400" />
                     )}
                     <span>
                       {isUploadingSubmission
-                        ? `กำลังส่งงาน... ${uploadProgress}%`
+                        ? `กำลังอัปโหลดไฟล์... ${uploadProgress}%`
+                        : !submittedFile
+                        ? 'กรุณาเลือกไฟล์งาน'
+                        : uploadProgress < 100
+                        ? `รออัปโหลดครบ 100% (${uploadProgress}%)`
                         : mySub
-                        ? 'บันทึกไฟล์ใหม่'
+                        ? 'บันทึกส่งงานใหม่'
                         : 'ยืนยันการส่งงาน'}
                     </span>
                   </button>

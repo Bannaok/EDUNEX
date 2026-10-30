@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -28,12 +28,14 @@ import {
   FileText,
   CheckCircle2,
   Award,
-  BookOpen
+  BookOpen,
+  Loader2
 } from 'lucide-react';
 import { StorageService } from '../services/storage';
 import { ThreeReportsModal } from './ThreeReportsModal';
 import { get100SchoolDaysForTerm } from './Module1ClassroomAdmin';
 import { PhorPhor6Modal, calculateThaiGrade } from './PhorPhor6Modal';
+import { exportSheetsToPdf } from '../utils/pdfExport';
 
 interface Module7Props {
   user: UserSession;
@@ -728,9 +730,88 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return map;
   }, [effectiveAttendance, selectedYear, selectedSemester]);
 
-  // Print function (A4 Portrait print)
-  const handlePrintPDF = () => {
-    window.print();
+  const attendanceContainerRef = useRef<HTMLDivElement>(null);
+  const assessmentContainerRef = useRef<HTMLDivElement>(null);
+  const milkTeethContainerRef = useRef<HTMLDivElement>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const handleDownloadAttendancePDF = async () => {
+    if (isDownloadingPdf || !attendancePopupGrade) return;
+    if (popupGradeStudents.length === 0) {
+      onShowToast('warning', 'ไม่มีข้อมูลนักเรียน', 'ยังไม่มีข้อมูลนักเรียนสำหรับดาวน์โหลด PDF');
+      return;
+    }
+    setIsDownloadingPdf(true);
+    try {
+      const filename = `ตารางเช็กเวลาเรียน_${attendancePopupGrade}_เทอม${selectedSemester}_${selectedYear}.pdf`;
+      const ok = await exportSheetsToPdf({
+        container: attendanceContainerRef.current,
+        filename,
+        orientation: reportOrientation,
+      });
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลด PDF สำเร็จ', `บันทึกไฟล์ ${filename} เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('error', 'ไม่พบหน้าเอกสาร', 'ไม่สามารถสร้างไฟล์ PDF ได้');
+      }
+    } catch (err) {
+      console.error('Attendance PDF export error:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ PDF ได้');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handleDownloadAssessmentPDF = async () => {
+    if (isDownloadingPdf || !assessmentPopupGrade) return;
+    if (assessmentGradeStudents.length === 0 || assessmentGradeSubjects.length === 0) {
+      onShowToast('warning', 'ไม่มีข้อมูล', 'ยังไม่มีข้อมูลนักเรียนหรือรายวิชาสำหรับดาวน์โหลด PDF');
+      return;
+    }
+    setIsDownloadingPdf(true);
+    try {
+      const modeLabel = assessmentViewMode === 'grade' && canShowGradeButton ? 'เกรด' : 'คะแนนวัดผล';
+      const filename = `รายงาน_${modeLabel}_${assessmentPopupGrade}_เทอม${selectedSemester}_${selectedYear}.pdf`;
+      const ok = await exportSheetsToPdf({
+        container: assessmentContainerRef.current,
+        filename,
+        orientation: reportOrientation,
+      });
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลด PDF สำเร็จ', `บันทึกไฟล์ ${filename} เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('error', 'ไม่พบหน้าเอกสาร', 'ไม่สามารถสร้างไฟล์ PDF ได้');
+      }
+    } catch (err) {
+      console.error('Assessment PDF export error:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ PDF ได้');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handleDownloadMilkTeethPDF = async () => {
+    if (isDownloadingPdf || !milkTeethModal) return;
+    setIsDownloadingPdf(true);
+    try {
+      const typeLabel = milkTeethModal.type === 'milk' ? 'การดื่มนมโรงเรียน' : 'การแปรงฟันหลังอาหาร';
+      const filename = `รายงาน_${typeLabel}_${milkTeethModal.grade}_เทอม${selectedSemester}_${selectedYear}.pdf`;
+      const ok = await exportSheetsToPdf({
+        container: milkTeethContainerRef.current,
+        filename,
+        orientation: reportOrientation,
+      });
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลด PDF สำเร็จ', `บันทึกไฟล์ ${filename} เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('error', 'ไม่พบหน้าเอกสาร', 'ไม่สามารถสร้างไฟล์ PDF ได้');
+      }
+    } catch (err) {
+      console.error('Milk/Teeth PDF export error:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ PDF ได้');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   // Download CSV for Pop-up Grade
@@ -1523,7 +1604,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
 
             {/* Modal Body: Interactive A4 Paper Preview Scroll Container */}
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
+            <div ref={attendanceContainerRef} className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
               
 
 
@@ -1824,7 +1905,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
             {/* Modal Footer (No-Print) */}
             <div className="px-4 py-3 bg-white border-t border-slate-200 rounded-b-2xl flex items-center justify-between gap-3 shrink-0 no-print">
               <span className="text-xs text-slate-500">
-                พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 แนวตั้ง)
+                พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'})
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -1836,12 +1917,22 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={handlePrintPDF}
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                  disabled={isDownloadingPdf}
+                  onClick={handleDownloadAttendancePDF}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                   title="ดาวน์โหลด PDF"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>ดาวน์โหลด</span>
+                  {isDownloadingPdf ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังสร้าง PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ดาวน์โหลด</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -2013,7 +2104,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
 
             {/* Modal Body: Interactive A4 Portrait Paper Preview Scroll Container */}
-            <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
+            <div ref={assessmentContainerRef} className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
               
 
 
@@ -2040,8 +2131,15 @@ export const Module7Reports: React.FC<Module7Props> = ({
               ) : assessmentViewMode === 'grade' && canShowGradeButton ? (
                 /* GRADE VIEW: ALL SUBJECTS IN A SINGLE TABLE WITH CALCULATED 1, 1.5, 2, 2.5, 3, 3.5, 4 */
                 <div 
-                  className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-                  style={{ width: '210mm' }}
+                  className={`${
+                    reportOrientation === 'landscape'
+                      ? 'a4-landscape-paper min-h-[210mm]'
+                      : 'a4-portrait-paper min-h-[297mm]'
+                  } bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+                  style={{
+                    width: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                    maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                  }}
                 >
                   {/* A4 Sheet Header */}
                   <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
@@ -2235,8 +2333,15 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   return (
                     <div 
                       key={chunkIdx}
-                      className="a4-portrait-paper bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 relative transition-all"
-                      style={{ width: '210mm' }}
+                      className={`${
+                        reportOrientation === 'landscape'
+                          ? 'a4-landscape-paper min-h-[210mm]'
+                          : 'a4-portrait-paper min-h-[297mm]'
+                      } bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+                      style={{
+                        width: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                      }}
                     >
                       {/* A4 Sheet Header */}
                       <div className="border-b-2 border-slate-800 pb-2 mb-3 text-center">
@@ -2439,7 +2544,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
             {/* Modal Footer (No-Print) */}
             <div className="px-4 py-3 bg-white border-t border-slate-200 rounded-b-2xl flex items-center justify-between gap-3 shrink-0 no-print">
               <span className="text-xs text-slate-500">
-                พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 แนวตั้ง 5 วิชาต่อแผ่น)
+                พร้อมสำหรับการดาวน์โหลดเอกสาร PDF (ขนาด A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'} 5 วิชาต่อแผ่น)
               </span>
               <div className="flex items-center gap-2">
                 <button
@@ -2451,12 +2556,22 @@ export const Module7Reports: React.FC<Module7Props> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={handlePrintPDF}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                  disabled={isDownloadingPdf}
+                  onClick={handleDownloadAssessmentPDF}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                   title="ดาวน์โหลด PDF"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>ดาวน์โหลด</span>
+                  {isDownloadingPdf ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังสร้าง PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>ดาวน์โหลด</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -2636,7 +2751,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </div>
                 </div>
               </div>
-              <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
+              <div ref={milkTeethContainerRef} className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
                 {milkTeethMonthGroups.map((group, groupIdx) => {
                   const monthDays = group.days;
 
@@ -2829,15 +2944,22 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      window.print();
-                      onShowToast('info', 'กำลังดาวน์โหลด / พิมพ์ PDF 🖨️', `บันทึก/พิมพ์รายงาน ${reportType === 'milk' ? 'การดื่มนม' : 'การแปรงฟัน'} ประจำ${activeMonthGroup?.monthTitle || ''}`);
-                    }}
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                    disabled={isDownloadingPdf}
+                    onClick={handleDownloadMilkTeethPDF}
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                     title="ดาวน์โหลด PDF"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>ดาวน์โหลด</span>
+                    {isDownloadingPdf ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>กำลังสร้าง PDF...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>ดาวน์โหลด</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

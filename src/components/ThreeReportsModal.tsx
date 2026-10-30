@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -23,8 +23,10 @@ import {
   Award, 
   Users, 
   Check, 
-  UserCheck
+  UserCheck,
+  Loader2
 } from 'lucide-react';
+import { exportSheetsToPdf } from '../utils/pdfExport';
 
 interface ThreeReportsModalProps {
   isOpen: boolean;
@@ -340,8 +342,40 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     ) || null;
   }, [personnel, selectedAcademicHeadId]);
 
-  const handlePrint = () => {
-    window.print();
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const handlePrint = async () => {
+    if (isDownloadingPdf) return;
+    if (classStudents.length === 0) {
+      onShowToast('warning', 'ไม่มีข้อมูลนักเรียน', 'ยังไม่มีข้อมูลนักเรียนสำหรับดาวน์โหลด PDF');
+      return;
+    }
+    setIsDownloadingPdf(true);
+    try {
+      const tabLabel =
+        activeTab === 'readingWriting'
+          ? 'การอ่านคิดวิเคราะห์เขียน'
+          : activeTab === 'characteristics'
+          ? 'คุณลักษณะอันพึงประสงค์'
+          : 'สมรรถนะสำคัญ';
+      const filename = `รายงาน_${tabLabel}_${grade}_เทอม${selectedSemester}_${selectedYear}.pdf`;
+      const ok = await exportSheetsToPdf({
+        container: previewContainerRef.current,
+        filename,
+        orientation: reportOrientation,
+      });
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลด PDF สำเร็จ', `บันทึกไฟล์ ${filename} เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('error', 'ไม่พบหน้าเอกสาร', 'ไม่สามารถสร้างไฟล์ PDF ได้');
+      }
+    } catch (err) {
+      console.error('PDF export error:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ PDF ได้');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   // Tables for Reading/Writing
@@ -1337,7 +1371,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         </div>
 
         {/* Modal Body: A4 Paper Preview Container */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
+        <div ref={previewContainerRef} className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1">
           {classStudents.length === 0 ? (
             <div className="py-20 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 p-8 space-y-2 max-w-[210mm] mx-auto">
               <Users className="w-12 h-12 mx-auto text-slate-300" />
@@ -1377,7 +1411,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         {/* Modal Footer (No-Print) */}
         <div className="px-4 py-3 bg-white border-t border-slate-200 rounded-b-2xl flex items-center justify-between gap-3 shrink-0 no-print">
           <span className="text-xs text-slate-500">
-            พร้อมสำหรับการดาวน์โหลดเอกสาร PDF รูปแบบ A4 แนวตั้ง
+            พร้อมสำหรับการดาวน์โหลดเอกสาร PDF รูปแบบ A4 {reportOrientation === 'landscape' ? 'แนวนอน' : 'แนวตั้ง'}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -1389,12 +1423,22 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             </button>
             <button
               type="button"
+              disabled={isDownloadingPdf}
               onClick={handlePrint}
-              className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+              className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
               title="ดาวน์โหลด PDF"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>ดาวน์โหลด</span>
+              {isDownloadingPdf ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>กำลังสร้าง PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-3.5 h-3.5" />
+                  <span>ดาวน์โหลด</span>
+                </>
+              )}
             </button>
           </div>
         </div>

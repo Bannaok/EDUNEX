@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -32,9 +32,11 @@ import {
   Save,
   Phone,
   Home,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react';
 import { calculateThaiNutritionalStatus, get100SchoolDaysForTerm } from './Module1ClassroomAdmin';
+import { exportSheetsToPdf } from '../utils/pdfExport';
 
 export interface PhorPhor6ModalProps {
   student: Student;
@@ -914,9 +916,30 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     return <div className="inline-flex items-center gap-0.5 mx-1">{boxes}</div>;
   };
 
-  const handlePrint = () => {
-    window.print();
-    onShowToast('success', 'ดาวน์โหลด ปพ.6', `เตรียมดาวน์โหลดเอกสาร ปพ.6 ของ ${student.prefix}${student.firstName} ${student.lastName} เรียบร้อย`);
+  const pp6ContainerRef = useRef<HTMLDivElement>(null);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+
+  const handlePrint = async () => {
+    if (isDownloadingPdf) return;
+    setIsDownloadingPdf(true);
+    try {
+      const filename = `ปพ6_${student.prefix}${student.firstName}_${student.lastName}_${grade}_เทอม${semester}_${academicYear}.pdf`;
+      const ok = await exportSheetsToPdf({
+        container: pp6ContainerRef.current,
+        filename,
+        orientation: 'portrait',
+      });
+      if (ok) {
+        onShowToast('success', 'ดาวน์โหลด ปพ.6 สำเร็จ', `บันทึกไฟล์ ${filename} เรียบร้อยแล้ว`);
+      } else {
+        onShowToast('error', 'ไม่พบหน้าเอกสาร', 'ไม่สามารถสร้างไฟล์ PDF ได้');
+      }
+    } catch (err) {
+      console.error('PP6 PDF export error:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถดาวน์โหลดไฟล์ PDF ได้');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
   return (
@@ -1109,7 +1132,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         </div>
 
         {/* Modal Scrollable Body: A4 Paper Container */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1 print:p-0 print:bg-white print:overflow-visible">
+        <div ref={pp6ContainerRef} className="p-4 sm:p-6 overflow-y-auto space-y-8 bg-slate-200/70 flex-1 print:p-0 print:bg-white print:overflow-visible">
           
           {/* TAB 1: ปก (COVER PAGE - Formatted as per reference PDF) */}
           {(activeTab === 'cover' || activeTab === 'all') && (
@@ -2252,11 +2275,21 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
             </button>
             <button
               type="button"
+              disabled={isDownloadingPdf}
               onClick={handlePrint}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
             >
-              <Download className="w-4 h-4" />
-              <span>ดาวน์โหลด</span>
+              {isDownloadingPdf ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>กำลังสร้าง PDF...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  <span>ดาวน์โหลด</span>
+                </>
+              )}
             </button>
           </div>
         </div>

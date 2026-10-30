@@ -5919,21 +5919,6 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </select>
                 </div>
               )}
-
-              {/* Status Filter */}
-              <div className="flex items-center gap-1.5">
-                <label className="text-[11px] font-bold text-slate-600 shrink-0">สถานะ:</label>
-                <select
-                  value={leaveStatusFilter}
-                  onChange={(e) => setLeaveStatusFilter(e.target.value)}
-                  className="text-xs px-3 py-1.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="all">ทั้งหมด</option>
-                  <option value="อนุมัติ">อนุมัติแล้ว</option>
-                  <option value="รออนุมัติ">รออนุมัติ</option>
-                  <option value="ไม่อนุมัติ">ไม่อนุมัติ</option>
-                </select>
-              </div>
             </div>
 
             <div className="text-[11px] text-slate-500">
@@ -5949,20 +5934,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   <tr className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
                     <th className="py-3 px-4">ผู้ขอลา</th>
                     <th className="py-3 px-3 text-center">ประเภทการลา</th>
-                    <th className="py-3 px-3 text-center">
-                      <span className="hidden sm:inline">ตั้งแต่วันที่ - ถึงวันที่</span>
-                      <span className="sm:hidden">จำนวนวันลา</span>
-                    </th>
+                    <th className="py-3 px-3 text-center">ลากี่วัน</th>
                     <th className="py-3 px-3 text-center">รอบการลา & สถิติสะสม</th>
                     <th className="py-3 px-4 hidden sm:table-cell">เหตุผลการลา</th>
-                    <th className="py-3 px-3 text-center hidden sm:table-cell">สถานะ</th>
                     <th className="py-3 px-3 text-right">จัดการ</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {visibleLeaveRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-10 text-center text-slate-400">
+                      <td colSpan={6} className="py-10 text-center text-slate-400">
                         <div className="flex flex-col items-center justify-center gap-1.5">
                           <Calendar className="w-8 h-8 text-slate-300" />
                           <p className="font-medium">
@@ -6000,12 +5981,12 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                             </span>
                           </td>
                           <td className="py-3 px-3 text-center font-medium text-slate-600">
-                            <span className="hidden sm:inline">
-                              {formatIsoToThaiDisplay(req.startDate, 'short')} ถึง {formatIsoToThaiDisplay(req.endDate, 'short')}
-                            </span>
-                            <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 inline-block ml-1">
+                            <span className="font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 inline-block">
                               {daysCount} วัน
                             </span>
+                            <div className="text-[10.5px] text-slate-500 font-normal mt-0.5">
+                              ({formatIsoToThaiDisplay(req.startDate, 'short')} - {formatIsoToThaiDisplay(req.endDate, 'short')})
+                            </div>
                           </td>
                           <td className="py-3 px-3 text-center">
                             <div className="flex flex-col items-center gap-0.5">
@@ -6023,45 +6004,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                           <td className="py-3 px-4 text-slate-600 hidden sm:table-cell max-w-xs truncate" title={req.reason}>
                             {req.reason}
                           </td>
-                          <td className="py-3 px-3 text-center hidden sm:table-cell">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              req.status === 'อนุมัติ'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : req.status === 'ไม่อนุมัติ'
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
-                                : 'bg-amber-50 text-amber-700 border border-amber-200'
-                            }`}>
-                              {req.status}
-                            </span>
-                          </td>
                           <td className="py-3 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
-                              {isAdmin && req.status === 'รออนุมัติ' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updated = StorageService.saveLeaveRequest({ ...req, status: 'อนุมัติ' });
-                                      setLeaveRequests(updated);
-                                      onShowToast('success', 'อนุมัติสำเร็จ', `อนุมัติการลาของ ${req.teacherName} เรียบร้อยแล้ว`);
-                                    }}
-                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
-                                  >
-                                    อนุมัติ
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updated = StorageService.saveLeaveRequest({ ...req, status: 'ไม่อนุมัติ' });
-                                      setLeaveRequests(updated);
-                                      onShowToast('warning', 'ไม่อนุมัติ', `ปฏิเสธคำขอลาของ ${req.teacherName} แล้ว`);
-                                    }}
-                                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-bold cursor-pointer transition-all active:scale-95"
-                                  >
-                                    ปฏิเสธ
-                                  </button>
-                                </>
-                              )}
                               <button
                                 type="button"
                                 onClick={() => setPreviewLeave(req)}

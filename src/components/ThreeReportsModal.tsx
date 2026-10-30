@@ -893,7 +893,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 <div className="border border-slate-800 mb-4">
                   <table className="w-full text-left text-xs border-collapse text-black">
                     <thead>
-                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-xs leading-normal">
+                      <tr className="bg-amber-300 text-black font-bold border-b border-slate-800 text-xs leading-normal">
                         <th className="py-2.5 px-3 border-r border-slate-800 text-left align-middle text-black">
                           คุณลักษณะและตัวชี้วัด (ข้อ 1 - 4)
                         </th>
@@ -910,7 +910,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-white font-bold text-black text-xs leading-normal">
+                            <tr className="bg-amber-100 font-bold text-black text-xs leading-normal">
                               <td className="py-1.5 px-3 border-r border-slate-800 align-middle text-black">
                                 {grp.title}
                               </td>
@@ -990,7 +990,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 <div className="border border-slate-800 mb-6">
                   <table className="w-full text-left text-xs border-collapse text-black">
                     <thead>
-                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-xs leading-normal">
+                      <tr className="bg-amber-300 text-black font-bold border-b border-slate-800 text-xs leading-normal">
                         <th className="py-2.5 px-3 border-r border-slate-800 text-left align-middle text-black">
                           คุณลักษณะและตัวชี้วัด (ข้อ 5 - 8)
                         </th>
@@ -1007,7 +1007,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-white font-bold text-black text-xs leading-normal">
+                            <tr className="bg-amber-100 font-bold text-black text-xs leading-normal">
                               <td className="py-1.5 px-3 border-r border-slate-800 align-middle text-black">
                                 {grp.title}
                               </td>

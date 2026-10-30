@@ -551,6 +551,7 @@ function mergeSingleTaskSubmissionsClient(existingTask: TaskItem, incomingTask: 
 const deletedTaskIdsSet = new Set<string>();
 const deletedDocIdsSet = new Set<string>();
 const deletedLeaveIdsSet = new Set<string>();
+const deletedDutyLogIdsSet = new Set<string>();
 
 if (typeof window !== 'undefined') {
   try {
@@ -586,6 +587,19 @@ if (typeof window !== 'undefined') {
       if (Array.isArray(arr)) {
         arr.forEach(id => {
           if (id) deletedLeaveIdsSet.add(String(id));
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    const rawDutyLogs = localStorage.getItem('ams_deleted_duty_log_ids');
+    if (rawDutyLogs) {
+      const arr = JSON.parse(rawDutyLogs);
+      if (Array.isArray(arr)) {
+        arr.forEach(id => {
+          if (id) deletedDutyLogIdsSet.add(String(id));
         });
       }
     }
@@ -804,6 +818,71 @@ function mergeLeaveListsClient(localList: any[], incomingList: any[], preferInco
   return result;
 }
 
+function isDutyLogStorageKey(key: string): boolean {
+  return key === KEYS.DUTY_LOGS || key.startsWith(`${KEYS.DUTY_LOGS}__`);
+}
+
+function mergeDutyLogListsClient(localList: any[], incomingList: any[], preferIncoming = true): any[] {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(localList)
+      ? localList.filter(d => d && d.id && !deletedDutyLogIdsSet.has(String(d.id)))
+      : [];
+  }
+  if (!Array.isArray(localList) || localList.length === 0) {
+    return incomingList.filter(d => d && d.id && !deletedDutyLogIdsSet.has(String(d.id)));
+  }
+
+  const localMap = new Map<string, any>();
+  for (const d of localList) {
+    if (d && d.id && !deletedDutyLogIdsSet.has(String(d.id))) {
+      localMap.set(String(d.id), d);
+    }
+  }
+
+  const incomingMap = new Map<string, any>();
+  for (const d of incomingList) {
+    if (d && d.id && !deletedDutyLogIdsSet.has(String(d.id))) {
+      incomingMap.set(String(d.id), d);
+    }
+  }
+
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+  const primaryList = preferIncoming ? incomingList : localList;
+
+  for (const item of primaryList) {
+    if (!item || !item.id || deletedDutyLogIdsSet.has(String(item.id))) continue;
+    const dId = String(item.id);
+    handledIds.add(dId);
+    const locItem = localMap.get(dId);
+    const incItem = incomingMap.get(dId);
+    if (locItem && incItem) {
+      const locTime = locItem.createdAt ? new Date(locItem.createdAt).getTime() : 0;
+      const incTime = incItem.createdAt ? new Date(incItem.createdAt).getTime() : 0;
+      if (locTime > incTime) {
+        result.push({ ...incItem, ...locItem });
+      } else if (incTime > locTime) {
+        result.push({ ...locItem, ...incItem });
+      } else {
+        result.push(preferIncoming ? { ...locItem, ...incItem } : { ...incItem, ...locItem });
+      }
+    } else {
+      result.push(item);
+    }
+  }
+
+  // Preserve any local duty log that has not arrived in incomingList yet (prevents disappearing on client)
+  for (const locItem of localList) {
+    if (!locItem || !locItem.id) continue;
+    const dId = String(locItem.id);
+    if (!handledIds.has(dId) && !deletedDutyLogIdsSet.has(dId)) {
+      result.unshift(locItem);
+    }
+  }
+
+  return result;
+}
+
 let lastDirectCloudPullTime = 0;
 
 function hasPendingBase64SubmissionInTasks(val: any): boolean {
@@ -970,6 +1049,21 @@ function applyIncomingUpdates(
           // ignore
         }
       }
+    } else if (resolvedKey === 'ams_deleted_duty_log_ids' && Array.isArray(value)) {
+      let changedDutyLogTombstones = false;
+      for (const dId of value) {
+        if (dId && !deletedDutyLogIdsSet.has(String(dId))) {
+          deletedDutyLogIdsSet.add(String(dId));
+          changedDutyLogTombstones = true;
+        }
+      }
+      if (changedDutyLogTombstones && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_duty_log_ids', JSON.stringify(Array.from(deletedDutyLogIdsSet).slice(-2000)));
+        } catch {
+          // ignore
+        }
+      }
     } else if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
       // Protect recent local task saves from stale background polls unless incomingTs is strictly newer
       if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
@@ -1011,6 +1105,20 @@ function applyIncomingUpdates(
           value = mergeLeaveListsClient(currentCachedLeaves, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
         } else {
           value = value.filter(l => l && l.id && !deletedLeaveIdsSet.has(String(l.id)));
+        }
+      }
+    } else if (isDutyLogStorageKey(resolvedKey) && Array.isArray(value)) {
+      if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+        const currentCachedDutyLogs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedDutyLogs)) {
+          value = mergeDutyLogListsClient(currentCachedDutyLogs, value, false);
+        }
+      } else {
+        const currentCachedDutyLogs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedDutyLogs)) {
+          value = mergeDutyLogListsClient(currentCachedDutyLogs, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
+        } else {
+          value = value.filter(d => d && d.id && !deletedDutyLogIdsSet.has(String(d.id)));
         }
       }
     } else {
@@ -2211,6 +2319,23 @@ export const StorageService = {
     return updated;
   },
 
+  saveBulkStudents(studentsToUpdate: Student[]): Student[] {
+    const list = this.getStudents();
+    const updateMap = new Map<string, Student>();
+    for (const s of studentsToUpdate) {
+      updateMap.set(s.id, s);
+    }
+    const updated = list.map(s => updateMap.get(s.id) || s);
+    for (const s of studentsToUpdate) {
+      if (!list.some(existing => existing.id === s.id)) {
+        updated.push(s);
+      }
+    }
+    setLocal(KEYS.STUDENTS, updated);
+    this.syncPostToGoogle('saveBulkStudents', { students: studentsToUpdate }).catch(() => {});
+    return updated;
+  },
+
   deleteStudent(id: string): Student[] {
     const list = this.getStudents();
     const target = list.find(s => s.id === id);
@@ -2549,7 +2674,7 @@ export const StorageService = {
       return true;
     });
     const deposits = list.filter(s => s.type === 'deposit').reduce((sum, r) => sum + r.amount, 0);
-    const withdrawals = list.filter(s => s.type === 'withdrawal').reduce((sum, r) => sum + r.amount, 0);
+    const withdrawals = list.filter(s => s.type === 'withdrawal' && !s.deductedFromDeposits).reduce((sum, r) => sum + r.amount, 0);
     return Math.max(0, deposits - withdrawals);
   },
 
@@ -2576,7 +2701,7 @@ export const StorageService = {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     studentRecords.forEach(r => {
       if (r.type === 'deposit') runningBal += r.amount;
-      else runningBal -= r.amount;
+      else if (!r.deductedFromDeposits) runningBal -= r.amount;
     });
     const finalBal = Math.max(0, runningBal);
 
@@ -4170,27 +4295,51 @@ export const StorageService = {
   },
 
   getDailyDutyLogs(fallback: any[] = []): any[] {
-    return getLocal<any[]>(KEYS.DUTY_LOGS, fallback);
+    const list = getLocal<any[]>(KEYS.DUTY_LOGS, fallback);
+    if (!Array.isArray(list)) return [];
+    if (deletedDutyLogIdsSet.size === 0) return list;
+    return list.filter(r => r && r.id && !deletedDutyLogIdsSet.has(String(r.id)));
   },
 
   setDailyDutyLogs(records: any[]): any[] {
-    setLocal(KEYS.DUTY_LOGS, records);
-    return records;
+    const cleaned = Array.isArray(records)
+      ? records.filter(r => r && r.id && !deletedDutyLogIdsSet.has(String(r.id)))
+      : [];
+    setLocal(KEYS.DUTY_LOGS, cleaned);
+    return cleaned;
   },
 
   saveDailyDutyLog(record: any): any[] {
+    if (!record || !record.id) return this.getDailyDutyLogs();
+    const cleanId = String(record.id);
+    if (deletedDutyLogIdsSet.has(cleanId)) {
+      deletedDutyLogIdsSet.delete(cleanId);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_duty_log_ids', JSON.stringify(Array.from(deletedDutyLogIdsSet).slice(-2000)));
+        } catch {}
+      }
+    }
     const list = this.getDailyDutyLogs();
-    const idx = list.findIndex(r => r.id === record.id);
-    let updated = idx >= 0 ? list.map(r => r.id === record.id ? record : r) : [record, ...list];
+    const idx = list.findIndex(r => String(r.id) === cleanId);
+    const updated = idx >= 0 ? list.map(r => String(r.id) === cleanId ? record : r) : [record, ...list];
     setLocal(KEYS.DUTY_LOGS, updated);
     this.syncPostToGoogle('saveDutyLog', { record });
     return updated;
   },
 
   deleteDailyDutyLog(id: string): any[] {
-    const updated = this.getDailyDutyLogs().filter(r => r.id !== id);
+    const cleanId = String(id);
+    deletedDutyLogIdsSet.add(cleanId);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ams_deleted_duty_log_ids', JSON.stringify(Array.from(deletedDutyLogIdsSet).slice(-2000)));
+      } catch {}
+    }
+    const updated = this.getDailyDutyLogs().filter(r => String(r.id) !== cleanId);
     setLocal(KEYS.DUTY_LOGS, updated);
-    this.syncPostToGoogle('deleteDutyLog', { id });
+    pushToRemoteServer('ams_deleted_duty_log_ids', Array.from(deletedDutyLogIdsSet).slice(-2000), Date.now());
+    this.syncPostToGoogle('deleteDutyLog', { id: cleanId });
     return updated;
   },
 

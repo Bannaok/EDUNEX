@@ -189,6 +189,7 @@ export interface SchoolInfo {
   semester: string;
   leaveRound?: '1' | '2'; // รอบการลา ครั้งที่ 1 (1 ตุลาคม – 31 มีนาคม) หรือ ครั้งที่ 2 (1 เมษายน – 30 กันยายน)
   leaveRoundFiscalYear?: string; // ปีงบประมาณของรอบการลา เช่น '2569'
+  dutyReportGrades?: string[]; // ระดับชั้นที่แสดงในตารางสถิตินักเรียนรายงานครูเวร (อ.1 - ม.3)
   customFields?: { label: string; value: string }[];
   googleSheetId?: string;
   googleSheetUrl?: string;
@@ -356,6 +357,10 @@ export interface SavingsRecord {
   type: 'deposit' | 'withdrawal';
   amount: number;
   balanceAfter: number;
+  originalAmount?: number;
+  deductedAmount?: number;
+  deductedFromDeposits?: boolean;
+  deductionBreakdown?: { depositId: string; date: string; amount: number }[];
   notes?: string;
   semester?: '1' | '2';
   academicYear?: string;
@@ -522,6 +527,8 @@ export interface LeaveRequestRecord {
   reason: string;
   directorName?: string;
   personnelOfficer?: string;
+  supervisorName?: string;
+  supervisorPosition?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
   fiscalYear?: number;
   leaveRound?: '1' | '2';

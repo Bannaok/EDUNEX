@@ -44,7 +44,13 @@ import {
   ChevronRight,
   ChevronDown,
   CreditCard,
-  Loader2
+  Loader2,
+  Edit3,
+  ArrowRightLeft,
+  ArrowRight,
+  Maximize2,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -104,6 +110,12 @@ export const TRAVEL_METHOD_OPTIONS = [
   'อื่นๆ'
 ];
 
+export const formatDutySignatureName = (rawName: string): string => {
+  if (!rawName) return '';
+  let name = rawName.trim().replace(/^ครู\s*/u, '');
+  return name.replace(/^(นาย|นางสาว|นาง|เด็กชาย|เด็กหญิง|ดร\.|ว่าที่\s*ร\.ต\.|ผศ\.|รศ\.|ศ\.|นายแพทย์|แพทย์หญิง|ครู)\s+/u, '$1');
+};
+
 export interface LeaveRequest {
   id: string;
   userId?: string;
@@ -115,12 +127,34 @@ export interface LeaveRequest {
   reason: string;
   directorName?: string;
   personnelOfficer?: string;
+  supervisorName?: string;
+  supervisorPosition?: string;
   status: 'รออนุมัติ' | 'อนุมัติ' | 'ไม่อนุมัติ';
   fiscalYear?: number;
   leaveRound?: '1' | '2';
   schoolId?: string;
   createdAt: string;
 }
+
+export const SUPERVISOR_POSITION_OPTIONS = [
+  'ผู้อำนวยการ',
+  'รองผู้อำนวยการ',
+  'ชำนาญการ',
+  'ชำนาญการพิเศษ',
+  'เชี่ยวชาญ',
+  'ครูชำนาญการ',
+  'ครูชำนาญการพิเศษ',
+  'ครูเชี่ยวชาญ',
+  'อื่นๆ'
+] as const;
+
+export const formatThaiPersonName = (raw?: string): string => {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .replace(/^(ครู|นาย|นางสาว|นาง|ดร\.|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s+(?=(นาย|นางสาว|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี))/u, '')
+    .replace(/^(นางสาว|นาย|นาง|เด็กชาย|เด็กหญิง|ด\.ช\.|ด\.ญ\.|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s+/u, '$1');
+};
 
 export const getThaiFiscalYear = (dateStr?: string): number => {
   if (!dateStr) {
@@ -238,6 +272,31 @@ export const DEFAULT_DUTY_SLOTS: DutyTimeSlot[] = [
   }
 ];
 
+export interface DutyGradeOption {
+  grade: GradeLevel;
+  shortLabel: string;
+  label: string;
+  group: 'kindergarten' | 'primary' | 'secondary';
+  groupLabel: string;
+}
+
+export const DUTY_REPORT_GRADE_OPTIONS: DutyGradeOption[] = [
+  { grade: 'อ.1', shortLabel: 'อ.1', label: 'อนุบาล 1', group: 'kindergarten', groupLabel: 'ระดับปฐมวัย (อนุบาล)' },
+  { grade: 'อ.2', shortLabel: 'อ.2', label: 'อนุบาล 2', group: 'kindergarten', groupLabel: 'ระดับปฐมวัย (อนุบาล)' },
+  { grade: 'อ.3', shortLabel: 'อ.3', label: 'อนุบาล 3', group: 'kindergarten', groupLabel: 'ระดับปฐมวัย (อนุบาล)' },
+  { grade: 'ป.1', shortLabel: 'ป.1', label: 'ประถมศึกษาปีที่ 1', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ป.2', shortLabel: 'ป.2', label: 'ประถมศึกษาปีที่ 2', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ป.3', shortLabel: 'ป.3', label: 'ประถมศึกษาปีที่ 3', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ป.4', shortLabel: 'ป.4', label: 'ประถมศึกษาปีที่ 4', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ป.5', shortLabel: 'ป.5', label: 'ประถมศึกษาปีที่ 5', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ป.6', shortLabel: 'ป.6', label: 'ประถมศึกษาปีที่ 6', group: 'primary', groupLabel: 'ระดับประถมศึกษา' },
+  { grade: 'ม.1', shortLabel: 'ม.1', label: 'มัธยมศึกษาปีที่ 1', group: 'secondary', groupLabel: 'ระดับมัธยมศึกษาตอนต้น' },
+  { grade: 'ม.2', shortLabel: 'ม.2', label: 'มัธยมศึกษาปีที่ 2', group: 'secondary', groupLabel: 'ระดับมัธยมศึกษาตอนต้น' },
+  { grade: 'ม.3', shortLabel: 'ม.3', label: 'มัธยมศึกษาปีที่ 3', group: 'secondary', groupLabel: 'ระดับมัธยมศึกษาตอนต้น' },
+];
+
+export const DEFAULT_DUTY_REPORT_GRADES: string[] = ['อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'];
+
 interface ModuleDataOthersProps {
   user: UserSession;
   students: Student[];
@@ -245,6 +304,7 @@ interface ModuleDataOthersProps {
   personnel: Personnel[];
   schoolInfo: SchoolInfo;
   onSaveStudent: (student: Student) => void;
+  onSaveBulkStudents?: (students: Student[]) => void;
   onDeleteStudent: (id: string) => void;
   onSavePersonnel: (person: Personnel) => void;
   onDeletePersonnel: (id: string) => void;
@@ -260,6 +320,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   personnel,
   schoolInfo,
   onSaveStudent,
+  onSaveBulkStudents,
   onDeleteStudent,
   onSavePersonnel,
   onDeletePersonnel,
@@ -267,16 +328,18 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   onOpenLightbox,
   onShowToast
 }) => {
-  // Synchronize live student information and attendance records
+  const [studentAttendanceSyncTick, setStudentAttendanceSyncTick] = useState(0);
+
+  // Synchronize live student information and attendance records fromหน้าเช็กเวลา/เงินฝาก
   const effectiveStudents = useMemo(() => {
     const local = StorageService.getStudents();
     return (local && local.length > 0) ? local : students;
-  }, [students]);
+  }, [students, studentAttendanceSyncTick]);
 
   const effectiveAttendance = useMemo(() => {
     const local = StorageService.getAttendance();
     return (local && local.length > 0) ? local : (attendance || []);
-  }, [attendance]);
+  }, [attendance, studentAttendanceSyncTick]);
 
   const [activeSubTab, setActiveSubTab] = useState<'students' | 'personnel' | 'school' | 'leave' | 'duty'>('students');
 
@@ -373,43 +436,69 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     StorageService.getDailyDutyLogs(defaultDutyLogs)
   );
 
-  const isInternalDutyAssignSyncRef = useRef(false);
-  const isInternalDutyLogSyncRef = useRef(false);
-
   useEffect(() => {
+    // Ensure initial duty logs and duty assignments are persisted in storage cache so background syncs merge additively
+    if (localStorage.getItem('ams_daily_duty_logs_v1') === null) {
+      StorageService.setDailyDutyLogs(defaultDutyLogs);
+    }
+    if (localStorage.getItem('ams_duty_assignments_v1') === null) {
+      StorageService.setDutyAssignments(defaultDutyAssignments);
+    }
+
     const unsubscribe = StorageService.subscribe((changedKeys) => {
       if (changedKeys.some(k => k.startsWith('ams_leave_requests_v1') || k === 'ams_deleted_leave_ids')) {
         setLeaveRequests(StorageService.getLeaveRequests(defaultLeaveRequests));
       }
       if (changedKeys.some(k => k.startsWith('ams_duty_assignments_v1'))) {
-        isInternalDutyAssignSyncRef.current = true;
         setDutyAssignments(StorageService.getDutyAssignments(defaultDutyAssignments));
       }
-      if (changedKeys.some(k => k.startsWith('ams_daily_duty_logs_v1'))) {
-        isInternalDutyLogSyncRef.current = true;
+      if (changedKeys.some(k => k.startsWith('ams_daily_duty_logs_v1') || k === 'ams_deleted_duty_log_ids')) {
         setDutyLogs(StorageService.getDailyDutyLogs(defaultDutyLogs));
+      }
+      if (changedKeys.some(k => k.startsWith('ams_students') || k.startsWith('ams_attendance'))) {
+        setStudentAttendanceSyncTick(t => t + 1);
       }
     });
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (isInternalDutyAssignSyncRef.current) {
-      isInternalDutyAssignSyncRef.current = false;
-      return;
-    }
-    StorageService.setDutyAssignments(dutyAssignments);
-  }, [dutyAssignments]);
-
-  useEffect(() => {
-    if (isInternalDutyLogSyncRef.current) {
-      isInternalDutyLogSyncRef.current = false;
-      return;
-    }
-    StorageService.setDailyDutyLogs(dutyLogs);
-  }, [dutyLogs]);
-
   const [dutyLogSubView, setDutyLogSubView] = useState<'fill' | 'history'>('fill');
+
+  // Helper to retrieve the latest duty log history for pre-filling "รายละเอียดการบรรยายการปฏิบัติหน้าที่"
+  const getLatestDutyLogHistory = useCallback(() => {
+    let latestSlots: DutyTimeSlot[] = DEFAULT_DUTY_SLOTS.map(s => ({ ...s, id: `slot-${Date.now()}-${Math.random().toString(36).substring(2, 6)}` }));
+    let latestWeather = 'แจ่มใส เหตุการณ์ทั่วไปปกติ';
+    let latestOverall = 'การปฏิบัติหน้าที่เรียบร้อยดี นักเรียนปฏิบัติตามระเบียบวินัย';
+
+    const currentDutyLogs = StorageService.getDailyDutyLogs(dutyLogs);
+    if (currentDutyLogs && currentDutyLogs.length > 0) {
+      const sorted = [...currentDutyLogs].sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+      const latest = sorted[0];
+      if (latest && Array.isArray(latest.timeSlots) && latest.timeSlots.length > 0) {
+        latestSlots = latest.timeSlots.map((s: DutyTimeSlot, idx: number) => ({ ...s, id: `slot-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 5)}` }));
+        if (latest.weatherCondition) latestWeather = latest.weatherCondition;
+        if (latest.overallStatus) latestOverall = latest.overallStatus;
+        return { latestSlots, latestWeather, latestOverall, sourceDate: latest.date, sourceTeacher: latest.dutyTeacherName };
+      }
+    }
+
+    try {
+      const savedTemplate = localStorage.getItem('ams_saved_duty_template_v1');
+      const savedSummary = localStorage.getItem('ams_latest_duty_summary_v1');
+      if (savedTemplate) {
+        const parsed = JSON.parse(savedTemplate);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          latestSlots = parsed.map((s: DutyTimeSlot, idx: number) => ({ ...s, id: `slot-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 5)}` }));
+        }
+      }
+      if (savedSummary) {
+        latestWeather = savedSummary;
+        latestOverall = savedSummary;
+      }
+    } catch (e) {}
+
+    return { latestSlots, latestWeather, latestOverall, sourceDate: undefined, sourceTeacher: undefined };
+  }, [dutyLogs]);
 
   // Duty Log Fill Form State
   const [dutyLogForm, setDutyLogForm] = useState<{
@@ -423,27 +512,33 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     timeSlots: DutyTimeSlot[];
     incidentsNote: string;
   }>(() => {
-    let initialSlots = DEFAULT_DUTY_SLOTS.map(s => ({ ...s, id: `slot-${Date.now()}-${Math.random().toString(36).substring(2, 6)}` }));
-    try {
-      const savedTemplate = localStorage.getItem('ams_saved_duty_template_v1');
-      if (savedTemplate) {
-        const parsed = JSON.parse(savedTemplate);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          initialSlots = parsed.map((s, idx) => ({ ...s, id: `slot-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 5)}` }));
-        }
-      }
-    } catch (e) {}
+    const history = getLatestDutyLogHistory();
     return {
       date: new Date().toISOString().split('T')[0],
       dutyTeacherName: user.fullName || '',
       dutyType: 'ครูเวรประจำวัน',
       location: 'หน้าประตูโรงเรียน / อาคารเรียน 1',
-      weatherCondition: 'แจ่มใส เหตุการณ์ทั่วไปปกติ',
-      overallStatus: 'การปฏิบัติหน้าที่เรียบร้อยดี นักเรียนปฏิบัติตามระเบียบวินัย',
-      timeSlots: initialSlots,
+      weatherCondition: history.latestWeather,
+      overallStatus: history.latestOverall,
+      timeSlots: history.latestSlots,
       incidentsNote: ''
     };
   });
+
+  const resetDutyFormToLatestHistory = useCallback((targetDate?: string) => {
+    const history = getLatestDutyLogHistory();
+    setDutyLogForm({
+      id: undefined,
+      date: targetDate || new Date().toISOString().split('T')[0],
+      dutyTeacherName: user.fullName || '',
+      dutyType: 'ครูเวรประจำวัน',
+      location: 'หน้าประตูโรงเรียน / อาคารเรียน 1',
+      weatherCondition: history.latestWeather,
+      overallStatus: history.latestOverall,
+      timeSlots: history.latestSlots,
+      incidentsNote: ''
+    });
+  }, [getLatestDutyLogHistory, user.fullName]);
 
   // User duty location history (top 3-4 entries entered by current teacher/member)
   const userLocationHistory = React.useMemo(() => {
@@ -456,9 +551,152 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
   const [previewDutyLog, setPreviewDutyLog] = useState<DailyDutyLog | null>(null);
   const [previewAllDutyLogs, setPreviewAllDutyLogs] = useState(false);
+  const [isDownloadingDutyPdf, setIsDownloadingDutyPdf] = useState(false);
   const [confirmDeleteDutyLog, setConfirmDeleteDutyLog] = useState<DailyDutyLog | null>(null);
   const [isDutyCalendarModalOpen, setIsDutyCalendarModalOpen] = useState(false);
   const [editingSlotPopup, setEditingSlotPopup] = useState<{ index: number; time: string; description: string } | null>(null);
+
+  // Admin-configurable Grade Levels to display in Duty Report student attendance table (อ.1 ถึง ม.3)
+  const [isDutyGradesConfigOpen, setIsDutyGradesConfigOpen] = useState(false);
+  const [selectedDutyGrades, setSelectedDutyGrades] = useState<string[]>(() => {
+    if (Array.isArray(schoolInfo.dutyReportGrades) && schoolInfo.dutyReportGrades.length > 0) {
+      return schoolInfo.dutyReportGrades;
+    }
+    try {
+      const raw = localStorage.getItem('ams_duty_report_grades_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return DEFAULT_DUTY_REPORT_GRADES;
+  });
+
+  useEffect(() => {
+    if (Array.isArray(schoolInfo.dutyReportGrades) && schoolInfo.dutyReportGrades.length > 0) {
+      setSelectedDutyGrades(schoolInfo.dutyReportGrades);
+    }
+  }, [schoolInfo.dutyReportGrades]);
+
+  const effectiveDutyReportGrades = useMemo(() => {
+    if (Array.isArray(schoolInfo.dutyReportGrades) && schoolInfo.dutyReportGrades.length > 0) {
+      return schoolInfo.dutyReportGrades;
+    }
+    if (selectedDutyGrades && selectedDutyGrades.length > 0) {
+      return selectedDutyGrades;
+    }
+    return DEFAULT_DUTY_REPORT_GRADES;
+  }, [schoolInfo.dutyReportGrades, selectedDutyGrades]);
+
+  const handleSaveDutyGrades = (newGrades: string[]) => {
+    setSelectedDutyGrades(newGrades);
+    try {
+      localStorage.setItem('ams_duty_report_grades_v1', JSON.stringify(newGrades));
+    } catch {}
+    const updatedInfo = {
+      ...schoolInfo,
+      dutyReportGrades: newGrades
+    };
+    onSaveSchoolInfo(updatedInfo);
+    StorageService.setSchoolInfo(updatedInfo);
+    onShowToast(
+      'success',
+      'บันทึกระดับชั้นสำเร็จ 🎉',
+      `ตั้งค่าแสดง ${newGrades.length} ระดับชั้นในตารางรายงานครูเวรหน้าตัวอย่างของทุกคนเรียบร้อยแล้ว`
+    );
+  };
+
+  const handleDownloadDutyPdf = async (targetLog: DailyDutyLog) => {
+    if (!targetLog || isDownloadingDutyPdf) return;
+    const sheetEl = document.getElementById('duty-official-a4-print');
+    if (!sheetEl) return;
+
+    setIsDownloadingDutyPdf(true);
+    try {
+      const canvas = await captureElementAsA4Canvas(sheetEl);
+      const imgData = canvas.toDataURL('image/jpeg', 0.99);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      const pageW = 210;
+      const pageH = 297;
+      let drawW = pageW;
+      let drawH = (canvas.height * pageW) / canvas.width;
+      let offsetX = 0;
+      const offsetY = 0;
+      if (drawH > pageH) {
+        drawH = pageH;
+        drawW = (canvas.width * pageH) / canvas.height;
+        offsetX = (pageW - drawW) / 2;
+      }
+
+      pdf.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH, undefined, 'FAST');
+      const teacherClean = (targetLog.dutyTeacherName || 'ครูเวร').replace(/\s+/g, '_');
+      const fileName = `รายงานครูเวร_${teacherClean}_${targetLog.date || 'ประจำวัน'}.pdf`;
+      pdf.save(fileName);
+
+      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดไฟล์ ${fileName} เรียบร้อยแล้ว`);
+    } catch (err) {
+      console.error('Failed to download duty PDF:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถสร้างไฟล์ PDF ได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setIsDownloadingDutyPdf(false);
+    }
+  };
+
+  const handleDownloadAllDutyPdf = async () => {
+    if (isDownloadingDutyPdf) return;
+    const container = document.getElementById('duty-all-official-a4-print');
+    if (!container) return;
+    const sheets = Array.from(container.querySelectorAll<HTMLElement>('.duty-a4-all-sheet'));
+    if (sheets.length === 0) return;
+
+    setIsDownloadingDutyPdf(true);
+    try {
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      const pageW = 210;
+      const pageH = 297;
+
+      for (let i = 0; i < sheets.length; i++) {
+        if (i > 0) {
+          pdf.addPage();
+        }
+        const canvas = await captureElementAsA4Canvas(sheets[i]);
+        const imgData = canvas.toDataURL('image/jpeg', 0.99);
+        let drawW = pageW;
+        let drawH = (canvas.height * pageW) / canvas.width;
+        let offsetX = 0;
+        const offsetY = 0;
+        if (drawH > pageH) {
+          drawH = pageH;
+          drawW = (canvas.width * pageH) / canvas.height;
+          offsetX = (pageW - drawW) / 2;
+        }
+        pdf.addImage(imgData, 'JPEG', offsetX, offsetY, drawW, drawH, undefined, 'FAST');
+      }
+
+      const fileName = `รายงานครูเวรทั้งหมด_${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(fileName);
+      onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดไฟล์ ${fileName} เรียบร้อยแล้ว`);
+    } catch (err) {
+      console.error('Failed to download all duty PDFs:', err);
+      onShowToast('error', 'เกิดข้อผิดพลาด', 'ไม่สามารถสร้างไฟล์ PDF ได้ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setIsDownloadingDutyPdf(false);
+    }
+  };
 
   // Time Slot Handlers
   const handleTimeSlotChange = (index: number, field: 'time' | 'description', value: string) => {
@@ -514,29 +752,41 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       onShowToast('warning', 'วันอื่นกดไม่ได้', 'วันที่เลือกไม่อยู่ในปฏิทิน 100 วันที่ Admin กำหนด');
       return;
     }
-    const logId = dutyLogForm.id || `dlog-${Date.now()}`;
+    const currentLogs = StorageService.getDailyDutyLogs(dutyLogs.length > 0 ? dutyLogs : defaultDutyLogs);
+    const existingMatch = dutyLogForm.id
+      ? currentLogs.find(l => l.id === dutyLogForm.id)
+      : currentLogs.find(l => l.date === dutyLogForm.date && l.dutyTeacherName.trim() === dutyLogForm.dutyTeacherName.trim());
+    const logId = dutyLogForm.id || existingMatch?.id || `dlog-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const summaryText = (dutyLogForm.weatherCondition || dutyLogForm.overallStatus || 'การปฏิบัติหน้าที่เรียบร้อยดี').trim();
     const newLogItem: DailyDutyLog = {
       id: logId,
       date: dutyLogForm.date,
-      dutyTeacherName: dutyLogForm.dutyTeacherName,
+      dutyTeacherName: dutyLogForm.dutyTeacherName.trim(),
       dutyType: dutyLogForm.dutyType,
       location: dutyLogForm.location,
-      weatherCondition: dutyLogForm.weatherCondition,
-      overallStatus: dutyLogForm.overallStatus,
+      weatherCondition: summaryText,
+      overallStatus: summaryText,
       timeSlots: dutyLogForm.timeSlots,
       incidentsNote: dutyLogForm.incidentsNote,
       createdAt: new Date().toISOString()
     };
 
-    setDutyLogs(prev => {
-      const idx = prev.findIndex(l => l.id === logId || l.date === dutyLogForm.date);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = newLogItem;
-        return next;
-      }
-      return [newLogItem, ...prev];
-    });
+    const existingIdx = currentLogs.findIndex(l => l.id === logId);
+    const nextLogs = existingIdx >= 0
+      ? currentLogs.map((l, idx) => (idx === existingIdx ? newLogItem : l))
+      : [newLogItem, ...currentLogs];
+
+    StorageService.setDailyDutyLogs(nextLogs);
+    const savedLogs = StorageService.saveDailyDutyLog(newLogItem);
+    setDutyLogs(savedLogs);
+
+    // Save latest descriptions and summary to localStorage so future entries pre-fill with latest history
+    try {
+      localStorage.setItem('ams_saved_duty_template_v1', JSON.stringify(dutyLogForm.timeSlots));
+      localStorage.setItem('ams_latest_duty_summary_v1', summaryText);
+    } catch (e) {}
+
+    setDutyLogForm(prev => ({ ...prev, id: undefined }));
 
     onShowToast('success', 'บันทึกรายงานเวรสำเร็จ 🎉', `บันทึกสมุดรายงานการปฏิบัติหน้าที่ครูเวร ประจำวันที่ ${dutyLogForm.date} เรียบร้อยแล้ว`);
   };
@@ -546,19 +796,800 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
   const [previewLeave, setPreviewLeave] = useState<LeaveRequest | null>(null);
   const [confirmDeleteLeave, setConfirmDeleteLeave] = useState<LeaveRequest | null>(null);
   const [isDownloadingLeavePdf, setIsDownloadingLeavePdf] = useState(false);
+  const [leavePreviewDataUrl, setLeavePreviewDataUrl] = useState<string>('');
+
+  const computeLeaveDocumentData = (targetLeave: LeaveRequest) => {
+    const createdDate = parseThaiDateParts(targetLeave.createdAt || targetLeave.startDate);
+    const startDateParts = parseThaiDateParts(targetLeave.startDate);
+    const endDateParts = parseThaiDateParts(targetLeave.endDate);
+    const leaveDays = calculateLeaveDaysCount(targetLeave.startDate, targetLeave.endDate);
+
+    const liveSession = StorageService.getSession();
+    const allMembers = StorageService.getMembers();
+    const allPersonnelList = StorageService.getPersonnel();
+
+    const matchedTeacher =
+      allPersonnelList.find(
+        (p) =>
+          `${p.prefix}${p.firstName} ${p.lastName}` === targetLeave.teacherName ||
+          `${p.firstName} ${p.lastName}` === targetLeave.teacherName ||
+          cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) === cleanTeacherName(targetLeave.teacherName)
+      ) ||
+      personnel.find(
+        (p) =>
+          `${p.prefix}${p.firstName} ${p.lastName}` === targetLeave.teacherName ||
+          `${p.firstName} ${p.lastName}` === targetLeave.teacherName ||
+          cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) === cleanTeacherName(targetLeave.teacherName)
+      );
+
+    const matchedMember = allMembers.find(
+      (m) =>
+        cleanTeacherName(m.fullName) === cleanTeacherName(targetLeave.teacherName) ||
+        (isMyLeave(targetLeave) &&
+          (m.id === user.id || m.username.toLowerCase() === user.username.toLowerCase()))
+    );
+
+    const teacherPosition = matchedTeacher?.position || matchedMember?.position || 'ครู';
+
+    // Pull contact phone from Settings first (Member profile / UserSession / Personnel / SchoolInfo)
+    const teacherPhone =
+      (isMyLeave(targetLeave) && (user.phone || liveSession?.phone)
+        ? user.phone || liveSession?.phone
+        : '') ||
+      matchedMember?.phone ||
+      matchedTeacher?.phone ||
+      user.phone ||
+      liveSession?.phone ||
+      schoolInfo.phone ||
+      '-';
+
+    const isSick = targetLeave.leaveType.includes('ป่วย');
+    const isPersonal = targetLeave.leaveType.includes('กิจ');
+    const isMaternity = targetLeave.leaveType.includes('คลอด');
+    const isOther = !isSick && !isPersonal && !isMaternity;
+
+    const currentLeaveFiscalYear =
+      targetLeave.fiscalYear || getThaiFiscalYear(targetLeave.startDate || targetLeave.createdAt);
+    const currentLeaveRound = getReqLeaveRound(targetLeave);
+    const targetTeacherName = cleanTeacherName(targetLeave.teacherName);
+
+    const teacherLeavesInRound = leaveRequests
+      .filter((r) => {
+        if (r.status === 'ไม่อนุมัติ') return false;
+        if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
+        const rFiscalYear = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
+        const rRound = getReqLeaveRound(r);
+        return rFiscalYear === currentLeaveFiscalYear && rRound === currentLeaveRound;
+      })
+      .sort((a, b) => {
+        const dateA = a.startDate || a.createdAt || '';
+        const dateB = b.startDate || b.createdAt || '';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        return (a.createdAt || '').localeCompare(b.createdAt || '');
+      });
+
+    const currentLeaveIndex = teacherLeavesInRound.findIndex((r) => r.id === targetLeave.id);
+    const priorLeavesThisYear =
+      currentLeaveIndex !== -1
+        ? teacherLeavesInRound.slice(0, currentLeaveIndex)
+        : teacherLeavesInRound.filter(
+            (r) => (r.startDate || r.createdAt || '') < (targetLeave.startDate || targetLeave.createdAt || '')
+          );
+
+    let priorSick = 0;
+    let priorPersonal = 0;
+    let priorMaternity = 0;
+
+    priorLeavesThisYear.forEach((r) => {
+      const days = calculateLeaveDaysCount(r.startDate, r.endDate);
+      if (r.leaveType.includes('ป่วย')) priorSick += days;
+      else if (r.leaveType.includes('กิจ')) priorPersonal += days;
+      else if (r.leaveType.includes('คลอด')) priorMaternity += days;
+    });
+
+    const currSick = isSick ? leaveDays : 0;
+    const currPersonal = isPersonal ? leaveDays : 0;
+    const currMaternity = isMaternity ? leaveDays : 0;
+
+    const lastLeave =
+      priorLeavesThisYear.length > 0 ? priorLeavesThisYear[priorLeavesThisYear.length - 1] : null;
+
+    // Tick the checkbox at "ข้าพเจ้าได้ลา" matching the requested leave type
+    const lastLeaveSick = isSick;
+    const lastLeavePersonal = isPersonal;
+    const lastLeaveMaternity = isMaternity;
+
+    let lastLeaveStartStr = '-';
+    let lastLeaveEndStr = '-';
+    let lastLeaveDaysStr = '-';
+    if (lastLeave) {
+      const lStart = parseThaiDateParts(lastLeave.startDate);
+      const lEnd = parseThaiDateParts(lastLeave.endDate);
+      lastLeaveStartStr = `${lStart.day} ${lStart.month} พ.ศ. ${lStart.year}`;
+      lastLeaveEndStr = `${lEnd.day} ${lEnd.month} พ.ศ. ${lEnd.year}`;
+      lastLeaveDaysStr = calculateLeaveDaysCount(lastLeave.startDate, lastLeave.endDate).toString();
+    }
+
+    let rawApplicantName = targetLeave.teacherName || '';
+    if (
+      matchedTeacher &&
+      matchedTeacher.prefix &&
+      !/^(นาย|นางสาว|นาง|ดร\.|ว่าที่)/u.test(rawApplicantName.trim())
+    ) {
+      rawApplicantName = `${matchedTeacher.prefix.trim()}${matchedTeacher.firstName.trim()} ${matchedTeacher.lastName.trim()}`;
+    } else if (
+      matchedMember &&
+      matchedMember.prefix &&
+      !/^(นาย|นางสาว|นาง|ดร\.|ว่าที่)/u.test(rawApplicantName.trim())
+    ) {
+      rawApplicantName = `${matchedMember.prefix.trim()}${rawApplicantName.replace(/^ครู\s*/u, '').trim()}`;
+    } else if (
+      isMyLeave(targetLeave) &&
+      (user.prefix || liveSession?.prefix) &&
+      !/^(นาย|นางสาว|นาง|ดร\.|ว่าที่)/u.test(rawApplicantName.trim())
+    ) {
+      const pfx = (user.prefix || liveSession?.prefix || '').trim();
+      rawApplicantName = `${pfx}${rawApplicantName.replace(/^ครู\s*/u, '').trim()}`;
+    }
+    const applicantFullName = formatThaiPersonName(rawApplicantName);
+
+    const deputyPerson =
+      (targetLeave.supervisorName
+        ? personnel.find(
+            (p) =>
+              cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) ===
+              cleanTeacherName(targetLeave.supervisorName)
+          )
+        : undefined) ||
+      personnel.find(
+        (p) => p.personnelType === 'รองผู้อำนวยการ' || (p.position || '').includes('รองผู้อำนวยการ')
+      ) ||
+      personnel.find((p) => p.department === 'บริหารงานบุคคล') ||
+      personnel[1] ||
+      personnel[0];
+
+    const deputyName = formatThaiPersonName(
+      targetLeave.supervisorName ||
+        (deputyPerson
+          ? `${deputyPerson.prefix}${deputyPerson.firstName} ${deputyPerson.lastName}`
+          : 'รองผู้อำนวยการ')
+    );
+    const deputyPosition =
+      (targetLeave.supervisorPosition || '').trim() ||
+      deputyPerson?.position ||
+      'รองผู้อำนวยการ';
+
+    const officerName = formatThaiPersonName(targetLeave.personnelOfficer || 'เจ้าหน้าที่งานบุคลากร');
+
+    const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
+    const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
+      ? rawSchoolName
+      : `โรงเรียน${rawSchoolName}`;
+
+    const directorPerson =
+      (targetLeave.directorName
+        ? personnel.find(
+            (p) =>
+              cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) ===
+              cleanTeacherName(targetLeave.directorName)
+          )
+        : undefined) ||
+      personnel.find(
+        (p) => (p.position || '').trim().includes('ผู้อำนวยการ') || p.personnelType === 'ผู้อำนวยการ'
+      );
+
+    const directorFullName = formatThaiPersonName(
+      targetLeave.directorName ||
+        (directorPerson
+          ? `${directorPerson.prefix || ''}${directorPerson.firstName} ${directorPerson.lastName}`.trim()
+          : schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน')
+    );
+
+    let directorPositionTitle = directorPerson?.position?.trim() || '';
+    if (!directorPositionTitle) {
+      directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+    } else if (
+      directorPositionTitle === 'ผู้อำนวยการ' ||
+      directorPositionTitle === 'ผู้อำนวยการโรงเรียน'
+    ) {
+      directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
+    }
+
+    const startDateThai = `${startDateParts.day} ${startDateParts.month} พ.ศ. ${startDateParts.year}`;
+    const endDateThai = `${endDateParts.day} ${endDateParts.month} พ.ศ. ${endDateParts.year}`;
+    const createdDateThai = `${createdDate.day} ${createdDate.month} พ.ศ. ${createdDate.year}`;
+    const isApproved = targetLeave.status !== 'ไม่อนุมัติ';
+
+    return {
+      applicantFullName,
+      createdDate,
+      startDateParts,
+      endDateParts,
+      leaveDays,
+      teacherPosition,
+      teacherPhone,
+      isSick,
+      isPersonal,
+      isMaternity,
+      isOther,
+      priorSick,
+      priorPersonal,
+      priorMaternity,
+      currSick,
+      currPersonal,
+      currMaternity,
+      lastLeaveSick,
+      lastLeavePersonal,
+      lastLeaveMaternity,
+      lastLeaveStartStr,
+      lastLeaveEndStr,
+      lastLeaveDaysStr,
+      deputyName,
+      deputyPosition,
+      officerName,
+      formattedSchoolName,
+      directorFullName,
+      directorPositionTitle,
+      startDateThai,
+      endDateThai,
+      createdDateThai,
+      isApproved,
+    };
+  };
+
+  /**
+   * Renders the Official A4 Leave Request Form directly onto a 406.4-DPI HTML5 Canvas (3360 x 4752 px)
+   * so that the downloaded PDF matches the preview 100% with crystal-clear text, dotted lines, and zero shifting.
+   */
+  const renderLeaveOfficialA4Canvas = async (targetLeave: LeaveRequest): Promise<HTMLCanvasElement> => {
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
+    const d = computeLeaveDocumentData(targetLeave);
+
+    const PX_PER_MM = 16; // 406.4 DPI (3360 x 4752 px)
+    const mm = (v: number) => v * PX_PER_MM;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(mm(210));
+    canvas.height = Math.round(mm(297));
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Pure white A4 sheet
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const FONT_THAI = '"Sarabun", sans-serif';
+    const bodyFontMm = 4.05;
+    const smallFontMm = 3.65;
+
+    const setFont = (sizeMm: number, weight: number | string = 400) => {
+      ctx.font = `${weight} ${mm(sizeMm)}px ${FONT_THAI}`;
+    };
+
+    const drawText = (
+      text: string,
+      x: number,
+      y: number,
+      opts?: {
+        sizeMm?: number;
+        minSizeMm?: number;
+        weight?: number | string;
+        align?: CanvasTextAlign;
+        maxWidth?: number;
+      }
+    ): number => {
+      const targetSize = opts?.sizeMm ?? bodyFontMm;
+      const minSize = opts?.minSizeMm ?? 2.6;
+      const weight = opts?.weight ?? 400;
+      let curSize = targetSize;
+
+      ctx.save();
+      ctx.fillStyle = '#000000';
+      ctx.textAlign = opts?.align || 'left';
+      ctx.textBaseline = 'alphabetic';
+      setFont(curSize, weight);
+
+      if (opts?.maxWidth && opts.maxWidth > 0) {
+        while (ctx.measureText(text).width > opts.maxWidth && curSize > minSize) {
+          curSize = Math.max(minSize, curSize - 0.1);
+          setFont(curSize, weight);
+        }
+      }
+
+      ctx.fillText(text, x, y);
+      const w = ctx.measureText(text).width;
+      ctx.restore();
+      return w;
+    };
+
+    const drawDottedLine = (x1: number, x2: number, lineY: number) => {
+      if (x2 <= x1) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([mm(0.45), mm(0.55)]);
+      ctx.moveTo(x1, lineY);
+      ctx.lineTo(x2, lineY);
+      ctx.lineWidth = mm(0.32);
+      ctx.strokeStyle = '#000000';
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawDottedField = (
+      x1: number,
+      x2: number,
+      baselineY: number,
+      valueText: string,
+      align: 'center' | 'left' = 'center',
+      sizeMm: number = bodyFontMm
+    ) => {
+      drawDottedLine(x1, x2, baselineY + mm(1.1));
+      const cleanVal = (valueText || '').trim();
+      if (!cleanVal) return;
+      const availW = Math.max(mm(4), x2 - x1 - mm(2));
+      if (align === 'center') {
+        drawText(cleanVal, (x1 + x2) / 2, baselineY, {
+          sizeMm,
+          align: 'center',
+          maxWidth: availW,
+        });
+      } else {
+        drawText(cleanVal, x1 + mm(1.5), baselineY, {
+          sizeMm,
+          align: 'left',
+          maxWidth: availW,
+        });
+      }
+    };
+
+    const drawCheckOption = (
+      x: number,
+      baselineY: number,
+      checked: boolean,
+      label: string,
+      sizeMm: number = bodyFontMm
+    ): number => {
+      const openW = drawText('(', x, baselineY, { sizeMm });
+      const boxW = mm(5.2);
+      if (checked) {
+        drawText('✓', x + openW + boxW / 2, baselineY, {
+          sizeMm: sizeMm + 0.3,
+          weight: 700,
+          align: 'center',
+        });
+      }
+      const closeW = drawText(')', x + openW + boxW, baselineY, { sizeMm });
+      const labelW = label
+        ? drawText(label, x + openW + boxW + closeW + mm(1.5), baselineY, { sizeMm })
+        : 0;
+      return openW + boxW + closeW + (label ? mm(1.5) + labelW : 0);
+    };
+
+    const leftMargin = mm(15);
+    const rightMargin = mm(195);
+
+    // 1. Title
+    drawText('แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว', mm(105), mm(17), {
+      sizeMm: 5.4,
+      weight: 700,
+      align: 'center',
+    });
+
+    // 2. Date & Location (Right Indented)
+    const writeAtY = mm(26);
+    const writeLblW = drawText('เขียนที่', mm(110), writeAtY);
+    drawDottedField(mm(110) + writeLblW + mm(1.5), rightMargin, writeAtY, d.formattedSchoolName, 'center');
+
+    const dateRowY = mm(33.5);
+    let curX = mm(92);
+    curX += drawText('วันที่', curX, dateRowY) + mm(1.2);
+    drawDottedField(curX, curX + mm(13), dateRowY, d.createdDate.day, 'center');
+    curX += mm(14.8);
+    curX += drawText('เดือน', curX, dateRowY) + mm(1.2);
+    drawDottedField(curX, curX + mm(34), dateRowY, d.createdDate.month, 'center');
+    curX += mm(35.8);
+    curX += drawText('พ.ศ.', curX, dateRowY) + mm(1.2);
+    drawDottedField(curX, rightMargin, dateRowY, d.createdDate.year, 'center');
+
+    // 3. Subject & Recipient
+    const subjY = mm(42.5);
+    drawText('เรื่อง', leftMargin, subjY, { weight: 700 });
+    const subjectStr = d.isPersonal
+      ? 'ขอลากิจส่วนตัว'
+      : d.isSick
+      ? 'ขอลาป่วย'
+      : d.isMaternity
+      ? 'ขอลาคลอดบุตร'
+      : `ขอ${targetLeave.leaveType}`;
+    drawDottedField(mm(29), rightMargin, subjY, subjectStr, 'left');
+
+    const toY = mm(50);
+    drawText('เรียน', leftMargin, toY, { weight: 700 });
+    drawDottedField(mm(29), rightMargin, toY, d.directorPositionTitle, 'left');
+
+    // 4. Applicant Info
+    const appY = mm(58.5);
+    let ax = mm(27); // 12mm paragraph indent
+    ax += drawText('ข้าพเจ้า', ax, appY) + mm(1.5);
+    drawDottedField(ax, mm(117), appY, d.applicantFullName, 'center');
+    ax = mm(119.5);
+    ax += drawText('ตำแหน่ง', ax, appY) + mm(1.5);
+    drawDottedField(ax, rightMargin, appY, d.teacherPosition, 'center');
+
+    const affY = mm(66);
+    const affLblW = drawText('สังกัด', leftMargin, affY);
+    drawDottedField(
+      leftMargin + affLblW + mm(1.8),
+      rightMargin,
+      affY,
+      schoolInfo.affiliation || d.formattedSchoolName || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา',
+      'left'
+    );
+
+    // 5. Leave Checkboxes & Reasons
+    const chkX = mm(26);
+    const chk1Y = mm(74.5);
+    drawText('ขอลา', leftMargin, chk1Y);
+    const c1W = drawCheckOption(chkX, chk1Y, d.isSick, 'ป่วย เนื่องจาก');
+    drawDottedField(chkX + c1W + mm(2), rightMargin, chk1Y, d.isSick ? targetLeave.reason : '', 'left');
+
+    const chk2Y = mm(82);
+    const c2W = drawCheckOption(chkX, chk2Y, d.isPersonal, 'กิจส่วนตัว เนื่องจาก');
+    drawDottedField(chkX + c2W + mm(2), rightMargin, chk2Y, d.isPersonal ? targetLeave.reason : '', 'left');
+
+    const chk3Y = mm(89.5);
+    const c3W = drawCheckOption(
+      chkX,
+      chk3Y,
+      d.isMaternity,
+      d.isMaternity && targetLeave.reason ? 'คลอดบุตร เนื่องจาก' : 'คลอดบุตร'
+    );
+    drawDottedField(chkX + c3W + mm(2), rightMargin, chk3Y, d.isMaternity ? targetLeave.reason : '', 'left');
+
+    let nextY = mm(97.5);
+    if (d.isOther) {
+      const cOtherW = drawCheckOption(chkX, nextY, true, `${targetLeave.leaveType} เนื่องจาก`);
+      drawDottedField(chkX + cOtherW + mm(2), rightMargin, nextY, targetLeave.reason || '', 'left');
+      nextY += mm(7.5);
+    }
+
+    // 6. Leave Dates & Duration
+    const datesY = nextY;
+    let dx = leftMargin;
+    dx += drawText('ตั้งแต่วันที่', dx, datesY) + mm(1.5);
+    drawDottedField(dx, dx + mm(53), datesY, d.startDateThai, 'center');
+    dx += mm(55);
+    dx += drawText('ถึงวันที่', dx, datesY) + mm(1.5);
+    drawDottedField(dx, dx + mm(53), datesY, d.endDateThai, 'center');
+    dx += mm(55);
+    dx += drawText('มีกำหนด', dx, datesY) + mm(1.5);
+    const endWordW = drawText('วัน', rightMargin, datesY, { align: 'right' });
+    drawDottedField(dx, rightMargin - endWordW - mm(1.8), datesY, String(d.leaveDays), 'center');
+
+    // 7. Previous Leave History (Ticked matching requested leave)
+    const hist1Y = datesY + mm(8);
+    let hx = leftMargin;
+    hx += drawText('ข้าพเจ้าได้ลา', hx, hist1Y) + mm(3);
+    hx += drawCheckOption(hx, hist1Y, d.lastLeaveSick, 'ป่วย') + mm(4);
+    hx += drawCheckOption(hx, hist1Y, d.lastLeavePersonal, 'กิจส่วนตัว') + mm(4);
+    hx += drawCheckOption(hx, hist1Y, d.lastLeaveMaternity, 'คลอดบุตร') + mm(3);
+    drawText('ครั้งสุดท้ายตั้งแต่วันที่', hx, hist1Y);
+
+    const hist2Y = hist1Y + mm(7.5);
+    let h2x = leftMargin;
+    drawDottedField(h2x, h2x + mm(60), hist2Y, d.lastLeaveStartStr, 'center');
+    h2x += mm(62);
+    h2x += drawText('ถึงวันที่', h2x, hist2Y) + mm(1.5);
+    drawDottedField(h2x, h2x + mm(60), hist2Y, d.lastLeaveEndStr, 'center');
+    h2x += mm(62);
+    h2x += drawText('มีกำหนด', h2x, hist2Y) + mm(1.5);
+    const endDayLblW = drawText('วัน', rightMargin, hist2Y, { align: 'right' });
+    drawDottedField(h2x, rightMargin - endDayLblW - mm(1.8), hist2Y, d.lastLeaveDaysStr, 'center');
+
+    // 8. Contact Phone ("ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่โทรศัพท์ ...")
+    const phoneY = hist2Y + mm(8);
+    const phonePrefixW = drawText('ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่โทรศัพท์', leftMargin, phoneY);
+    drawDottedField(leftMargin + phonePrefixW + mm(2), rightMargin, phoneY, d.teacherPhone, 'center');
+
+    // 9. Applicant Signature Block (Right side, centered on sigCenterX with crisp dotted line!)
+    const sigCenterX = mm(153);
+    const respY = phoneY + mm(9);
+    drawText('ขอแสดงความนับถือ', sigCenterX, respY, { align: 'center' });
+
+    const appSigLineY = respY + mm(8.5);
+    const appSigHalfW = mm(22.5);
+    drawText('(ลงชื่อ)', sigCenterX - appSigHalfW - mm(1.5), appSigLineY, { align: 'right' });
+    drawDottedLine(sigCenterX - appSigHalfW, sigCenterX + appSigHalfW, appSigLineY + mm(1));
+
+    const appNameY = appSigLineY + mm(7.2);
+    drawText(`(${d.applicantFullName.replace(/^ครู\s*/, '')})`, sigCenterX, appNameY, {
+      align: 'center',
+      maxWidth: mm(74),
+    });
+
+    // 10. Bottom 2-Column Section (Left: Leave Statistics Table & Auditor | Right: Supervisor & Director)
+    const bottomStartY = appNameY + mm(8);
+    const leftColX = leftMargin;
+    const leftColW = mm(86);
+    const leftColCenter = leftColX + leftColW / 2;
+
+    const rightColX = mm(109);
+    const rightColW = mm(86);
+    const rightColCenter = rightColX + rightColW / 2;
+
+    // --- LEFT COLUMN: Statistics Table ---
+    drawText('สถิติการลาในปีงบประมาณนี้', leftColX, bottomStartY, {
+      sizeMm: 3.95,
+      weight: 700,
+    });
+
+    const tableTop = bottomStartY + mm(3);
+    const colWidths = [mm(21), mm(21.5), mm(21.5), mm(22)];
+    const headerH = mm(12);
+    const rowH = mm(7.2);
+    const totalTableH = headerH + rowH * 3;
+
+    ctx.save();
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = mm(0.3);
+    ctx.strokeRect(leftColX, tableTop, leftColW, totalTableH);
+
+    // Vertical column lines
+    let colAccX = leftColX;
+    for (let c = 0; c < 3; c++) {
+      colAccX += colWidths[c];
+      ctx.beginPath();
+      ctx.moveTo(colAccX, tableTop);
+      ctx.lineTo(colAccX, tableTop + totalTableH);
+      ctx.stroke();
+    }
+
+    // Horizontal row lines
+    ctx.beginPath();
+    ctx.moveTo(leftColX, tableTop + headerH);
+    ctx.lineTo(leftColX + leftColW, tableTop + headerH);
+    ctx.stroke();
+
+    for (let r = 1; r < 3; r++) {
+      const ry = tableTop + headerH + rowH * r;
+      ctx.beginPath();
+      ctx.moveTo(leftColX, ry);
+      ctx.lineTo(leftColX + leftColW, ry);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Table Headers
+    const c0Center = leftColX + colWidths[0] / 2;
+    const c1Center = leftColX + colWidths[0] + colWidths[1] / 2;
+    const c2Center = leftColX + colWidths[0] + colWidths[1] + colWidths[2] / 2;
+    const c3Center = leftColX + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] / 2;
+
+    drawText('ประเภทลา', c0Center, tableTop + mm(7.2), { sizeMm: 3.45, align: 'center' });
+    drawText('ลามาแล้ว', c1Center, tableTop + mm(5.2), { sizeMm: 3.4, align: 'center' });
+    drawText('(วันทำการ)', c1Center, tableTop + mm(9.5), { sizeMm: 3.2, align: 'center' });
+    drawText('ลาครั้งนี้', c2Center, tableTop + mm(5.2), { sizeMm: 3.4, align: 'center' });
+    drawText('(วันทำการ)', c2Center, tableTop + mm(9.5), { sizeMm: 3.2, align: 'center' });
+    drawText('รวมเป็น', c3Center, tableTop + mm(5.2), { sizeMm: 3.4, align: 'center' });
+    drawText('(วันทำการ)', c3Center, tableTop + mm(9.5), { sizeMm: 3.2, align: 'center' });
+
+    const tableRows = [
+      ['ป่วย', String(d.priorSick), String(d.currSick), String(d.priorSick + d.currSick)],
+      ['กิจส่วนตัว', String(d.priorPersonal), String(d.currPersonal), String(d.priorPersonal + d.currPersonal)],
+      ['คลอดบุตร', String(d.priorMaternity), String(d.currMaternity), String(d.priorMaternity + d.currMaternity)],
+    ];
+    tableRows.forEach((rVals, rIdx) => {
+      const textY = tableTop + headerH + rowH * rIdx + mm(4.9);
+      drawText(rVals[0], c0Center, textY, { sizeMm: 3.5, align: 'center' });
+      drawText(rVals[1], c1Center, textY, { sizeMm: 3.5, align: 'center' });
+      drawText(rVals[2], c2Center, textY, { sizeMm: 3.5, align: 'center' });
+      drawText(rVals[3], c3Center, textY, { sizeMm: 3.5, align: 'center' });
+    });
+
+    // Auditor Signature below table (All lines & position centered on audCenterX directly under officerName)
+    const audCenterX = leftColX + mm(45.5);
+    const audSigY = tableTop + totalTableH + mm(9);
+    const audSigHalfW = mm(20.5);
+    drawText('(ลงชื่อ)', audCenterX - audSigHalfW - mm(1.5), audSigY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedLine(audCenterX - audSigHalfW, audCenterX + audSigHalfW, audSigY + mm(1));
+    drawText('ผู้ตรวจสอบ', audCenterX + audSigHalfW + mm(1.5), audSigY, {
+      sizeMm: smallFontMm,
+      align: 'left',
+    });
+
+    const audNameY = audSigY + mm(6.8);
+    drawText(`(${d.officerName})`, audCenterX, audNameY, {
+      sizeMm: smallFontMm,
+      align: 'center',
+      maxWidth: leftColW - mm(8),
+    });
+
+    const audPosY = audNameY + mm(6.8);
+    const audFieldHalfW = mm(23.5);
+    drawText('ตำแหน่ง', audCenterX - audFieldHalfW - mm(1.5), audPosY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      audCenterX - audFieldHalfW,
+      audCenterX + audFieldHalfW,
+      audPosY,
+      'เจ้าหน้าที่งานบุคลากร',
+      'center',
+      smallFontMm
+    );
+
+    const audDateY = audPosY + mm(6.8);
+    drawText('วันที่', audCenterX - audFieldHalfW - mm(1.5), audDateY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      audCenterX - audFieldHalfW,
+      audCenterX + audFieldHalfW,
+      audDateY,
+      d.createdDateThai,
+      'center',
+      smallFontMm
+    );
+
+    // --- RIGHT COLUMN: Supervisor Comment & Director Order ---
+    // Shared center axis for Right Column so position titles sit 100% centered under parenthesized names
+    const rightSigCenterX = rightColX + mm(48);
+
+    drawText('ความเห็นผู้บังคับบัญชา', rightColX, bottomStartY, {
+      sizeMm: 3.95,
+      weight: 700,
+    });
+
+    const supCommentY = bottomStartY + mm(7);
+    drawDottedField(rightColX + mm(2), rightColX + mm(42), supCommentY, 'เห็นควรอนุญาต', 'left', smallFontMm);
+
+    const supSigY = supCommentY + mm(7.5);
+    const supSigHalfW = mm(24);
+    drawText('(ลงชื่อ)', rightSigCenterX - supSigHalfW - mm(1.5), supSigY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedLine(rightSigCenterX - supSigHalfW, rightSigCenterX + supSigHalfW, supSigY + mm(1));
+
+    const supNameY = supSigY + mm(6.8);
+    drawText(`(${d.deputyName})`, rightSigCenterX, supNameY, {
+      sizeMm: smallFontMm,
+      align: 'center',
+      maxWidth: rightColW - mm(8),
+    });
+
+    const supPosY = supNameY + mm(6.8);
+    const supPosHalfW = mm(25);
+    drawText('ตำแหน่ง', rightSigCenterX - supPosHalfW - mm(1.5), supPosY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      rightSigCenterX - supPosHalfW,
+      rightSigCenterX + supPosHalfW,
+      supPosY,
+      d.deputyPosition,
+      'center',
+      smallFontMm
+    );
+
+    const supDateY = supPosY + mm(6.8);
+    drawText('วันที่', rightSigCenterX - supSigHalfW - mm(1.5), supDateY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      rightSigCenterX - supSigHalfW,
+      rightSigCenterX + supSigHalfW,
+      supDateY,
+      d.createdDateThai,
+      'center',
+      smallFontMm
+    );
+
+    // Separator line before Director Order
+    const sepY = supDateY + mm(4.5);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(rightColX, sepY);
+    ctx.lineTo(rightColX + rightColW, sepY);
+    ctx.lineWidth = mm(0.25);
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.stroke();
+    ctx.restore();
+
+    const cmdTitleY = sepY + mm(6);
+    drawText('คำสั่ง', rightColX, cmdTitleY, {
+      sizeMm: 3.95,
+      weight: 700,
+    });
+
+    const cmdChkY = cmdTitleY + mm(7);
+    const allowW = drawCheckOption(rightColX + mm(2), cmdChkY, d.isApproved, 'อนุญาต', smallFontMm);
+    drawCheckOption(rightColX + mm(2) + allowW + mm(10), cmdChkY, !d.isApproved, 'ไม่อนุญาต', smallFontMm);
+
+    const dirSigY = cmdChkY + mm(7.5);
+    const dirSigHalfW = mm(24);
+    drawText('(ลงชื่อ)', rightSigCenterX - dirSigHalfW - mm(1.5), dirSigY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedLine(rightSigCenterX - dirSigHalfW, rightSigCenterX + dirSigHalfW, dirSigY + mm(1));
+
+    const dirNameY = dirSigY + mm(6.8);
+    drawText(`(${d.directorFullName.replace(/^ครู\s*/, '')})`, rightSigCenterX, dirNameY, {
+      sizeMm: smallFontMm,
+      align: 'center',
+      maxWidth: rightColW - mm(8),
+    });
+
+    const dirPosY = dirNameY + mm(6.8);
+    const dirPosHalfW = mm(26);
+    drawText('ตำแหน่ง', rightSigCenterX - dirPosHalfW - mm(1.5), dirPosY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      rightSigCenterX - dirPosHalfW,
+      rightSigCenterX + dirPosHalfW,
+      dirPosY,
+      d.directorPositionTitle,
+      'center',
+      smallFontMm
+    );
+
+    const dirDateY = dirPosY + mm(6.8);
+    drawText('วันที่', rightSigCenterX - dirSigHalfW - mm(1.5), dirDateY, {
+      sizeMm: smallFontMm,
+      align: 'right',
+    });
+    drawDottedField(
+      rightSigCenterX - dirSigHalfW,
+      rightSigCenterX + dirSigHalfW,
+      dirDateY,
+      d.createdDateThai,
+      'center',
+      smallFontMm
+    );
+
+    return canvas;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!previewLeave) {
+      setLeavePreviewDataUrl('');
+      return;
+    }
+    renderLeaveOfficialA4Canvas(previewLeave)
+      .then((canvas) => {
+        if (!cancelled) {
+          setLeavePreviewDataUrl(canvas.toDataURL('image/png'));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to render leave preview canvas:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewLeave, schoolInfo, personnel, leaveRequests, user]);
 
   const handleDownloadLeavePdf = async () => {
     if (!previewLeave || isDownloadingLeavePdf) return;
     setIsDownloadingLeavePdf(true);
     try {
-      const element = document.getElementById('leave-official-a4-print');
-      if (!element) {
-        setIsDownloadingLeavePdf(false);
-        return;
-      }
-
-      const canvas = await captureElementAsA4Canvas(element);
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+      const canvas = await renderLeaveOfficialA4Canvas(previewLeave);
+      const imgData = canvas.toDataURL('image/jpeg', 0.99);
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -566,7 +1597,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
         compress: true,
       });
 
-      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
       const teacherNameClean = (previewLeave.teacherName || 'บุคลากร').replace(/\s+/g, '_');
       const fileName = `แบบใบลา_${teacherNameClean}_${previewLeave.startDate || 'วันลา'}.pdf`;
       pdf.save(fileName);
@@ -589,15 +1620,21 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     reason: string;
     directorName: string;
     personnelOfficer: string;
+    supervisorName: string;
+    supervisorPosition: string;
+    customSupervisorPosition: string;
   }>({
-    teacherName: user.fullName || '',
+    teacherName: formatThaiPersonName(user.fullName || ''),
     leaveType: 'ลากิจ',
     customLeaveType: '',
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
     reason: '',
     directorName: '',
-    personnelOfficer: ''
+    personnelOfficer: '',
+    supervisorName: '',
+    supervisorPosition: 'ชำนาญการพิเศษ',
+    customSupervisorPosition: ''
   });
 
   const isAdmin = user.role === 'admin' || user.role === 'developer';
@@ -990,10 +2027,42 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     grade: 'all'
   });
 
-  // Grade options
+  // Grade options (Removing ม.4, ม.5, ม.6 - max level is ม.3)
   const primaryGrades: GradeLevel[] = ['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'];
-  const secondaryGrades: GradeLevel[] = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+  const secondaryGrades: GradeLevel[] = ['ม.1', 'ม.2', 'ม.3'];
   const gradeOptions: GradeLevel[] = [...primaryGrades, ...secondaryGrades];
+
+  // Batch grade level promotion state (แก้ไข / ปรับระดับชั้นเรียน)
+  const [isBatchGradeEditMode, setIsBatchGradeEditMode] = useState(false);
+  const [selectedStudentIdsForPromotion, setSelectedStudentIdsForPromotion] = useState<string[]>([]);
+  const [targetPromotionGrade, setTargetPromotionGrade] = useState<string>('ป.1');
+  const [isGradePromotionModalOpen, setIsGradePromotionModalOpen] = useState(false);
+  const [modalSearchQuery, setModalSearchQuery] = useState('');
+
+  const getNextGradeLevel = (current: string): string => {
+    switch (current) {
+      case 'อ.1': return 'อ.2';
+      case 'อ.2': return 'อ.3';
+      case 'อ.3': return 'ป.1';
+      case 'ป.1': return 'ป.2';
+      case 'ป.2': return 'ป.3';
+      case 'ป.3': return 'ป.4';
+      case 'ป.4': return 'ป.5';
+      case 'ป.5': return 'ป.6';
+      case 'ป.6': return 'ม.1';
+      case 'ม.1': return 'ม.2';
+      case 'ม.2': return 'ม.3';
+      case 'ม.3': return 'จบการศึกษา';
+      default: return 'ป.1';
+    }
+  };
+
+  const PROMOTION_GRADE_TARGETS = [
+    'อ.1', 'อ.2', 'อ.3',
+    'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+    'ม.1', 'ม.2', 'ม.3',
+    'จบการศึกษา'
+  ] as const;
 
   // Retirement date calculation
   const calculateRetirementDate = (birthDate: string): string => {
@@ -1138,6 +2207,103 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     if (b.rollNumber !== undefined) return 1;
     return (a.studentCode || '').localeCompare(b.studentCode || '');
   });
+
+  // Grade Promotion Handlers (เลื่อนชั้นเรียน/ปรับระดับชั้น)
+  const handleOpenPromotionMode = (grade: string) => {
+    const next = getNextGradeLevel(grade);
+    setTargetPromotionGrade(next);
+    const studentsInGrade = sortedStudents.filter(s => s.gradeLevel === grade || grade === 'all');
+    setSelectedStudentIdsForPromotion(studentsInGrade.map(s => s.id));
+    setIsBatchGradeEditMode(true);
+  };
+
+  const handleOpenPromotionModal = (grade: string) => {
+    const next = getNextGradeLevel(grade);
+    setTargetPromotionGrade(next);
+    const studentsInGrade = sortedStudents.filter(s => s.gradeLevel === grade || grade === 'all');
+    setSelectedStudentIdsForPromotion(studentsInGrade.map(s => s.id));
+    setModalSearchQuery('');
+    setIsGradePromotionModalOpen(true);
+  };
+
+  const handleToggleStudentForPromotion = (studentId: string) => {
+    setSelectedStudentIdsForPromotion(prev =>
+      prev.includes(studentId)
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+
+  const handleSelectAllForPromotion = () => {
+    if (selectedStudentIdsForPromotion.length === sortedStudents.length) {
+      setSelectedStudentIdsForPromotion([]);
+    } else {
+      setSelectedStudentIdsForPromotion(sortedStudents.map(s => s.id));
+    }
+  };
+
+  const handleCancelPromotionMode = () => {
+    setIsBatchGradeEditMode(false);
+    setSelectedStudentIdsForPromotion([]);
+  };
+
+  const handleConfirmPromotion = () => {
+    if (selectedStudentIdsForPromotion.length === 0) {
+      onShowToast('warning', 'ยังไม่ได้เลือกนักเรียน', 'กรุณาเลือกรายชื่อนักเรียนที่ต้องการปรับระดับชั้นอย่างน้อย 1 คน');
+      return;
+    }
+    if (user.role !== 'admin') {
+      onShowToast('warning', 'ไม่มีสิทธิ์', 'เฉพาะผู้ดูแลระบบ (Admin) เท่านั้นที่สามารถปรับระดับชั้นนักเรียนได้');
+      return;
+    }
+
+    const currentGradeLabel = selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'เดิม';
+    const studentsToUpdate: Student[] = [];
+
+    students.forEach(student => {
+      if (selectedStudentIdsForPromotion.includes(student.id)) {
+        if (targetPromotionGrade === 'จบการศึกษา') {
+          studentsToUpdate.push({
+            ...student,
+            status: 'จบการศึกษา'
+          });
+        } else {
+          studentsToUpdate.push({
+            ...student,
+            gradeLevel: targetPromotionGrade as GradeLevel,
+            status: 'กำลังศึกษา'
+          });
+        }
+      }
+    });
+
+    if (onSaveBulkStudents) {
+      onSaveBulkStudents(studentsToUpdate);
+    } else {
+      StorageService.saveBulkStudents(studentsToUpdate);
+      studentsToUpdate.forEach(s => onSaveStudent(s));
+    }
+
+    // Switch view to the new grade if it's a valid grade
+    if (targetPromotionGrade !== 'จบการศึกษา') {
+      if (['ม.1', 'ม.2', 'ม.3'].includes(targetPromotionGrade)) {
+        setGradeCategory('secondary');
+      } else {
+        setGradeCategory('primary');
+      }
+      setSelectedGrade(targetPromotionGrade);
+    }
+
+    setIsBatchGradeEditMode(false);
+    setIsGradePromotionModalOpen(false);
+    setSelectedStudentIdsForPromotion([]);
+
+    onShowToast(
+      'success',
+      'ปรับระดับชั้นสำเร็จ 🎉',
+      `ปรับระดับชั้นนักเรียน ${studentsToUpdate.length} คน จากชั้น ${currentGradeLabel} ไปเป็นชั้น ${targetPromotionGrade} เรียบร้อยแล้ว`
+    );
+  };
 
   // Student Modal state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
@@ -1409,7 +2575,22 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       return;
     }
 
-    onSaveStudent(studentFormData);
+    const rawPrefix = (studentFormData.prefix || '').trim();
+    const syncedGender: 'ชาย' | 'หญิง' =
+      rawPrefix.startsWith('เด็กหญิง') ||
+      rawPrefix.startsWith('ด.ญ.') ||
+      rawPrefix.startsWith('ด.ญ') ||
+      rawPrefix.startsWith('นางสาว') ||
+      rawPrefix.startsWith('น.ส.') ||
+      rawPrefix.startsWith('นาง') ||
+      rawPrefix.includes('หญิง')
+        ? 'หญิง'
+        : 'ชาย';
+
+    onSaveStudent({
+      ...studentFormData,
+      gender: syncedGender
+    });
     setIsStudentModalOpen(false);
     onShowToast(
       'success',
@@ -1599,20 +2780,40 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 {(gradeCategory === 'primary' ? primaryGrades : secondaryGrades).map(g => (
                   <button
                     key={g}
-                    onClick={() => setSelectedGrade(g)}
+                    onClick={() => {
+                      setSelectedGrade(g);
+                      if (isBatchGradeEditMode) {
+                        handleOpenPromotionMode(g);
+                      }
+                    }}
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors shrink-0 cursor-pointer ${
                       selectedGrade === g
-                        ? 'bg-blue-600 text-white shadow-xs'
+                        ? 'bg-blue-600 text-white shadow-xs font-bold'
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
                     {g}
                   </button>
                 ))}
+
               </div>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap shrink-0">
+              {/* Batch Grade Promotion Button in Action Bar */}
+              {user.role === 'admin' && (
+                <button
+                  type="button"
+                  onClick={() => handleOpenPromotionModal(selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'ป.1')}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
+                  title="เปิดหน้าต่างปรับระดับชั้นเรียน/เลื่อนชั้นเรียน"
+                >
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  <span>แก้ระดับชั้น</span>
+                </button>
+              )}
+
+              {/* Single Student Card Download Button */}
               <button
                 type="button"
                 onClick={() => setStudentCardModalState({
@@ -1621,24 +2822,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   grade: selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'all'
                 })}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
-                title="ดาวน์โหลดหน้าบัตรนักเรียน (ขนาด 85.6 × 54 มม. แนวนอน บนกระดาษ A4)"
+                title="ดาวน์โหลด/พิมพ์บัตรนักเรียน (ขนาด 85.6 × 54 มม. แนวนอน บนกระดาษ A4 มีทั้งหน้าบัตรและหลังบัตร)"
               >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>ดาวน์โหลดหน้าบัตร</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStudentCardModalState({
-                  isOpen: true,
-                  side: 'back',
-                  grade: selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'all'
-                })}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer"
-                title="ดาวน์โหลดหลังบัตรนักเรียน (ขนาด 85.6 × 54 มม. แนวนอน บนกระดาษ A4)"
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>ดาวน์โหลดหลังบัตร</span>
+                <Download className="w-3.5 h-3.5" />
+                <span>บัตรนักเรียน</span>
               </button>
 
               {user.role === 'admin' ? (
@@ -1657,6 +2844,115 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               )}
             </div>
           </div>
+
+          {/* Batch Grade Level Promotion Toolbar Banner */}
+          {isBatchGradeEditMode && user.role === 'admin' && (
+            <div className="bg-linear-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-2xl p-4 shadow-sm space-y-3 animate-fadeIn">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    <GraduationCap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-bold text-slate-800">
+                        แก้ไขและปรับระดับชั้นเรียน (ชั้น {selectedGrade})
+                      </h4>
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-xs font-bold">
+                        เลือกแล้ว {selectedStudentIdsForPromotion.length} / {sortedStudents.length} คน
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      ติ๊กเลือกนักเรียนในตารางด้านล่างที่ต้องการเลื่อนชั้น แล้วเลือกชั้นปลายทาง (เช่น จาก {selectedGrade} ไปยัง {targetPromotionGrade})
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllForPromotion}
+                    className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-50 active:scale-95 text-slate-700 border border-slate-300 rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    {selectedStudentIdsForPromotion.length === sortedStudents.length ? (
+                      <>
+                        <Square className="w-3.5 h-3.5 text-slate-500" />
+                        <span>ยกเลิกการเลือกทั้งหมด</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+                        <span>เลือกทั้งหมด ({sortedStudents.length} คน)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsGradePromotionModalOpen(true)}
+                    className="px-3 py-1.5 text-xs font-semibold bg-amber-100 hover:bg-amber-200 active:scale-95 text-amber-900 border border-amber-300 rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                    title="เปิดหน้าต่างเต็มจอเพื่อดูรายละเอียดครบถ้วน"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>เปิดแบบหน้าต่างเต็ม</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Adjust Grade Action Form */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-amber-200/90 bg-white/80 p-3 rounded-xl">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    <span>จากชั้น</span>
+                    <span className="px-2 py-0.5 bg-slate-100 border border-slate-300 rounded-md font-mono text-slate-800">
+                      {selectedGrade}
+                    </span>
+                    <ArrowRight className="w-3.5 h-3.5 text-amber-600 mx-0.5" />
+                    <span>ปรับเป็นระดับชั้นใหม่:</span>
+                  </span>
+
+                  <select
+                    value={targetPromotionGrade}
+                    onChange={(e) => setTargetPromotionGrade(e.target.value)}
+                    className="text-xs font-bold px-3 py-1.5 bg-white border-2 border-amber-400 rounded-xl text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                  >
+                    {PROMOTION_GRADE_TARGETS.map(g => (
+                      <option key={g} value={g}>
+                        {g === 'จบการศึกษา' ? '🎓 จบการศึกษา' : `ชั้น ${g}`}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span className="text-[11px] text-slate-500 hidden md:inline">
+                    (ข้อมูลนักเรียนที่เลือกทั้งหมดจะเปลี่ยนระดับชั้นเป็น {targetPromotionGrade} ทันที)
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={handleCancelPromotionMode}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedStudentIdsForPromotion.length === 0}
+                    onClick={handleConfirmPromotion}
+                    className={`px-4 py-1.5 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                      selectedStudentIdsForPromotion.length === 0
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-emerald-200'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>ยืนยันปรับระดับชั้น ({selectedStudentIdsForPromotion.length} คน)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Header row with count & hint */}
           <div className="flex items-center justify-between text-xs text-slate-500 px-1">
@@ -1683,6 +2979,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="bg-slate-50/90 border-b border-slate-200/90 text-slate-600 font-bold uppercase text-[11px] tracking-wider">
+                        {isBatchGradeEditMode && user.role === 'admin' && (
+                          <th className="py-2.5 px-3 text-center w-10 bg-amber-100/90">
+                            <input
+                              type="checkbox"
+                              checked={sortedStudents.length > 0 && selectedStudentIdsForPromotion.length === sortedStudents.length}
+                              onChange={handleSelectAllForPromotion}
+                              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                              title="เลือกทั้งหมด / ยกเลิกการเลือก"
+                            />
+                          </th>
+                        )}
                         <th className="py-2.5 px-3 text-center w-14">ลำดับ</th>
                         <th className="py-2.5 px-3 text-center w-12">รูป</th>
                         <th className="py-2.5 px-3">รหัส / ชื่อ - สกุล (ชื่อเล่น)</th>
@@ -1696,8 +3003,31 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {sortedStudents.map((student, idx) => {
                         const roll = idx + 1;
+                        const isSelectedForPromo = selectedStudentIdsForPromotion.includes(student.id);
                         return (
-                          <tr key={student.id} className="hover:bg-blue-50/40 transition-colors">
+                          <tr
+                            key={student.id}
+                            onClick={() => {
+                              if (isBatchGradeEditMode) {
+                                handleToggleStudentForPromotion(student.id);
+                              }
+                            }}
+                            className={`transition-colors ${
+                              isBatchGradeEditMode && isSelectedForPromo
+                                ? 'bg-amber-50/70 hover:bg-amber-100/60'
+                                : 'hover:bg-blue-50/40'
+                            }`}
+                          >
+                            {isBatchGradeEditMode && user.role === 'admin' && (
+                              <td className="py-2 px-3 text-center bg-amber-50/80" onClick={(e) => e.stopPropagation()}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelectedForPromo}
+                                  onChange={() => handleToggleStudentForPromotion(student.id)}
+                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                />
+                              </td>
+                            )}
                             <td className="py-2 px-3 text-center font-bold">
                               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-50 text-blue-700 font-bold text-xs border border-blue-200 shadow-2xs">
                                 {roll}
@@ -1839,13 +3169,31 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               <div className="sm:hidden grid grid-cols-1 gap-2.5">
                 {sortedStudents.map((student, idx) => {
                   const roll = idx + 1;
+                  const isSelectedForPromo = selectedStudentIdsForPromotion.includes(student.id);
                   return (
                     <div
                       key={student.id}
-                      className="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs space-y-2 hover:border-blue-300 transition-colors"
+                      onClick={() => {
+                        if (isBatchGradeEditMode) {
+                          handleToggleStudentForPromotion(student.id);
+                        }
+                      }}
+                      className={`p-3 rounded-2xl border shadow-2xs space-y-2 transition-colors ${
+                        isBatchGradeEditMode && isSelectedForPromo
+                          ? 'bg-amber-50/80 border-amber-300'
+                          : 'bg-white border-slate-200 hover:border-blue-300'
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
+                          {isBatchGradeEditMode && user.role === 'admin' && (
+                            <input
+                              type="checkbox"
+                              checked={isSelectedForPromo}
+                              onChange={() => handleToggleStudentForPromotion(student.id)}
+                              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
+                            />
+                          )}
                           <span className="w-6 h-6 rounded-md bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center border border-blue-200">
                             {roll}
                           </span>
@@ -2674,6 +4022,219 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               >
                 ปิดหน้าต่าง
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Batch Grade Promotion / Adjust Student Grade Level */}
+      {isGradePromotionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-4 sm:p-6 shadow-2xl max-h-[92vh] flex flex-col space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-linear-to-br from-amber-500 to-orange-500 text-white flex items-center justify-center shadow-xs">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                    <span>แก้ไขและปรับระดับชั้นเรียน (เลื่อนชั้นเรียน)</span>
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 text-xs font-bold font-mono">
+                      ชั้น {selectedGrade}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    เลือกรายชื่อนักเรียนที่ต้องการปรับระดับชั้นขึ้นปีถัดไป ข้อมูลนักเรียนจะกลายเป็นระดับชั้นใหม่ทันที
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGradePromotionModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer text-base"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Target Grade Selection Card */}
+            <div className="p-3.5 bg-linear-to-r from-amber-50/80 to-orange-50/80 rounded-xl border border-amber-200 shrink-0">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <span className="block text-[11px] font-semibold text-slate-500">ระดับชั้นเดิม</span>
+                    <span className="inline-block px-3 py-1 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 shadow-2xs">
+                      {selectedGrade !== 'all' && selectedGrade !== 'ประถม' && selectedGrade !== 'มัธยม' ? selectedGrade : 'ทุกระดับชั้น'}
+                    </span>
+                  </div>
+
+                  <ArrowRightLeft className="w-4 h-4 text-amber-600 mt-3" />
+
+                  <div>
+                    <span className="block text-[11px] font-semibold text-slate-700">ปรับเป็นระดับชั้นใหม่ *</span>
+                    <select
+                      value={targetPromotionGrade}
+                      onChange={(e) => setTargetPromotionGrade(e.target.value)}
+                      className="text-xs font-bold px-3 py-1 bg-white border-2 border-amber-400 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs cursor-pointer"
+                    >
+                      {PROMOTION_GRADE_TARGETS.map(g => (
+                        <option key={g} value={g}>
+                          {g === 'จบการศึกษา' ? '🎓 จบการศึกษา' : `ชั้น ${g}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-xs font-bold text-amber-900 bg-amber-200/80 px-3 py-1 rounded-full inline-block">
+                    เลือกแล้ว {selectedStudentIdsForPromotion.length} / {sortedStudents.length} คน
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Search & Bulk Select Controls */}
+            <div className="flex items-center justify-between gap-2 shrink-0">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={modalSearchQuery}
+                  onChange={(e) => setModalSearchQuery(e.target.value)}
+                  placeholder="ค้นหาชื่อ หรือรหัสนักเรียน..."
+                  className="w-full text-xs pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const filteredInModal = sortedStudents.filter(s =>
+                      (s.firstName || '').toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                      (s.lastName || '').toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                      (s.studentCode || '').toLowerCase().includes(modalSearchQuery.toLowerCase())
+                    );
+                    setSelectedStudentIdsForPromotion(filteredInModal.map(s => s.id));
+                  }}
+                  className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  เลือกทั้งหมด
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedStudentIdsForPromotion([])}
+                  className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  ล้างการเลือก
+                </button>
+              </div>
+            </div>
+
+            {/* Students List in Modal */}
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-[46vh]">
+              {sortedStudents
+                .filter(s =>
+                  (s.firstName || '').toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                  (s.lastName || '').toLowerCase().includes(modalSearchQuery.toLowerCase()) ||
+                  (s.studentCode || '').toLowerCase().includes(modalSearchQuery.toLowerCase())
+                )
+                .map((student, idx) => {
+                  const isChecked = selectedStudentIdsForPromotion.includes(student.id);
+                  return (
+                    <div
+                      key={student.id}
+                      onClick={() => handleToggleStudentForPromotion(student.id)}
+                      className={`p-2.5 flex items-center justify-between gap-3 transition-colors cursor-pointer select-none ${
+                        isChecked ? 'bg-amber-50/70 hover:bg-amber-100/60' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 cursor-pointer pointer-events-none"
+                        />
+                        <span className="w-6 h-6 rounded-md bg-blue-50 text-blue-700 font-bold text-xs flex items-center justify-center border border-blue-200">
+                          {idx + 1}
+                        </span>
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                          {student.photoUrl ? (
+                            <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-xs font-bold text-slate-400">{student.firstName[0]}</span>
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {student.studentCode && (
+                              <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded font-semibold">
+                                #{student.studentCode}
+                              </span>
+                            )}
+                            <span className="font-bold text-xs text-slate-800">
+                              {student.prefix}{student.firstName} {student.lastName}
+                            </span>
+                            {student.nickname && (
+                              <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1 py-0.2 rounded border border-blue-200">
+                                {student.nickname}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">
+                            ระดับชั้นปัจจุบัน: {student.gradeLevel}/{student.room || '1'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        {isChecked ? (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            <span>ปรับเป็น {targetPromotionGrade}</span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">
+                            ไม่ปรับ
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
+              <span className="text-xs text-slate-500">
+                เลือกแล้ว <strong className="text-slate-800">{selectedStudentIdsForPromotion.length}</strong> คน
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsGradePromotionModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedStudentIdsForPromotion.length === 0}
+                  onClick={handleConfirmPromotion}
+                  className={`px-5 py-2 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                    selectedStudentIdsForPromotion.length === 0
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white shadow-emerald-200'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>ยืนยันปรับระดับชั้น ({selectedStudentIdsForPromotion.length} คน)</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -4215,38 +5776,59 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                    <span>👤 สิทธิ์สมาชิก: เห็นเฉพาะของตนเอง ({user.fullName || 'ผู้ใช้งาน'})</span>
+                    <span>👤 สิทธิ์สมาชิก: เห็นเฉพาะของตนเอง ({formatThaiPersonName(user.fullName || 'ผู้ใช้งาน')})</span>
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500">
-                {isAdmin 
-                  ? 'ผู้ดูแลระบบสามารถตรวจสอบ อนุมัติ และดูสถิติการลาของบุคลากรทุกคนในสถานศึกษาได้'
-                  : 'สมาชิกสามารถยื่นคำขอลา ดูประวัติ และตรวจสอบวันลาสะสมประจำปีงบประมาณของตนเองได้'}
-              </p>
+              {isAdmin && (
+                <p className="text-[11px] text-slate-500">
+                  ผู้ดูแลระบบสามารถตรวจสอบ อนุมัติ และดูสถิติการลาของบุคลากรทุกคนในสถานศึกษาได้
+                </p>
+              )}
             </div>
             <button
               type="button"
               onClick={() => {
                 setEditingLeaveId(null);
                 const directorPerson = personnel.find(p => (p.position || '').includes('ผู้อำนวยการ') || (p.personnelType || '').includes('ผู้อำนวยการ'));
-                const defaultDirector = directorPerson ? `${directorPerson.prefix}${directorPerson.firstName} ${directorPerson.lastName}` : (personnel[0] ? `${personnel[0].prefix}${personnel[0].firstName} ${personnel[0].lastName}` : 'ผู้อำนวยการโรงเรียน');
+                const defaultDirector = directorPerson
+                  ? formatThaiPersonName(`${directorPerson.prefix}${directorPerson.firstName} ${directorPerson.lastName}`)
+                  : (personnel[0] ? formatThaiPersonName(`${personnel[0].prefix}${personnel[0].firstName} ${personnel[0].lastName}`) : 'ผู้อำนวยการโรงเรียน');
                 const hrOfficer = personnel.find(p => 
                   p.department === 'บริหารงานบุคคล' || 
                   p.customDepartment === 'บริหารงานบุคคล' || 
                   p.personnelType === 'รองผู้อำนวยการ' ||
                   p.personnelType === 'ผู้อำนวยการ'
                 ) || personnel[0];
-                const defaultOfficer = hrOfficer ? `${hrOfficer.prefix}${hrOfficer.firstName} ${hrOfficer.lastName}` : '';
+                const defaultOfficer = hrOfficer ? formatThaiPersonName(`${hrOfficer.prefix}${hrOfficer.firstName} ${hrOfficer.lastName}`) : '';
+                const deputyPerson =
+                  personnel.find(p => p.personnelType === 'รองผู้อำนวยการ' || (p.position || '').includes('รองผู้อำนวยการ')) ||
+                  personnel.find(p => p.department === 'บริหารงานบุคคล') ||
+                  personnel[1] ||
+                  personnel[0];
+                const defaultSupervisorName = deputyPerson
+                  ? formatThaiPersonName(`${deputyPerson.prefix}${deputyPerson.firstName} ${deputyPerson.lastName}`)
+                  : '';
+                const rawSupPos = (deputyPerson?.position || 'ชำนาญการพิเศษ').trim();
+                const isStdSupPos = (SUPERVISOR_POSITION_OPTIONS as readonly string[]).includes(rawSupPos) && rawSupPos !== 'อื่นๆ';
+
+                let defaultApplicantName = formatThaiPersonName(user.fullName || '');
+                if (user.prefix && !/^(นาย|นางสาว|นาง|ดร\.|ว่าที่)/u.test(defaultApplicantName)) {
+                  defaultApplicantName = formatThaiPersonName(`${user.prefix.trim()}${defaultApplicantName.replace(/^ครู\s*/u, '')}`);
+                }
+
                 setLeaveForm({
-                  teacherName: user.fullName || '',
+                  teacherName: defaultApplicantName,
                   leaveType: 'ลากิจ',
                   customLeaveType: '',
                   startDate: new Date().toISOString().split('T')[0],
                   endDate: new Date().toISOString().split('T')[0],
                   reason: '',
                   directorName: defaultDirector,
-                  personnelOfficer: defaultOfficer
+                  personnelOfficer: defaultOfficer,
+                  supervisorName: defaultSupervisorName,
+                  supervisorPosition: isStdSupPos ? rawSupPos : 'อื่นๆ',
+                  customSupervisorPosition: isStdSupPos ? '' : rawSupPos
                 });
                 setIsLeaveModalOpen(true);
               }}
@@ -4404,7 +5986,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         <tr key={req.id} className="hover:bg-blue-50/30 transition-colors">
                           <td className="py-3 px-4">
                             <div className="font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
-                              <span>{req.teacherName}</span>
+                              <span>{formatThaiPersonName(req.teacherName)}</span>
                               {isOwner && (
                                 <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded-md font-medium border border-blue-200">
                                   ของฉัน
@@ -4495,15 +6077,27 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                                     setEditingLeaveId(req.id);
                                     const stdTypes = ['ลากิจ', 'ลาป่วย', 'ลาคลอด', 'อุปสมบท'];
                                     const isCustom = !stdTypes.includes(req.leaveType);
+                                    const deputyPerson =
+                                      personnel.find(p => p.personnelType === 'รองผู้อำนวยการ' || (p.position || '').includes('รองผู้อำนวยการ')) ||
+                                      personnel.find(p => p.department === 'บริหารงานบุคคล') ||
+                                      personnel[1] ||
+                                      personnel[0];
+                                    const existingSupName = req.supervisorName || (deputyPerson ? `${deputyPerson.prefix}${deputyPerson.firstName} ${deputyPerson.lastName}` : '');
+                                    const existingSupPos = (req.supervisorPosition || deputyPerson?.position || 'ชำนาญการพิเศษ').trim();
+                                    const isStdSupPos = (SUPERVISOR_POSITION_OPTIONS as readonly string[]).includes(existingSupPos) && existingSupPos !== 'อื่นๆ';
+
                                     setLeaveForm({
-                                      teacherName: req.teacherName,
+                                      teacherName: formatThaiPersonName(req.teacherName),
                                       leaveType: isCustom ? 'อื่นๆ' : req.leaveType,
                                       customLeaveType: isCustom ? req.leaveType : '',
                                       startDate: req.startDate,
                                       endDate: req.endDate,
                                       reason: req.reason,
-                                      directorName: req.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน',
-                                      personnelOfficer: req.personnelOfficer || ''
+                                      directorName: formatThaiPersonName(req.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน'),
+                                      personnelOfficer: formatThaiPersonName(req.personnelOfficer || ''),
+                                      supervisorName: formatThaiPersonName(existingSupName),
+                                      supervisorPosition: isStdSupPos ? existingSupPos : 'อื่นๆ',
+                                      customSupervisorPosition: isStdSupPos ? '' : existingSupPos
                                     });
                                     setIsLeaveModalOpen(true);
                                   }}
@@ -4569,10 +6163,336 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               </button>
             </div>
 
-
+            {/* Admin Grade Level Configuration Button (เฉพาะ Admin) */}
+            {isAdmin && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDutyGradesConfigOpen(prev => !prev)}
+                  className={`w-full sm:w-auto h-10 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 shadow-2xs border ${
+                    isDutyGradesConfigOpen
+                      ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                  }`}
+                  title="ตั้งค่าระดับชั้นที่แสดงในตารางสถิตินักเรียน (เฉพาะ Admin)"
+                >
+                  <Shield className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>ตั้งค่าระดับชั้นในตาราง ({effectiveDutyReportGrades.length} ชั้น)</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${isDutyGradesConfigOpen ? 'bg-amber-700 text-white' : 'bg-amber-200/80 text-amber-900'}`}>
+                    เฉพาะ Admin
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* VIEW 1: DIRECT DUTY LOG FORM */}
+          {/* ADMIN GRADE LEVEL CONFIGURATION PANEL (เฉพาะ Admin: ติ๊กเลือก อ.1 - ม.3) */}
+          {isAdmin && isDutyGradesConfigOpen && (
+            <div className="bg-gradient-to-r from-amber-50/95 via-orange-50/60 to-amber-50/95 border-2 border-amber-300/90 rounded-3xl p-4 sm:p-5 shadow-sm space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-amber-200/80">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    <GraduationCap className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-black text-amber-950">
+                        ตั้งค่าระดับชั้นที่แสดงในตารางรายงานครูเวร (เฉพาะ Admin)
+                      </h4>
+                      <span className="text-[10px] bg-amber-600 text-white px-2 py-0.5 rounded-full font-bold">
+                        ซิงค์ไปยังสมาชิกทุกคน
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-800/90 mt-0.5">
+                      ติ๊กเลือกระดับชั้น (อ.1 ถึง ม.3) ที่โรงเรียนเปิดสอน เพื่อกำหนดชั้นที่จะแสดงในตารางสถิติการมาเรียนของหน้าตัวอย่างดาวน์โหลดสำหรับสมาชิกทุกคน
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDutyGradesConfigOpen(false)}
+                    className="p-1.5 text-amber-700 hover:text-amber-900 hover:bg-amber-100 rounded-xl transition-colors cursor-pointer"
+                    title="ปิดแผงตั้งค่า"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] font-bold text-amber-900 shrink-0">เลือกด่วน:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const allGrades = DUTY_REPORT_GRADE_OPTIONS.map(o => o.grade);
+                    handleSaveDutyGrades(allGrades);
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  เลือกทั้งหมด (อ.1 - ม.3)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const kindergartenAndPrimary = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'kindergarten' || o.group === 'primary').map(o => o.grade);
+                    handleSaveDutyGrades(kindergartenAndPrimary);
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  อ.1 - ป.6 (อนุบาล-ประถม)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const primaryOnly = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'primary').map(o => o.grade);
+                    handleSaveDutyGrades(primaryOnly);
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  ป.1 - ป.6 (เฉพาะประถม)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const expansion = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'primary' || o.group === 'secondary').map(o => o.grade);
+                    handleSaveDutyGrades(expansion);
+                  }}
+                  className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                >
+                  ป.1 - ม.3 (ขยายโอกาส)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSaveDutyGrades(DEFAULT_DUTY_REPORT_GRADES);
+                  }}
+                  className="px-2 py-1 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+                >
+                  รีเซ็ตเป็นเริ่มต้น
+                </button>
+              </div>
+
+              {/* Checkbox Groups: Kindergarten, Primary, Secondary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                {/* 1. อนุบาล (อ.1 - อ.3) */}
+                <div className="bg-white/95 rounded-2xl p-3.5 border border-amber-200 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-amber-100">
+                    <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                      <span>🌸 ระดับปฐมวัย (อนุบาล)</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const kGrades = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'kindergarten').map(o => o.grade);
+                        const allSelected = kGrades.every(g => selectedDutyGrades.includes(g));
+                        const next = allSelected
+                          ? selectedDutyGrades.filter(g => !kGrades.includes(g as any))
+                          : Array.from(new Set([...selectedDutyGrades, ...kGrades]));
+                        handleSaveDutyGrades(next.length > 0 ? next : ['ป.1']);
+                      }}
+                      className="text-[11px] text-amber-700 hover:text-amber-900 font-bold cursor-pointer"
+                    >
+                      {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'kindergarten').every(o => selectedDutyGrades.includes(o.grade)) ? 'ยกเลิกทั้งกลุ่ม' : 'เลือกทั้งกลุ่ม'}
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 pt-0.5">
+                    {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'kindergarten').map(opt => {
+                      const isChecked = selectedDutyGrades.includes(opt.grade);
+                      return (
+                        <label
+                          key={opt.grade}
+                          className={`flex items-center justify-between p-2 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-amber-50/90 border-amber-400 text-amber-950 shadow-2xs ring-1 ring-amber-400/40'
+                              : 'bg-slate-50/50 border-slate-200 text-slate-500 hover:bg-slate-100/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const next = checked
+                                  ? [...selectedDutyGrades, opt.grade]
+                                  : selectedDutyGrades.filter(g => g !== opt.grade);
+                                if (next.length === 0) {
+                                  onShowToast('warning', 'ต้องมีอย่างน้อย 1 ระดับชั้น', 'ต้องเลือกระดับชั้นเพื่อแสดงในตารางอย่างน้อย 1 ชั้น');
+                                  return;
+                                }
+                                handleSaveDutyGrades(next);
+                              }}
+                              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                            />
+                            <span>{opt.label}</span>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold ${isChecked ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-600'}`}>
+                            {opt.shortLabel}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. ประถมศึกษา (ป.1 - ป.6) */}
+                <div className="bg-white/95 rounded-2xl p-3.5 border border-amber-200 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-amber-100">
+                    <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                      <span>🏫 ระดับประถมศึกษา</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const pGrades = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'primary').map(o => o.grade);
+                        const allSelected = pGrades.every(g => selectedDutyGrades.includes(g));
+                        const next = allSelected
+                          ? selectedDutyGrades.filter(g => !pGrades.includes(g as any))
+                          : Array.from(new Set([...selectedDutyGrades, ...pGrades]));
+                        handleSaveDutyGrades(next.length > 0 ? next : ['ป.1']);
+                      }}
+                      className="text-[11px] text-amber-700 hover:text-amber-900 font-bold cursor-pointer"
+                    >
+                      {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'primary').every(o => selectedDutyGrades.includes(o.grade)) ? 'ยกเลิกทั้งกลุ่ม' : 'เลือกทั้งกลุ่ม'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                    {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'primary').map(opt => {
+                      const isChecked = selectedDutyGrades.includes(opt.grade);
+                      return (
+                        <label
+                          key={opt.grade}
+                          className={`flex items-center justify-between p-2 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-amber-50/90 border-amber-400 text-amber-950 shadow-2xs ring-1 ring-amber-400/40'
+                              : 'bg-slate-50/50 border-slate-200 text-slate-500 hover:bg-slate-100/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const next = checked
+                                  ? [...selectedDutyGrades, opt.grade]
+                                  : selectedDutyGrades.filter(g => g !== opt.grade);
+                                if (next.length === 0) {
+                                  onShowToast('warning', 'ต้องมีอย่างน้อย 1 ระดับชั้น', 'ต้องเลือกระดับชั้นเพื่อแสดงในตารางอย่างน้อย 1 ชั้น');
+                                  return;
+                                }
+                                handleSaveDutyGrades(next);
+                              }}
+                              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer shrink-0"
+                            />
+                            <span className="truncate">{opt.shortLabel}</span>
+                          </div>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-bold ${isChecked ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-600'}`}>
+                            {opt.grade}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 3. มัธยมศึกษาตอนต้น (ม.1 - ม.3) */}
+                <div className="bg-white/95 rounded-2xl p-3.5 border border-amber-200 shadow-2xs space-y-2.5">
+                  <div className="flex items-center justify-between pb-1.5 border-b border-amber-100">
+                    <span className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                      <span>🎓 ระดับมัธยมศึกษาตอนต้น</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sGrades = DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'secondary').map(o => o.grade);
+                        const allSelected = sGrades.every(g => selectedDutyGrades.includes(g));
+                        const next = allSelected
+                          ? selectedDutyGrades.filter(g => !sGrades.includes(g as any))
+                          : Array.from(new Set([...selectedDutyGrades, ...sGrades]));
+                        handleSaveDutyGrades(next.length > 0 ? next : ['ป.1']);
+                      }}
+                      className="text-[11px] text-amber-700 hover:text-amber-900 font-bold cursor-pointer"
+                    >
+                      {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'secondary').every(o => selectedDutyGrades.includes(o.grade)) ? 'ยกเลิกทั้งกลุ่ม' : 'เลือกทั้งกลุ่ม'}
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 pt-0.5">
+                    {DUTY_REPORT_GRADE_OPTIONS.filter(o => o.group === 'secondary').map(opt => {
+                      const isChecked = selectedDutyGrades.includes(opt.grade);
+                      return (
+                        <label
+                          key={opt.grade}
+                          className={`flex items-center justify-between p-2 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                            isChecked
+                              ? 'bg-amber-50/90 border-amber-400 text-amber-950 shadow-2xs ring-1 ring-amber-400/40'
+                              : 'bg-slate-50/50 border-slate-200 text-slate-500 hover:bg-slate-100/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                const next = checked
+                                  ? [...selectedDutyGrades, opt.grade]
+                                  : selectedDutyGrades.filter(g => g !== opt.grade);
+                                if (next.length === 0) {
+                                  onShowToast('warning', 'ต้องมีอย่างน้อย 1 ระดับชั้น', 'ต้องเลือกระดับชั้นเพื่อแสดงในตารางอย่างน้อย 1 ชั้น');
+                                  return;
+                                }
+                                handleSaveDutyGrades(next);
+                              }}
+                              className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-slate-300 cursor-pointer"
+                            />
+                            <span>{opt.label}</span>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md font-mono font-bold ${isChecked ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-600'}`}>
+                            {opt.shortLabel}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Status footer inside config */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-amber-200 text-xs text-amber-900">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold">ชั้นเรียนที่เลือกแสดง ({selectedDutyGrades.length} ชั้น):</span>
+                  <span className="font-mono bg-white px-2.5 py-1 rounded-lg border border-amber-300 text-amber-950 font-bold shadow-2xs">
+                    {selectedDutyGrades.sort((a, b) => {
+                      const idxA = DUTY_REPORT_GRADE_OPTIONS.findIndex(o => o.grade === a);
+                      const idxB = DUTY_REPORT_GRADE_OPTIONS.findIndex(o => o.grade === b);
+                      return idxA - idxB;
+                    }).join(', ')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-emerald-800 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>บันทึกและซิงค์ไปยังสมาชิกทุกคนโดยอัตโนมัติ</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSaveDutyGrades(selectedDutyGrades);
+                      setIsDutyGradesConfigOpen(false);
+                    }}
+                    className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
+                  >
+                    เสร็จสิ้น
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           {dutyLogSubView === 'fill' && (
             <div className="bg-white rounded-3xl border border-slate-200/90 shadow-sm p-4 sm:p-5 space-y-4 animate-in fade-in duration-150">
               {/* Form Title & Overview Banner */}
@@ -4681,11 +6601,29 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
               {/* Time Slots Section */}
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h4 className="text-xs sm:text-sm font-extrabold text-slate-900 flex items-center gap-2">
                     <Clock className="w-4 h-4 text-blue-600" />
                     <span>ตารางบันทึกกิจกรรมและการปฏิบัติหน้าที่ตามช่วงเวลา</span>
                   </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const history = getLatestDutyLogHistory();
+                      setDutyLogForm(prev => ({
+                        ...prev,
+                        timeSlots: history.latestSlots,
+                        weatherCondition: history.latestWeather || prev.weatherCondition,
+                        overallStatus: history.latestOverall || prev.overallStatus
+                      }));
+                      onShowToast('info', 'ดึงประวัติข้อความสำเร็จ', history.sourceDate ? `โหลดข้อความจากรายงานประจำวันที่ ${history.sourceDate} เรียบร้อยแล้ว` : 'โหลดประวัติข้อความล่าสุดที่เคยบันทึกเรียบร้อยแล้ว');
+                    }}
+                    className="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer active:scale-95"
+                    title="คลิกเพื่อดึงข้อความรายละเอียดการบรรยายการปฏิบัติหน้าที่ล่าสุดที่เคยบันทึกไว้"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>✨ แสดงประวัติข้อความล่าสุดที่เคยกรอก</span>
+                  </button>
                 </div>
 
                 {/* Table for Time & Description with Insert (+) Dividers */}
@@ -4859,7 +6797,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDutyLogSubView('fill')}
+                    onClick={() => {
+                      resetDutyFormToLatestHistory();
+                      setDutyLogSubView('fill');
+                    }}
                     className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -5170,6 +7111,12 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   return;
                 }
                 const finalLeaveType = leaveForm.leaveType === 'อื่นๆ' ? (leaveForm.customLeaveType.trim() || 'อื่นๆ') : leaveForm.leaveType;
+                const finalSupervisorPosition = leaveForm.supervisorPosition.trim();
+                const cleanApplicantName = formatThaiPersonName(leaveForm.teacherName);
+                const cleanDirectorName = formatThaiPersonName(leaveForm.directorName);
+                const cleanOfficerName = formatThaiPersonName(leaveForm.personnelOfficer);
+                const cleanSupervisorName = formatThaiPersonName(leaveForm.supervisorName);
+
                 const computedFiscalYear = selectedFiscalYear === 'all'
                   ? getThaiFiscalYear(leaveForm.startDate)
                   : Number(selectedFiscalYear);
@@ -5178,13 +7125,15 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   const updatedReq: LeaveRequest = {
                     ...(targetRecord || {}),
                     id: editingLeaveId,
-                    teacherName: leaveForm.teacherName,
+                    teacherName: cleanApplicantName,
                     leaveType: finalLeaveType,
                     startDate: leaveForm.startDate,
                     endDate: leaveForm.endDate,
                     reason: leaveForm.reason,
-                    directorName: leaveForm.directorName,
-                    personnelOfficer: leaveForm.personnelOfficer,
+                    directorName: cleanDirectorName,
+                    personnelOfficer: cleanOfficerName,
+                    supervisorName: cleanSupervisorName,
+                    supervisorPosition: finalSupervisorPosition,
                     fiscalYear: computedFiscalYear,
                     leaveRound: targetRecord?.leaveRound || effectiveLeaveRound,
                     status: targetRecord?.status || (isAdmin ? 'อนุมัติ' : 'รออนุมัติ'),
@@ -5198,13 +7147,15 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     id: 'leave-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
                     userId: user.id,
                     username: user.username,
-                    teacherName: leaveForm.teacherName,
+                    teacherName: cleanApplicantName,
                     leaveType: finalLeaveType,
                     startDate: leaveForm.startDate,
                     endDate: leaveForm.endDate,
                     reason: leaveForm.reason,
-                    directorName: leaveForm.directorName,
-                    personnelOfficer: leaveForm.personnelOfficer,
+                    directorName: cleanDirectorName,
+                    personnelOfficer: cleanOfficerName,
+                    supervisorName: cleanSupervisorName,
+                    supervisorPosition: finalSupervisorPosition,
                     status: isAdmin ? 'อนุมัติ' : 'รออนุมัติ',
                     fiscalYear: computedFiscalYear,
                     leaveRound: effectiveLeaveRound,
@@ -5217,7 +7168,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 setIsLeaveModalOpen(false);
                 setEditingLeaveId(null);
               }}
-              className="space-y-4"
+              className="space-y-4 max-h-[80vh] overflow-y-auto pr-1"
             >
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -5226,17 +7177,17 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 {isAdmin ? (
                   <div className="space-y-1.5">
                     <select
-                      value={personnel.some(p => `${p.prefix}${p.firstName} ${p.lastName}` === leaveForm.teacherName) ? leaveForm.teacherName : ''}
+                      value={personnel.some(p => formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`) === formatThaiPersonName(leaveForm.teacherName)) ? formatThaiPersonName(leaveForm.teacherName) : ''}
                       onChange={(e) => {
                         if (e.target.value) {
-                          setLeaveForm({ ...leaveForm, teacherName: e.target.value });
+                          setLeaveForm({ ...leaveForm, teacherName: formatThaiPersonName(e.target.value) });
                         }
                       }}
                       className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold cursor-pointer bg-white"
                     >
                       <option value="">-- เลือกจากรายชื่อบุคลากร (หรือพิมพ์ด้านล่าง) --</option>
                       {personnel.map(p => {
-                        const pName = `${p.prefix}${p.firstName} ${p.lastName}`;
+                        const pName = formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`);
                         return (
                           <option key={p.id} value={pName}>
                             {pName} ({p.position})
@@ -5249,13 +7200,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       required
                       value={leaveForm.teacherName}
                       onChange={(e) => setLeaveForm({ ...leaveForm, teacherName: e.target.value })}
-                      placeholder="หรือพิมพ์ชื่อ-นามสกุล..."
+                      onBlur={(e) => setLeaveForm({ ...leaveForm, teacherName: formatThaiPersonName(e.target.value) })}
+                      placeholder="หรือพิมพ์ชื่อ-นามสกุล (เช่น นายอีรฟัน ...)"
                       className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
                     />
                   </div>
                 ) : (
                   <div className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-800 flex items-center justify-between">
-                    <span>{user.fullName || leaveForm.teacherName}</span>
+                    <span>{formatThaiPersonName(user.fullName || leaveForm.teacherName)}</span>
                     <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold border border-blue-200">
                       สมาชิกผู้ยื่นลา (ตนเอง)
                     </span>
@@ -5287,23 +7239,79 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 bg-slate-50/90 rounded-2xl border border-slate-200/90 space-y-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">เสนอ / เรียน (ผู้บริหาร)</label>
-                  <input
-                    type="text"
-                    required
-                    value={leaveForm.directorName}
-                    onChange={(e) => setLeaveForm({ ...leaveForm, directorName: e.target.value })}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold bg-slate-50 text-slate-800"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-0.5">ลิงก์อัตโนมัติจากข้อมูลบุคลากร</p>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">เสนอ/เรียน (ผู้บริหารคนที่1)</label>
+                  <select
+                    value={personnel.some(p => formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`) === formatThaiPersonName(leaveForm.directorName)) ? formatThaiPersonName(leaveForm.directorName) : ''}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setLeaveForm({ ...leaveForm, directorName: formatThaiPersonName(e.target.value) });
+                      }
+                    }}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold cursor-pointer bg-white"
+                  >
+                    <option value="">-- เลือกจากข้อมูลบุคลากร --</option>
+                    {personnel.map(p => {
+                      const pName = formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`);
+                      return (
+                        <option key={p.id} value={pName}>
+                          {pName} ({p.position})
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">เสนอ/เรียน (ผู้บริหารคนที่2)</label>
+                  <select
+                    value={
+                      personnel.some(
+                        p => formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`) === formatThaiPersonName(leaveForm.supervisorName)
+                      )
+                        ? formatThaiPersonName(leaveForm.supervisorName)
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const selectedName = formatThaiPersonName(e.target.value);
+                      if (!selectedName) {
+                        setLeaveForm(prev => ({
+                          ...prev,
+                          supervisorName: '',
+                          supervisorPosition: ''
+                        }));
+                        return;
+                      }
+                      const matchedP = personnel.find(
+                        p => formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`) === selectedName
+                      );
+                      const pPos = (matchedP?.position || '').trim();
+                      setLeaveForm(prev => ({
+                        ...prev,
+                        supervisorName: selectedName,
+                        supervisorPosition: pPos
+                      }));
+                    }}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold cursor-pointer bg-white"
+                  >
+                    <option value="">-- เลือกบุคลากรจากข้อมูลบุคลากร --</option>
+                    {personnel.map(p => {
+                      const pName = formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`);
+                      return (
+                        <option key={p.id} value={pName}>
+                          {pName} ({p.position})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">เจ้าหน้าที่งานบุคลากร</label>
                   <select
                     value={leaveForm.personnelOfficer}
-                    onChange={(e) => setLeaveForm({ ...leaveForm, personnelOfficer: e.target.value })}
+                    onChange={(e) => setLeaveForm({ ...leaveForm, personnelOfficer: formatThaiPersonName(e.target.value) })}
                     className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 font-semibold cursor-pointer bg-white"
                   >
                     <option value="">-- เลือกเจ้าหน้าที่งานบุคลากร --</option>
@@ -5318,11 +7326,14 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         (p.position || '').includes('บริหารงานบุคคล')
                       );
                       const displayList = eligibleOfficers.length > 0 ? eligibleOfficers : personnel;
-                      return displayList.map(p => (
-                        <option key={p.id} value={`${p.prefix}${p.firstName} ${p.lastName}`}>
-                          {p.prefix}{p.firstName} {p.lastName} ({p.position}{p.department ? ` • ฝ่าย${p.department}` : ''})
-                        </option>
-                      ));
+                      return displayList.map(p => {
+                        const pName = formatThaiPersonName(`${p.prefix}${p.firstName} ${p.lastName}`);
+                        return (
+                          <option key={p.id} value={pName}>
+                            {pName} ({p.position}{p.department ? ` • ฝ่าย${p.department}` : ''})
+                          </option>
+                        );
+                      });
                     })()}
                   </select>
                 </div>
@@ -5435,127 +7446,39 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
       {/* MODAL: A4 OFFICIAL LEAVE FORM PREVIEW */}
       {previewLeave && (() => {
-        const createdDate = parseThaiDateParts(previewLeave.createdAt || previewLeave.startDate);
-        const startDateParts = parseThaiDateParts(previewLeave.startDate);
-        const endDateParts = parseThaiDateParts(previewLeave.endDate);
-        const leaveDays = calculateLeaveDaysCount(previewLeave.startDate, previewLeave.endDate);
-        
-        const matchedTeacher = personnel.find(p => 
-          `${p.prefix}${p.firstName} ${p.lastName}` === previewLeave.teacherName || 
-          `${p.firstName} ${p.lastName}` === previewLeave.teacherName ||
-          cleanTeacherName(`${p.prefix}${p.firstName} ${p.lastName}`) === cleanTeacherName(previewLeave.teacherName)
-        );
-        const matchedMember = StorageService.getMembers().find(m =>
-          cleanTeacherName(m.fullName) === cleanTeacherName(previewLeave.teacherName)
-        );
-        const teacherPosition = matchedTeacher?.position || matchedMember?.position || 'ครู';
-        const teacherPhone =
-          matchedTeacher?.phone ||
-          matchedMember?.phone ||
-          (isMyLeave(previewLeave) && user.phone ? user.phone : '') ||
-          schoolInfo.phone ||
-          '081-2345678';
-
-        const isSick = previewLeave.leaveType.includes('ป่วย');
-        const isPersonal = previewLeave.leaveType.includes('กิจ');
-        const isMaternity = previewLeave.leaveType.includes('คลอด');
-        const isOther = !isSick && !isPersonal && !isMaternity;
-
-        const currentLeaveFiscalYear = previewLeave.fiscalYear || getThaiFiscalYear(previewLeave.startDate || previewLeave.createdAt);
-        const currentLeaveRound = getReqLeaveRound(previewLeave);
-        const targetTeacherName = cleanTeacherName(previewLeave.teacherName);
-
-        // Get all leave records belonging to this teacher in the same fiscal year AND same round (ครั้งที่ 1 / ครั้งที่ 2)
-        // When a new round starts, prior statistics reset and start fresh
-        const teacherLeavesInRound = leaveRequests.filter(r => {
-          if (r.status === 'ไม่อนุมัติ') return false;
-          if (cleanTeacherName(r.teacherName) !== targetTeacherName) return false;
-          const rFiscalYear = r.fiscalYear || getThaiFiscalYear(r.startDate || r.createdAt);
-          const rRound = getReqLeaveRound(r);
-          return rFiscalYear === currentLeaveFiscalYear && rRound === currentLeaveRound;
-        }).sort((a, b) => {
-          const dateA = a.startDate || a.createdAt || '';
-          const dateB = b.startDate || b.createdAt || '';
-          if (dateA !== dateB) return dateA.localeCompare(dateB);
-          return (a.createdAt || '').localeCompare(b.createdAt || '');
-        });
-
-        // Determine prior leaves in this round up to this specific leave request
-        const currentLeaveIndex = teacherLeavesInRound.findIndex(r => r.id === previewLeave.id);
-        const priorLeavesThisYear = currentLeaveIndex !== -1
-          ? teacherLeavesInRound.slice(0, currentLeaveIndex)
-          : teacherLeavesInRound.filter(r => (r.startDate || r.createdAt || '') < (previewLeave.startDate || previewLeave.createdAt || ''));
-
-        let priorSick = 0;
-        let priorPersonal = 0;
-        let priorMaternity = 0;
-
-        priorLeavesThisYear.forEach(r => {
-          const days = calculateLeaveDaysCount(r.startDate, r.endDate);
-          if (r.leaveType.includes('ป่วย')) priorSick += days;
-          else if (r.leaveType.includes('กิจ')) priorPersonal += days;
-          else if (r.leaveType.includes('คลอด')) priorMaternity += days;
-        });
-
-        const currSick = isSick ? leaveDays : 0;
-        const currPersonal = isPersonal ? leaveDays : 0;
-        const currMaternity = isMaternity ? leaveDays : 0;
-
-        // Last leave taken by this teacher within this round (prior to this current leave)
-        const allPriorLeavesInRound = priorLeavesThisYear;
-
-        const lastLeave = allPriorLeavesInRound.length > 0 ? allPriorLeavesInRound[allPriorLeavesInRound.length - 1] : null;
-        const lastLeaveSick = lastLeave ? lastLeave.leaveType.includes('ป่วย') : false;
-        const lastLeavePersonal = lastLeave ? lastLeave.leaveType.includes('กิจ') : false;
-        const lastLeaveMaternity = lastLeave ? lastLeave.leaveType.includes('คลอด') : false;
-        let lastLeaveStartStr = '-';
-        let lastLeaveEndStr = '-';
-        let lastLeaveDaysStr = '-';
-        if (lastLeave) {
-          const lStart = parseThaiDateParts(lastLeave.startDate);
-          const lEnd = parseThaiDateParts(lastLeave.endDate);
-          lastLeaveStartStr = `${lStart.day} ${lStart.month} พ.ศ. ${lStart.year}`;
-          lastLeaveEndStr = `${lEnd.day} ${lEnd.month} พ.ศ. ${lEnd.year}`;
-          lastLeaveDaysStr = calculateLeaveDaysCount(lastLeave.startDate, lastLeave.endDate).toString();
-        }
-
-        const deputyPerson = personnel.find(p => p.personnelType === 'รองผู้อำนวยการ' || (p.position || '').includes('รองผู้อำนวยการ')) ||
-                             personnel.find(p => p.department === 'บริหารงานบุคคล') ||
-                             personnel[1] || personnel[0];
-        const deputyName = deputyPerson ? `${deputyPerson.prefix}${deputyPerson.firstName} ${deputyPerson.lastName}` : 'รองผู้อำนวยการ';
-        const deputyPosition = deputyPerson?.position || 'รองผู้อำนวยการ';
-
-        const officerName = previewLeave.personnelOfficer || 'เจ้าหน้าที่งานบุคลากร';
-
-        const rawSchoolName = (schoolInfo.schoolName || 'บ้านนาออก').trim();
-        const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
-          ? rawSchoolName
-          : `โรงเรียน${rawSchoolName}`;
-
-        // ดึงข้อมูลผู้อำนวยการจากหน้าข้อมูลบุคลากร (Personnel) ตรงช่อง "ตำแหน่ง"
-        const directorPerson = personnel.find(p =>
-          (p.position || '').trim().includes('ผู้อำนวยการ') ||
-          p.personnelType === 'ผู้อำนวยการ'
-        );
-
-        const directorFullName = directorPerson
-          ? `${directorPerson.prefix || ''}${directorPerson.firstName} ${directorPerson.lastName}`.trim()
-          : (previewLeave.directorName || schoolInfo.directorName || 'ผู้อำนวยการโรงเรียน');
-
-        let directorPositionTitle = directorPerson?.position?.trim() || '';
-        if (!directorPositionTitle) {
-          directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
-        } else if (
-          directorPositionTitle === 'ผู้อำนวยการ' ||
-          directorPositionTitle === 'ผู้อำนวยการโรงเรียน'
-        ) {
-          directorPositionTitle = `ผู้อำนวยการ${formattedSchoolName}`;
-        }
-
-        const startDateThai = `${startDateParts.day} ${startDateParts.month} พ.ศ. ${startDateParts.year}`;
-        const endDateThai = `${endDateParts.day} ${endDateParts.month} พ.ศ. ${endDateParts.year}`;
-        const createdDateThai = `${createdDate.day} ${createdDate.month} พ.ศ. ${createdDate.year}`;
-        const isApproved = previewLeave.status !== 'ไม่อนุมัติ';
+        const {
+          createdDate,
+          leaveDays,
+          applicantFullName,
+          teacherPosition,
+          teacherPhone,
+          isSick,
+          isPersonal,
+          isMaternity,
+          isOther,
+          priorSick,
+          priorPersonal,
+          priorMaternity,
+          currSick,
+          currPersonal,
+          currMaternity,
+          lastLeaveSick,
+          lastLeavePersonal,
+          lastLeaveMaternity,
+          lastLeaveStartStr,
+          lastLeaveEndStr,
+          lastLeaveDaysStr,
+          deputyName,
+          deputyPosition,
+          officerName,
+          formattedSchoolName,
+          directorFullName,
+          directorPositionTitle,
+          startDateThai,
+          endDateThai,
+          createdDateThai,
+          isApproved,
+        } = computeLeaveDocumentData(previewLeave);
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
@@ -5688,292 +7611,322 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     width: '210mm',
                     minHeight: '297mm',
                     height: '297mm',
-                    padding: '10mm 15mm 7mm 15mm',
+                    padding: leavePreviewDataUrl ? '0' : '10mm 15mm 7mm 15mm',
                     fontSize: '15.5pt',
                     lineHeight: '1.4',
                     boxSizing: 'border-box'
                   }}
                 >
-                  {/* Top Portion: Official Leave Letter Body */}
-                  <div>
-                    {/* Form Title */}
-                    <h1 className="text-center font-bold text-[19.5pt] text-black tracking-normal mb-2.5">
-                      แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว
-                    </h1>
+                  {leavePreviewDataUrl ? (
+                    <img
+                      src={leavePreviewDataUrl}
+                      alt="ตัวอย่างแบบใบลา A4"
+                      className="w-full h-full block select-none object-contain"
+                    />
+                  ) : (
+                    <>
+                      {/* Top Portion: Official Leave Letter Body */}
+                      <div>
+                        {/* Form Title */}
+                        <h1 className="text-center font-bold text-[19.5pt] text-black tracking-normal mb-2.5">
+                          แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว
+                        </h1>
 
-                    {/* Date & Location (Right indented) */}
-                    <div className="mb-2.5 flex flex-col items-end pr-2 font-normal text-[15.5pt]">
-                      <div className="flex items-baseline gap-1 w-[320px]">
-                        <span className="shrink-0">เขียนที่</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 text-center font-normal px-2 pb-0 leading-none">
-                          {formattedSchoolName}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-1 w-[390px] mt-1 font-normal">
-                        <span className="shrink-0">วันที่</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[38px] text-center font-normal px-1 pb-0 leading-none ml-1">
-                          {createdDate.day || '\u00A0'}
-                        </span>
-                        <span className="shrink-0 ml-1.5">เดือน</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[100px] text-center font-normal px-2 pb-0 leading-none ml-1">
-                          {createdDate.month || '\u00A0'}
-                        </span>
-                        <span className="shrink-0 ml-1.5">พ.ศ.</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[60px] text-center font-normal px-1 pb-0 leading-none ml-1">
-                          {createdDate.year || '\u00A0'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Subject & Recipient */}
-                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
-                      <div className="flex items-baseline">
-                        <span className="font-bold w-14 shrink-0">เรื่อง</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
-                          {isPersonal ? 'ขอลากิจส่วนตัว' : isSick ? 'ขอลาป่วย' : isMaternity ? 'ขอลาคลอดบุตร' : `ขอ${previewLeave.leaveType}`}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline">
-                        <span className="font-bold w-14 shrink-0">เรียน</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
-                          {directorPositionTitle}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Applicant Information */}
-                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
-                      <div className="flex items-baseline">
-                        <span className="inline-block w-12 shrink-0"></span>
-                        <span className="shrink-0">ข้าพเจ้า</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 text-center font-normal ml-2 pb-0 leading-none">
-                          {previewLeave.teacherName}
-                        </span>
-                        <span className="shrink-0 ml-3">ตำแหน่ง</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[190px] text-center font-normal ml-2 pb-0 leading-none">
-                          {teacherPosition}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline">
-                        <span className="shrink-0">สังกัด</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none">
-                          {schoolInfo.affiliation || formattedSchoolName || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Checkboxes with reasons */}
-                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
-                      <div className="flex items-baseline">
-                        <span className="shrink-0">ขอลา</span>
-                        <span className="font-mono text-[16pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
-                        <span className="ml-1.5 shrink-0">ป่วย เนื่องจาก</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
-                          {isSick ? previewLeave.reason : '\u00A0'}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline pl-8">
-                        <span className="font-mono text-[16pt] shrink-0 font-normal">({isPersonal ? ' ✓ ' : '   '})</span>
-                        <span className="ml-1.5 shrink-0">กิจส่วนตัว เนื่องจาก</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
-                          {isPersonal ? previewLeave.reason : '\u00A0'}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline pl-8">
-                        <span className="font-mono text-[16pt] shrink-0 font-normal">({isMaternity ? ' ✓ ' : '   '})</span>
-                        <span className="ml-1.5 shrink-0">คลอดบุตร</span>
-                        {isMaternity && previewLeave.reason ? (
-                          <>
-                            <span className="ml-2 shrink-0">เนื่องจาก</span>
-                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
-                              {previewLeave.reason}
+                        {/* Date & Location (Right indented) */}
+                        <div className="mb-2.5 flex flex-col items-end pr-2 font-normal text-[15.5pt]">
+                          <div className="flex items-baseline gap-1 w-[320px]">
+                            <span className="shrink-0">เขียนที่</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 text-center font-normal px-2 pb-0 leading-none">
+                              {formattedSchoolName}
                             </span>
-                          </>
-                        ) : (
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">&nbsp;</span>
-                        )}
-                      </div>
-                      {isOther && (
-                        <div className="flex items-baseline pl-8">
-                          <span className="font-mono text-[16pt] shrink-0 font-normal">( ✓ )</span>
-                          <span className="ml-1.5 shrink-0">{previewLeave.leaveType} เนื่องจาก</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
-                            {previewLeave.reason}
+                          </div>
+                          <div className="flex items-baseline gap-1 w-[390px] mt-1 font-normal">
+                            <span className="shrink-0">วันที่</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[38px] text-center font-normal px-1 pb-0 leading-none ml-1">
+                              {createdDate.day || '\u00A0'}
+                            </span>
+                            <span className="shrink-0 ml-1.5">เดือน</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[100px] text-center font-normal px-2 pb-0 leading-none ml-1">
+                              {createdDate.month || '\u00A0'}
+                            </span>
+                            <span className="shrink-0 ml-1.5">พ.ศ.</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black min-w-[60px] text-center font-normal px-1 pb-0 leading-none ml-1">
+                              {createdDate.year || '\u00A0'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Subject & Recipient */}
+                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                          <div className="flex items-baseline">
+                            <span className="font-bold w-14 shrink-0">เรื่อง</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
+                              {isPersonal ? 'ขอลากิจส่วนตัว' : isSick ? 'ขอลาป่วย' : isMaternity ? 'ขอลาคลอดบุตร' : `ขอ${previewLeave.leaveType}`}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline">
+                            <span className="font-bold w-14 shrink-0">เรียน</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
+                              {directorPositionTitle}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Applicant Information */}
+                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                          <div className="flex items-baseline">
+                            <span className="inline-block w-12 shrink-0"></span>
+                            <span className="shrink-0">ข้าพเจ้า</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 text-center font-normal ml-2 pb-0 leading-none">
+                              {applicantFullName}
+                            </span>
+                            <span className="shrink-0 ml-3">ตำแหน่ง</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[190px] text-center font-normal ml-2 pb-0 leading-none">
+                              {teacherPosition}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline">
+                            <span className="shrink-0">สังกัด</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none">
+                              {schoolInfo.affiliation || formattedSchoolName || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Checkboxes with reasons */}
+                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                          <div className="flex items-baseline">
+                            <span className="shrink-0">ขอลา</span>
+                            <span className="font-mono text-[16pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
+                            <span className="ml-1.5 shrink-0">ป่วย เนื่องจาก</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                              {isSick ? previewLeave.reason : '\u00A0'}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline pl-8">
+                            <span className="font-mono text-[16pt] shrink-0 font-normal">({isPersonal ? ' ✓ ' : '   '})</span>
+                            <span className="ml-1.5 shrink-0">กิจส่วนตัว เนื่องจาก</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                              {isPersonal ? previewLeave.reason : '\u00A0'}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline pl-8">
+                            <span className="font-mono text-[16pt] shrink-0 font-normal">({isMaternity ? ' ✓ ' : '   '})</span>
+                            <span className="ml-1.5 shrink-0">คลอดบุตร</span>
+                            {isMaternity && previewLeave.reason ? (
+                              <>
+                                <span className="ml-2 shrink-0">เนื่องจาก</span>
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                                  {previewLeave.reason}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">&nbsp;</span>
+                            )}
+                          </div>
+                          {isOther && (
+                            <div className="flex items-baseline pl-8">
+                              <span className="font-mono text-[16pt] shrink-0 font-normal">( ✓ )</span>
+                              <span className="ml-1.5 shrink-0">{previewLeave.leaveType} เนื่องจาก</span>
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
+                                {previewLeave.reason}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Leave Dates & Duration */}
+                        <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
+                          <span className="shrink-0">ตั้งแต่วันที่</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
+                            {startDateThai}
+                          </span>
+                          <span className="shrink-0 ml-2">ถึงวันที่</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
+                            {endDateThai}
+                          </span>
+                          <span className="shrink-0 ml-2">มีกำหนด</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
+                            {leaveDays}
+                          </span>
+                          <span className="shrink-0 ml-2">วัน</span>
+                        </div>
+
+                        {/* Previous Leave History */}
+                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                          <div className="flex items-baseline gap-2 font-normal flex-wrap">
+                            <span>ข้าพเจ้าได้ลา</span>
+                            <span className="font-mono text-[16pt] font-normal">({lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
+                            <span className="font-mono text-[16pt] font-normal">({lastLeavePersonal ? ' ✓ ' : '   '}) กิจส่วนตัว</span>
+                            <span className="font-mono text-[16pt] font-normal">({lastLeaveMaternity ? ' ✓ ' : '   '}) คลอดบุตร</span>
+                            <span>ครั้งสุดท้ายตั้งแต่วันที่</span>
+                          </div>
+                          <div className="flex items-baseline font-normal">
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal pb-0 leading-none">
+                              {lastLeaveStartStr}
+                            </span>
+                            <span className="shrink-0 ml-2">ถึงวันที่</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal ml-1 pb-0 leading-none">
+                              {lastLeaveEndStr}
+                            </span>
+                            <span className="shrink-0 ml-2">มีกำหนด</span>
+                            <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
+                              {lastLeaveDaysStr}
+                            </span>
+                            <span className="shrink-0 ml-2">วัน</span>
+                          </div>
+                        </div>
+
+                        {/* Contact Phone */}
+                        <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
+                          <span className="shrink-0">ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่โทรศัพท์</span>
+                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 text-center font-normal ml-2 pb-0 leading-none">
+                            {teacherPhone}
                           </span>
                         </div>
-                      )}
-                    </div>
 
-                    {/* Leave Dates & Duration */}
-                    <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
-                      <span className="shrink-0">ตั้งแต่วันที่</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
-                        {startDateThai}
-                      </span>
-                      <span className="shrink-0 ml-2">ถึงวันที่</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
-                        {endDateThai}
-                      </span>
-                      <span className="shrink-0 ml-2">มีกำหนด</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
-                        {leaveDays}
-                      </span>
-                      <span className="shrink-0 ml-2">วัน</span>
-                    </div>
-
-                    {/* Previous Leave History */}
-                    <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
-                      <div className="flex items-baseline gap-2 font-normal flex-wrap">
-                        <span>ข้าพเจ้าได้ลา</span>
-                        <span className="font-mono text-[16pt] font-normal">({lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
-                        <span className="font-mono text-[16pt] font-normal">({lastLeavePersonal ? ' ✓ ' : '   '}) กิจส่วนตัว</span>
-                        <span className="font-mono text-[16pt] font-normal">({lastLeaveMaternity ? ' ✓ ' : '   '}) คลอดบุตร</span>
-                        <span>ครั้งสุดท้ายตั้งแต่วันที่</span>
-                      </div>
-                      <div className="flex items-baseline font-normal">
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal pb-0 leading-none">
-                          {lastLeaveStartStr}
-                        </span>
-                        <span className="shrink-0 ml-2">ถึงวันที่</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[160px] text-center font-normal ml-1 pb-0 leading-none">
-                          {lastLeaveEndStr}
-                        </span>
-                        <span className="shrink-0 ml-2">มีกำหนด</span>
-                        <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[65px] text-center font-normal ml-1 pb-0 leading-none">
-                          {lastLeaveDaysStr}
-                        </span>
-                        <span className="shrink-0 ml-2">วัน</span>
-                      </div>
-                    </div>
-
-                    {/* Contact Phone */}
-                    <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
-                      <span className="shrink-0">ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-2 pb-0 leading-none min-h-[1.2em]">
-                        {formattedSchoolName}
-                      </span>
-                      <span className="shrink-0 ml-3">โทรศัพท์</span>
-                      <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[180px] text-center font-normal ml-1 pb-0 leading-none">
-                        {teacherPhone}
-                      </span>
-                    </div>
-
-                    {/* Signature of Applicant */}
-                    <div className="flex justify-end pr-8 mb-3 font-normal text-[15.5pt]">
-                      <div className="w-72 text-center space-y-1 font-normal">
-                        <p>ขอแสดงความนับถือ</p>
-                        <div className="flex items-baseline justify-center pt-1.5">
-                          <span className="shrink-0">(ลงชื่อ)</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 mx-1.5 pb-0 leading-none"></span>
-                        </div>
-                        <p className="pt-0.5">( {previewLeave.teacherName.replace(/^ครู\s*/, '')} )</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Bottom Section (2 Columns: Fiscal Year Stats & Approvals) */}
-                  <div className="grid grid-cols-2 gap-5 mt-2 pt-1 font-normal text-[14pt]">
-                    {/* Left Column: Fiscal Year Stats & Auditor */}
-                    <div className="space-y-1 font-normal">
-                      <div>
-                        <h4 className="font-bold text-[14.5pt] mb-1 font-normal">สถิติการลาในปีงบประมาณนี้</h4>
-                        <table className="w-full text-center border-collapse border border-black text-[13pt] font-normal">
-                          <thead>
-                            <tr className="border-b border-black">
-                              <th className="border-r border-black py-1 px-0.5 font-normal w-[24%]">ประเภทลา</th>
-                              <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลามาแล้ว<br/>(วันทำการ)</th>
-                              <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลาครั้งนี้<br/>(วันทำการ)</th>
-                              <th className="py-1 px-0.5 font-normal w-[26%] leading-tight">รวมเป็น<br/>(วันทำการ)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">ป่วย</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorSick}</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currSick}</td>
-                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorSick + currSick}</td>
-                            </tr>
-                            <tr className="border-b border-black font-normal">
-                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">กิจส่วนตัว</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorPersonal}</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currPersonal}</td>
-                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorPersonal + currPersonal}</td>
-                            </tr>
-                            <tr className="font-normal">
-                              <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">คลอดบุตร</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorMaternity}</td>
-                              <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currMaternity}</td>
-                              <td className="py-0.5 px-0.5 font-mono font-normal">{priorMaternity + currMaternity}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Auditor Signature */}
-                      <div className="space-y-0.5 text-center font-normal pt-1.5">
-                        <div className="flex items-baseline justify-center">
-                          <span className="shrink-0">(ลงชื่อ)</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-32 mx-1.5 pb-0 leading-none"></span>
-                          <span className="shrink-0">ผู้ตรวจสอบ</span>
-                        </div>
-                        <p className="pt-0.5">( {officerName} )</p>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">ตำแหน่ง</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[140px] text-center pb-0 leading-none">เจ้าหน้าที่งานบุคลากร</span>
-                        </div>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">วันที่</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center pb-0 leading-none">{createdDateThai}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Right Column: Supervisor Comment & Director Order */}
-                    <div className="space-y-1 pl-2 font-normal">
-                      {/* Supervisor Comment */}
-                      <div className="space-y-0.5 text-center font-normal">
-                        <h4 className="font-bold text-[14.5pt] text-left mb-0.5">ความเห็นผู้บังคับบัญชา</h4>
-                        <div className="text-left pl-2 font-normal flex items-baseline">
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black pr-6 pb-0 leading-none">เห็นควรอนุญาต</span>
-                        </div>
-                        <div className="flex items-baseline justify-center pt-1">
-                          <span className="shrink-0">(ลงชื่อ)</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
-                        </div>
-                        <p className="font-normal pt-0.5">( {deputyName} )</p>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">ตำแหน่ง</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{deputyPosition}</span>
-                        </div>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">วันที่</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{createdDateThai}</span>
+                        {/* Signature of Applicant */}
+                        <div className="flex justify-end pr-6 mb-3 font-normal text-[15.5pt]">
+                          <div className="w-72 text-center space-y-1 font-normal">
+                            <p>ขอแสดงความนับถือ</p>
+                            <div className="relative flex items-baseline justify-center pt-1.5">
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 pb-0 leading-none relative">
+                                <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">(ลงชื่อ)</span>
+                                {'\u00A0'}
+                              </span>
+                            </div>
+                            <p className="pt-0.5">({formatDutySignatureName(applicantFullName)})</p>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Director Order */}
-                      <div className="space-y-0.5 text-center font-normal pt-1 border-t border-slate-300">
-                        <h4 className="font-bold text-[14.5pt] text-left mb-0.5">คำสั่ง</h4>
-                        <div className="flex items-center justify-start gap-6 pl-2 mb-0.5 font-normal">
-                          <span className="font-mono font-normal">({isApproved ? ' ✓ ' : '   '}) อนุญาต</span>
-                          <span className="font-mono font-normal">({!isApproved ? ' ✓ ' : '   '}) ไม่อนุญาต</span>
+                      {/* Bottom Section (2 Columns: Fiscal Year Stats & Approvals) */}
+                      <div className="grid grid-cols-2 gap-5 mt-2 pt-1 font-normal text-[14pt]">
+                        {/* Left Column: Fiscal Year Stats & Auditor */}
+                        <div className="space-y-1 font-normal">
+                          <div>
+                            <h4 className="font-bold text-[14.5pt] mb-1 font-normal">สถิติการลาในปีงบประมาณนี้</h4>
+                            <table className="w-full text-center border-collapse border border-black text-[13pt] font-normal">
+                              <thead>
+                                <tr className="border-b border-black">
+                                  <th className="border-r border-black py-1 px-0.5 font-normal w-[24%]">ประเภทลา</th>
+                                  <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลามาแล้ว<br/>(วันทำการ)</th>
+                                  <th className="border-r border-black py-1 px-0.5 font-normal w-[25%] leading-tight">ลาครั้งนี้<br/>(วันทำการ)</th>
+                                  <th className="py-1 px-0.5 font-normal w-[26%] leading-tight">รวมเป็น<br/>(วันทำการ)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr className="border-b border-black font-normal">
+                                  <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">ป่วย</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorSick}</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currSick}</td>
+                                  <td className="py-0.5 px-0.5 font-mono font-normal">{priorSick + currSick}</td>
+                                </tr>
+                                <tr className="border-b border-black font-normal">
+                                  <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">กิจส่วนตัว</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorPersonal}</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currPersonal}</td>
+                                  <td className="py-0.5 px-0.5 font-mono font-normal">{priorPersonal + currPersonal}</td>
+                                </tr>
+                                <tr className="font-normal">
+                                  <td className="border-r border-black py-0.5 px-0.5 text-center font-normal">คลอดบุตร</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{priorMaternity}</td>
+                                  <td className="border-r border-black py-0.5 px-0.5 font-mono font-normal">{currMaternity}</td>
+                                  <td className="py-0.5 px-0.5 font-mono font-normal">{priorMaternity + currMaternity}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Auditor Signature - Position centered directly under (officerName) */}
+                          <div className="space-y-0.5 text-center font-normal pt-1.5 pl-3">
+                            <div className="flex items-baseline justify-center">
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black w-36 pb-0 leading-none relative">
+                                <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">(ลงชื่อ)</span>
+                                {'\u00A0'}
+                                <span className="absolute left-full ml-1.5 bottom-0 whitespace-nowrap">ผู้ตรวจสอบ</span>
+                              </span>
+                            </div>
+                            <p className="pt-0.5 text-center">( {formatDutySignatureName(officerName)} )</p>
+                            <div className="flex items-baseline justify-center font-normal">
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[165px] text-center pb-0 leading-none relative">
+                                <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">ตำแหน่ง</span>
+                                เจ้าหน้าที่งานบุคลากร
+                              </span>
+                            </div>
+                            <div className="flex items-baseline justify-center font-normal">
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[165px] text-center pb-0 leading-none relative">
+                                <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">วันที่</span>
+                                {createdDateThai}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-baseline justify-center pt-1">
-                          <span className="shrink-0">(ลงชื่อ)</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black w-40 mx-1.5 pb-0 leading-none"></span>
-                        </div>
-                        <p className="font-normal pt-0.5">( {directorFullName.replace(/^ครู\s*/, '')} )</p>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">ตำแหน่ง</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[150px] text-center font-normal pb-0 leading-none">{directorPositionTitle}</span>
-                        </div>
-                        <div className="flex items-baseline justify-center gap-1 font-normal">
-                          <span className="shrink-0">วันที่</span>
-                          <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[130px] text-center font-normal pb-0 leading-none">{createdDateThai}</span>
+
+                        {/* Right Column: Supervisor Comment & Director Order */}
+                        <div className="space-y-1 pl-2 font-normal">
+                          {/* Supervisor Comment - Position centered directly under (deputyName) */}
+                          <div className="space-y-0.5 text-center font-normal">
+                            <h4 className="font-bold text-[14.5pt] text-left mb-0.5">ความเห็นผู้บังคับบัญชา</h4>
+                            <div className="text-left pl-2 font-normal flex items-baseline">
+                              <span className="inline-block border-b-[1.5px] border-dotted border-black pr-6 pb-0 leading-none">เห็นควรอนุญาต</span>
+                            </div>
+                            <div className="pl-6 space-y-0.5">
+                              <div className="flex items-baseline justify-center pt-1">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">(ลงชื่อ)</span>
+                                  {'\u00A0'}
+                                </span>
+                              </div>
+                              <p className="font-normal pt-0.5 text-center">( {formatDutySignatureName(deputyName)} )</p>
+                              <div className="flex items-baseline justify-center font-normal">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[175px] text-center font-normal pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">ตำแหน่ง</span>
+                                  {deputyPosition}
+                                </span>
+                              </div>
+                              <div className="flex items-baseline justify-center font-normal">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[175px] text-center font-normal pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">วันที่</span>
+                                  {createdDateThai}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Director Order - Position centered directly under (directorFullName) */}
+                          <div className="space-y-0.5 text-center font-normal pt-1 border-t border-slate-300">
+                            <h4 className="font-bold text-[14.5pt] text-left mb-0.5">คำสั่ง</h4>
+                            <div className="flex items-center justify-start gap-6 pl-2 mb-0.5 font-normal">
+                              <span className="font-mono font-normal">({isApproved ? ' ✓ ' : '   '}) อนุญาต</span>
+                              <span className="font-mono font-normal">({!isApproved ? ' ✓ ' : '   '}) ไม่อนุญาต</span>
+                            </div>
+                            <div className="pl-6 space-y-0.5">
+                              <div className="flex items-baseline justify-center pt-1">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black w-44 pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">(ลงชื่อ)</span>
+                                  {'\u00A0'}
+                                </span>
+                              </div>
+                              <p className="font-normal pt-0.5 text-center">( {formatDutySignatureName(directorFullName)} )</p>
+                              <div className="flex items-baseline justify-center font-normal">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[185px] text-center font-normal pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">ตำแหน่ง</span>
+                                  {directorPositionTitle}
+                                </span>
+                              </div>
+                              <div className="flex items-baseline justify-center font-normal">
+                                <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[175px] text-center font-normal pb-0 leading-none relative">
+                                  <span className="absolute right-full mr-1.5 bottom-0 whitespace-nowrap">วันที่</span>
+                                  {createdDateThai}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -5999,64 +7952,236 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           return dateClean;
         };
 
-        // Helper to calculate student statistics by grade, pulling live from effectiveStudents and effectiveAttendance
+        // Helper to calculate student statistics by grade, pulling live from หน้าเช็กเวลา/เงินฝาก (StorageService.getStudents & StorageService.getAttendance)
+        interface DutyStudentAttendanceItem {
+          id: string;
+          rollNumber?: number;
+          fullName: string;
+          gradeLevel: GradeLevel;
+          gender: 'ชาย' | 'หญิง';
+          status: 'present' | 'absent' | 'leave' | 'sick';
+          statusLabel: string;
+          note?: string;
+          isRecorded: boolean;
+        }
+
         const calculateDutyStudentStats = (logDateStr: string) => {
           const targetIso = normalizeDateToIso(logDateStr);
 
-          // Attendance records recorded by teachers for this specific day
-          const dayAttendance = effectiveAttendance.filter(a => {
+          // Pull live students and attendance from StorageService merged with props so data from หน้าเช็กเวลาเงินฝาก is always up-to-date
+          const rawStorageStudents = StorageService.getStudents();
+          const liveStudentsList: Student[] =
+            rawStorageStudents && rawStorageStudents.length > 0 ? rawStorageStudents : effectiveStudents;
+
+          const rawStorageAttendance = StorageService.getAttendance();
+          const liveAttendanceMap = new Map<string, AttendanceRecord>();
+          (effectiveAttendance || []).forEach(a => {
+            if (a && a.date && a.studentId) {
+              liveAttendanceMap.set(`${normalizeDateToIso(a.date)}_${a.studentId}`, a);
+            }
+          });
+          (rawStorageAttendance || []).forEach(a => {
+            if (a && a.date && a.studentId) {
+              liveAttendanceMap.set(`${normalizeDateToIso(a.date)}_${a.studentId}`, a);
+            }
+          });
+          const liveAttendanceList = Array.from(liveAttendanceMap.values());
+
+          // Attendance records recorded in หน้าเช็กเวลาเงินฝาก for this specific day
+          const dayAttendance = liveAttendanceList.filter(a => {
             const aIso = normalizeDateToIso(a.date);
             return aIso === targetIso || a.date === logDateStr;
           });
 
-          const isFemale = (s: Student) => {
-            if (s.gender === 'หญิง') return true;
-            if (s.gender === 'ชาย') return false;
+          // ตรวจสอบเพศจากคำนำหน้าโดยตรงเป็นหลัก (เด็กหญิง = หญิง, เด็กชาย = ชาย)
+          const resolveStudentGender = (s: {
+            gender?: string;
+            prefix?: string;
+            firstName?: string;
+            fullName?: string;
+          }): 'ชาย' | 'หญิง' => {
             const p = (s.prefix || '').trim();
-            return p === 'เด็กหญิง' || p === 'ด.ญ.' || p === 'ด.ญ' || p === 'นางสาว' || p === 'น.ส.';
+            const combined = `${s.prefix || ''}${s.firstName || ''} ${s.fullName || ''}`.trim();
+
+            if (
+              p.startsWith('เด็กหญิง') ||
+              p.startsWith('ด.ญ.') ||
+              p.startsWith('ด.ญ') ||
+              p.startsWith('นางสาว') ||
+              p.startsWith('น.ส.') ||
+              p.startsWith('นาง') ||
+              p === 'ญ' ||
+              p === 'หญิง' ||
+              combined.startsWith('เด็กหญิง') ||
+              combined.startsWith('ด.ญ.') ||
+              combined.startsWith('ด.ญ') ||
+              combined.startsWith('นางสาว') ||
+              combined.startsWith('น.ส.') ||
+              combined.includes('เด็กหญิง') ||
+              combined.includes('ด.ญ.')
+            ) {
+              return 'หญิง';
+            }
+
+            if (
+              p.startsWith('เด็กชาย') ||
+              p.startsWith('ด.ช.') ||
+              p.startsWith('ด.ช') ||
+              p.startsWith('นาย') ||
+              p === 'ช' ||
+              p === 'ชาย' ||
+              combined.startsWith('เด็กชาย') ||
+              combined.startsWith('ด.ช.') ||
+              combined.startsWith('ด.ช') ||
+              combined.startsWith('นาย') ||
+              combined.includes('เด็กชาย') ||
+              combined.includes('ด.ช.')
+            ) {
+              return 'ชาย';
+            }
+
+            if (s.gender === 'หญิง') return 'หญิง';
+            return 'ชาย';
+          };
+
+          const isFemale = (s: { gender?: string; prefix?: string; firstName?: string; fullName?: string }) =>
+            resolveStudentGender(s) === 'หญิง';
+
+          const normalizeNameKey = (str?: string) => (str || '').replace(/\s+/g, '').trim();
+
+          const statusToThaiLabel = (st?: string) => {
+            if (st === 'absent') return 'ขาดเรียน';
+            if (st === 'sick') return 'ลาป่วย';
+            if (st === 'leave') return 'ลากิจ';
+            return 'มาเรียน';
           };
 
           const computeForGrade = (targetGrade: GradeLevel) => {
-            const gradeStudents = effectiveStudents.filter(s => s.gradeLevel === targetGrade);
+            const gradeStudents = [...liveStudentsList.filter(s => s.gradeLevel === targetGrade)].sort((a, b) => {
+              if (a.rollNumber !== undefined && b.rollNumber !== undefined) return a.rollNumber - b.rollNumber;
+              if (a.rollNumber !== undefined) return -1;
+              if (b.rollNumber !== undefined) return 1;
+              return (a.studentCode || '').localeCompare(b.studentCode || '');
+            });
+
             let maleTotal = 0;
             let femaleTotal = 0;
             let malePresent = 0;
             let femalePresent = 0;
             let maleAbsent = 0;
             let femaleAbsent = 0;
+            let checkedCount = 0;
 
-            const hasAttendanceForGrade = dayAttendance.some(a => a.gradeLevel === targetGrade);
+            const presentStudents: DutyStudentAttendanceItem[] = [];
+            const absentStudents: DutyStudentAttendanceItem[] = [];
+            const matchedAttendanceIds = new Set<string>();
 
             gradeStudents.forEach(s => {
               const female = isFemale(s);
+              const genderLabel: 'ชาย' | 'หญิง' = female ? 'หญิง' : 'ชาย';
               if (female) femaleTotal++;
               else maleTotal++;
 
-              if (hasAttendanceForGrade) {
-                const sFullName = `${s.prefix || ''}${s.firstName} ${s.lastName}`.trim();
-                const att = dayAttendance.find(a => a.studentId === s.id || (a.studentName && a.studentName.trim() === sFullName));
-                if (att) {
-                  if (att.status === 'present') {
-                    if (female) femalePresent++;
-                    else malePresent++;
-                  } else {
-                    // 'absent' | 'leave' | 'sick' counted as not present / absent
-                    if (female) femaleAbsent++;
-                    else maleAbsent++;
-                  }
+              const sFullName = `${s.prefix || ''}${s.firstName || ''} ${s.lastName || ''}`.trim();
+              const sNormName = normalizeNameKey(sFullName);
+
+              const att = dayAttendance.find(
+                a =>
+                  a.studentId === s.id ||
+                  (a.studentName && normalizeNameKey(a.studentName) === sNormName)
+              );
+
+              if (att) {
+                matchedAttendanceIds.add(att.id || `${att.date}_${att.studentId}`);
+                checkedCount++;
+                if (att.status === 'absent' || att.status === 'leave' || att.status === 'sick') {
+                  if (female) femaleAbsent++;
+                  else maleAbsent++;
+                  absentStudents.push({
+                    id: s.id,
+                    rollNumber: s.rollNumber,
+                    fullName: sFullName,
+                    gradeLevel: targetGrade,
+                    gender: genderLabel,
+                    status: att.status,
+                    statusLabel: statusToThaiLabel(att.status),
+                    note: att.note || '',
+                    isRecorded: true
+                  });
                 } else {
-                  // Default to present if student was not marked absent
                   if (female) femalePresent++;
                   else malePresent++;
+                  presentStudents.push({
+                    id: s.id,
+                    rollNumber: s.rollNumber,
+                    fullName: sFullName,
+                    gradeLevel: targetGrade,
+                    gender: genderLabel,
+                    status: 'present',
+                    statusLabel: 'มาเรียน',
+                    note: att.note || '',
+                    isRecorded: true
+                  });
                 }
               } else {
-                // If no daily attendance records exist for this grade yet, default to present
+                // Default to present if not marked absent/sick/leave
                 if (female) femalePresent++;
                 else malePresent++;
+                presentStudents.push({
+                  id: s.id,
+                  rollNumber: s.rollNumber,
+                  fullName: sFullName,
+                  gradeLevel: targetGrade,
+                  gender: genderLabel,
+                  status: 'present',
+                  statusLabel: 'มาเรียน',
+                  note: '',
+                  isRecorded: false
+                });
               }
             });
 
+            // Also include any attendance records saved for targetGrade whose studentId wasn't in gradeStudents
+            dayAttendance
+              .filter(a => a.gradeLevel === targetGrade && !matchedAttendanceIds.has(a.id || `${a.date}_${a.studentId}`))
+              .forEach(att => {
+                const female = isFemale({ fullName: att.studentName });
+                const genderLabel: 'ชาย' | 'หญิง' = female ? 'หญิง' : 'ชาย';
+                if (female) femaleTotal++;
+                else maleTotal++;
+                checkedCount++;
+
+                if (att.status === 'absent' || att.status === 'leave' || att.status === 'sick') {
+                  if (female) femaleAbsent++;
+                  else maleAbsent++;
+                  absentStudents.push({
+                    id: att.studentId,
+                    fullName: (att.studentName || 'นักเรียน').trim(),
+                    gradeLevel: targetGrade,
+                    gender: genderLabel,
+                    status: att.status,
+                    statusLabel: statusToThaiLabel(att.status),
+                    note: att.note || '',
+                    isRecorded: true
+                  });
+                } else {
+                  if (female) femalePresent++;
+                  else malePresent++;
+                  presentStudents.push({
+                    id: att.studentId,
+                    fullName: (att.studentName || 'นักเรียน').trim(),
+                    gradeLevel: targetGrade,
+                    gender: genderLabel,
+                    status: 'present',
+                    statusLabel: 'มาเรียน',
+                    note: att.note || '',
+                    isRecorded: true
+                  });
+                }
+              });
+
             return {
+              gradeLevel: targetGrade,
               maleTotal,
               femaleTotal,
               total: maleTotal + femaleTotal,
@@ -6065,73 +8190,113 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               presentTotal: malePresent + femalePresent,
               maleAbsent,
               femaleAbsent,
-              absentTotal: maleAbsent + femaleAbsent
+              absentTotal: maleAbsent + femaleAbsent,
+              checkedCount,
+              presentStudents,
+              absentStudents
             };
           };
 
-          const statsO2 = computeForGrade('อ.2');
-          const statsO3 = computeForGrade('อ.3');
-          const statsKindergarten = {
-            maleTotal: statsO2.maleTotal + statsO3.maleTotal,
-            femaleTotal: statsO2.femaleTotal + statsO3.femaleTotal,
-            total: statsO2.total + statsO3.total,
-            malePresent: statsO2.malePresent + statsO3.malePresent,
-            femalePresent: statsO2.femalePresent + statsO3.femalePresent,
-            presentTotal: statsO2.presentTotal + statsO3.presentTotal,
-            maleAbsent: statsO2.maleAbsent + statsO3.maleAbsent,
-            femaleAbsent: statsO2.femaleAbsent + statsO3.femaleAbsent,
-            absentTotal: statsO2.absentTotal + statsO3.absentTotal
+          const activeGradeOptions = DUTY_REPORT_GRADE_OPTIONS.filter(opt =>
+            effectiveDutyReportGrades.includes(opt.grade)
+          );
+
+          // Fallback if none matched
+          const effectiveOptions = activeGradeOptions.length > 0
+            ? activeGradeOptions
+            : DUTY_REPORT_GRADE_OPTIONS.filter(opt => DEFAULT_DUTY_REPORT_GRADES.includes(opt.grade));
+
+          type GradeStatResult = ReturnType<typeof computeForGrade>;
+          const statsByGrade = new Map<GradeLevel, GradeStatResult>();
+          effectiveOptions.forEach(opt => {
+            statsByGrade.set(opt.grade, computeForGrade(opt.grade));
+          });
+
+          const sumStatsList = (list: GradeStatResult[]) => {
+            return list.reduce(
+              (acc, cur) => ({
+                maleTotal: acc.maleTotal + cur.maleTotal,
+                femaleTotal: acc.femaleTotal + cur.femaleTotal,
+                total: acc.total + cur.total,
+                malePresent: acc.malePresent + cur.malePresent,
+                femalePresent: acc.femalePresent + cur.femalePresent,
+                presentTotal: acc.presentTotal + cur.presentTotal,
+                maleAbsent: acc.maleAbsent + cur.maleAbsent,
+                femaleAbsent: acc.femaleAbsent + cur.femaleAbsent,
+                absentTotal: acc.absentTotal + cur.absentTotal
+              }),
+              {
+                maleTotal: 0,
+                femaleTotal: 0,
+                total: 0,
+                malePresent: 0,
+                femalePresent: 0,
+                presentTotal: 0,
+                maleAbsent: 0,
+                femaleAbsent: 0,
+                absentTotal: 0
+              }
+            );
           };
 
-          const statsP1 = computeForGrade('ป.1');
-          const statsP2 = computeForGrade('ป.2');
-          const statsP3 = computeForGrade('ป.3');
-          const statsP4 = computeForGrade('ป.4');
-          const statsP5 = computeForGrade('ป.5');
-          const statsP6 = computeForGrade('ป.6');
+          const kindergartenOptions = effectiveOptions.filter(o => o.group === 'kindergarten');
+          const kindergartenStatsList = kindergartenOptions.map(o => statsByGrade.get(o.grade)!);
+          const statsKindergarten = sumStatsList(kindergartenStatsList);
 
-          const statsPrimary = {
-            maleTotal: statsP1.maleTotal + statsP2.maleTotal + statsP3.maleTotal + statsP4.maleTotal + statsP5.maleTotal + statsP6.maleTotal,
-            femaleTotal: statsP1.femaleTotal + statsP2.femaleTotal + statsP3.femaleTotal + statsP4.femaleTotal + statsP5.femaleTotal + statsP6.femaleTotal,
-            total: statsP1.total + statsP2.total + statsP3.total + statsP4.total + statsP5.total + statsP6.total,
-            malePresent: statsP1.malePresent + statsP2.malePresent + statsP3.malePresent + statsP4.malePresent + statsP5.malePresent + statsP6.malePresent,
-            femalePresent: statsP1.femalePresent + statsP2.femalePresent + statsP3.femalePresent + statsP4.femalePresent + statsP5.femalePresent + statsP6.femalePresent,
-            presentTotal: statsP1.presentTotal + statsP2.presentTotal + statsP3.presentTotal + statsP4.presentTotal + statsP5.presentTotal + statsP6.presentTotal,
-            maleAbsent: statsP1.maleAbsent + statsP2.maleAbsent + statsP3.maleAbsent + statsP4.maleAbsent + statsP5.maleAbsent + statsP6.maleAbsent,
-            femaleAbsent: statsP1.femaleAbsent + statsP2.femaleAbsent + statsP3.femaleAbsent + statsP4.femaleAbsent + statsP5.femaleAbsent + statsP6.femaleAbsent,
-            absentTotal: statsP1.absentTotal + statsP2.absentTotal + statsP3.absentTotal + statsP4.absentTotal + statsP5.absentTotal + statsP6.absentTotal
-          };
+          const primaryOptions = effectiveOptions.filter(o => o.group === 'primary');
+          const primaryStatsList = primaryOptions.map(o => statsByGrade.get(o.grade)!);
+          const statsPrimary = sumStatsList(primaryStatsList);
 
-          const statsAll = {
-            maleTotal: statsKindergarten.maleTotal + statsPrimary.maleTotal,
-            femaleTotal: statsKindergarten.femaleTotal + statsPrimary.femaleTotal,
-            total: statsKindergarten.total + statsPrimary.total,
-            malePresent: statsKindergarten.malePresent + statsPrimary.malePresent,
-            femalePresent: statsKindergarten.femalePresent + statsPrimary.femalePresent,
-            presentTotal: statsKindergarten.presentTotal + statsPrimary.presentTotal,
-            maleAbsent: statsKindergarten.maleAbsent + statsPrimary.maleAbsent,
-            femaleAbsent: statsKindergarten.femaleAbsent + statsPrimary.femaleAbsent,
-            absentTotal: statsKindergarten.absentTotal + statsPrimary.absentTotal
+          const secondaryOptions = effectiveOptions.filter(o => o.group === 'secondary');
+          const secondaryStatsList = secondaryOptions.map(o => statsByGrade.get(o.grade)!);
+          const statsSecondary = sumStatsList(secondaryStatsList);
+
+          const allSelectedStatsList = effectiveOptions.map(o => statsByGrade.get(o.grade)!);
+          const statsAll = sumStatsList(allSelectedStatsList);
+
+          const gradeBreakdown = effectiveOptions.map(opt => ({
+            label: opt.label,
+            shortLabel: opt.shortLabel,
+            st: statsByGrade.get(opt.grade)!
+          }));
+
+          const allAbsentStudents: DutyStudentAttendanceItem[] = gradeBreakdown.flatMap(g => g.st.absentStudents);
+          const allPresentStudents: DutyStudentAttendanceItem[] = gradeBreakdown.flatMap(g => g.st.presentStudents);
+
+          const absentByReason = {
+            absent: allAbsentStudents.filter(s => s.status === 'absent').length,
+            sick: allAbsentStudents.filter(s => s.status === 'sick').length,
+            leave: allAbsentStudents.filter(s => s.status === 'leave').length
           };
 
           return {
-            statsO2,
-            statsO3,
+            statsByGrade,
+            effectiveOptions,
+            kindergartenOptions,
+            primaryOptions,
+            secondaryOptions,
             statsKindergarten,
-            statsP1,
-            statsP2,
-            statsP3,
-            statsP4,
-            statsP5,
-            statsP6,
             statsPrimary,
-            statsAll
+            statsSecondary,
+            statsAll,
+            gradeBreakdown,
+            allAbsentStudents,
+            allPresentStudents,
+            absentByReason,
+            totalRecordedInDay: dayAttendance.length
           };
         };
 
         const renderDutyOfficialSheet = (log: DailyDutyLog, index?: number) => {
           const dateParts = parseThaiDateParts(log.date);
           const stats = calculateDutyStudentStats(log.date);
+
+          // ฟอนต์ตัวเลขสะอาดตา ไม่ใช้ขีดทับในเลข 0 (No slashed zero) และจัดหลักตัวเลขให้ตรงกันอย่างสวยงาม
+          const cleanNumberStyle: React.CSSProperties = {
+            fontFamily: "'Sarabun', 'TH Sarabun New', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+            fontVariantNumeric: 'tabular-nums',
+            fontFeatureSettings: '"zero" 0'
+          };
 
           const rawSchoolName = (schoolInfo.schoolName || 'บ้านไสโป๊ะ').trim();
           const formattedSchoolName = rawSchoolName.startsWith('โรงเรียน')
@@ -6160,20 +8325,20 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           }
 
           return (
-            <div className="space-y-3.5 flex flex-col justify-between flex-1">
-              <div className="space-y-3.5">
+            <div className="space-y-3 flex flex-col justify-between flex-1" style={cleanNumberStyle}>
+              <div className="space-y-3">
                 {/* Header */}
                 <div className="text-center space-y-1">
                   {/* Line 1: School Logo centered top (same size as ปพ.6) */}
-                  <div className="text-center mx-auto mb-1.5">
+                  <div className="text-center mx-auto mb-1">
                     {schoolInfo.logoUrl ? (
                       <img
                         src={schoolInfo.logoUrl}
                         alt="School Logo"
-                        className="w-24 h-24 sm:w-28 sm:h-28 object-contain mx-auto"
+                        className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto"
                       />
                     ) : (
-                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-4xl mx-auto">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-3xl mx-auto">
                         🏫
                       </div>
                     )}
@@ -6195,9 +8360,9 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </div>
                 </div>
 
-                {/* Student Statistics Table (3 Topics) */}
+                {/* Student Statistics Table (3 Topics: 1. นักเรียนทั้งหมด, 2. นักเรียนที่มา, 3. นักเรียนที่ขาด) */}
                 <div>
-                  <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px]">
+                  <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px]" style={cleanNumberStyle}>
                     <thead>
                       <tr className="bg-slate-100 border-b border-black">
                         <th rowSpan={2} className="border-r border-black p-1 font-bold align-middle">ระดับชั้น</th>
@@ -6217,104 +8382,135 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         <th className="p-0.5 font-bold">รวม</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {/* อ.2 */}
-                      <tr className="border-b border-black">
-                        <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 2</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.maleTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femaleTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO2.total || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.malePresent || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femalePresent || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO2.presentTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.maleAbsent || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO2.femaleAbsent || '-'}</td>
-                        <td className="p-1 font-mono font-bold">{stats.statsO2.absentTotal || '-'}</td>
-                      </tr>
-                      {/* อ.3 */}
-                      <tr className="border-b border-black">
-                        <td className="border-r border-black p-1 text-left font-medium pl-2">อนุบาล 3</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.maleTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femaleTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO3.total || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.malePresent || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femalePresent || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono font-bold">{stats.statsO3.presentTotal || '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.malePresent ? stats.statsO3.maleAbsent : '-'}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsO3.femaleAbsent || '-'}</td>
-                        <td className="p-1 font-mono font-bold">{stats.statsO3.absentTotal || '-'}</td>
-                      </tr>
-                      {/* รวม อ. */}
-                      <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                        <td className="border-r border-black p-1 text-left pl-2">รวมอนุบาล</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.maleTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femaleTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.total}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.malePresent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femalePresent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.presentTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.maleAbsent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsKindergarten.femaleAbsent}</td>
-                        <td className="p-1 font-mono">{stats.statsKindergarten.absentTotal}</td>
-                      </tr>
-                      {/* ป.1 - ป.6 */}
-                      {[
-                        { label: 'ประถมศึกษาปีที่ 1', st: stats.statsP1 },
-                        { label: 'ประถมศึกษาปีที่ 2', st: stats.statsP2 },
-                        { label: 'ประถมศึกษาปีที่ 3', st: stats.statsP3 },
-                        { label: 'ประถมศึกษาปีที่ 4', st: stats.statsP4 },
-                        { label: 'ประถมศึกษาปีที่ 5', st: stats.statsP5 },
-                        { label: 'ประถมศึกษาปีที่ 6', st: stats.statsP6 },
-                      ].map((item, idx) => (
-                        <tr key={idx} className="border-b border-black">
-                          <td className="border-r border-black p-1 text-left font-medium pl-2">{item.label}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.maleTotal || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.femaleTotal || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono font-bold">{item.st.total || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.malePresent || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.femalePresent || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono font-bold">{item.st.presentTotal || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.maleAbsent || '-'}</td>
-                          <td className="border-r border-black p-1 font-mono">{item.st.femaleAbsent || '-'}</td>
-                          <td className="p-1 font-mono font-bold">{item.st.absentTotal || '-'}</td>
+                    <tbody className="tabular-nums">
+                      {/* 1. ระดับอนุบาล (อ.1 - อ.3) */}
+                      {stats.kindergartenOptions.map(opt => {
+                        const st = stats.statsByGrade.get(opt.grade);
+                        if (!st) return null;
+                        return (
+                          <tr key={opt.grade} className="border-b border-black">
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          </tr>
+                        );
+                      })}
+                      {/* แถวสรุปรวมอนุบาล (ถ้ามีระดับชั้นอนุบาลที่เลือก) */}
+                      {stats.kindergartenOptions.length > 0 && (
+                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมอนุบาล</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.absentTotal}</td>
                         </tr>
-                      ))}
-                      {/* รวม ป. */}
-                      <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                        <td className="border-r border-black p-1 text-left pl-2">รวมประถม</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.maleTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femaleTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.total}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.malePresent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femalePresent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.presentTotal}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.maleAbsent}</td>
-                        <td className="border-r border-black p-1 font-mono">{stats.statsPrimary.femaleAbsent}</td>
-                        <td className="p-1 font-mono">{stats.statsPrimary.absentTotal}</td>
-                      </tr>
-                      {/* รวมทั้งหมด */}
+                      )}
+
+                      {/* 2. ระดับประถมศึกษา (ป.1 - ป.6) */}
+                      {stats.primaryOptions.map(opt => {
+                        const st = stats.statsByGrade.get(opt.grade);
+                        if (!st) return null;
+                        return (
+                          <tr key={opt.grade} className="border-b border-black">
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          </tr>
+                        );
+                      })}
+                      {/* แถวสรุปรวมประถม (ถ้ามีระดับชั้นประถมที่เลือก) */}
+                      {stats.primaryOptions.length > 0 && (
+                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมประถม</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.absentTotal}</td>
+                        </tr>
+                      )}
+
+                      {/* 3. ระดับมัธยมศึกษาตอนต้น (ม.1 - ม.3) */}
+                      {stats.secondaryOptions.map(opt => {
+                        const st = stats.statsByGrade.get(opt.grade);
+                        if (!st) return null;
+                        return (
+                          <tr key={opt.grade} className="border-b border-black">
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          </tr>
+                        );
+                      })}
+                      {/* แถวสรุปรวมมัธยม (ถ้ามีระดับชั้นมัธยมที่เลือก) */}
+                      {stats.secondaryOptions.length > 0 && (
+                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมมัธยม</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.absentTotal}</td>
+                        </tr>
+                      )}
+
+                      {/* รวมทั้งหมด (Grand Total) */}
                       <tr className="border-b-2 border-black bg-slate-100 font-extrabold">
-                        <td className="border-r border-black p-1.5 text-left pl-2">รวมทั้งหมด</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.maleTotal}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femaleTotal}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.total}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.malePresent}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femalePresent}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.presentTotal}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.maleAbsent}</td>
-                        <td className="border-r border-black p-1.5 font-mono">{stats.statsAll.femaleAbsent}</td>
-                        <td className="p-1.5 font-mono">{stats.statsAll.absentTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 text-left pl-2">รวมทั้งหมด</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.maleTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femaleTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.total}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.malePresent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femalePresent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.presentTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.maleAbsent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femaleAbsent}</td>
+                        <td className="py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.absentTotal}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
 
                 {/* Time Slots Table */}
-                <div className="mt-4">
+                <div className="mt-2.5">
                   <h3 className="font-bold text-xs mb-1 text-slate-900">
                     บันทึกการปฏิบัติหน้าที่ตามช่วงเวลา
                   </h3>
-                  <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px]">
+                  <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px]" style={cleanNumberStyle}>
                     <thead>
                       <tr className="bg-slate-100 border-b border-black text-black">
                         <th className="border-r border-black p-1.5 text-center w-12 font-bold">ลำดับ</th>
@@ -6325,8 +8521,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     <tbody>
                       {log.timeSlots.map((slot, idx) => (
                         <tr key={slot.id || idx} className="border-b border-black">
-                          <td className="border-r border-black p-1.5 text-center font-mono align-middle">{idx + 1}</td>
-                          <td className="border-r border-black p-1.5 text-center font-bold font-mono whitespace-nowrap align-middle">{slot.time}</td>
+                          <td className="border-r border-black p-1.5 text-center tabular-nums align-middle">{idx + 1}</td>
+                          <td className="border-r border-black p-1.5 text-center font-bold tabular-nums whitespace-nowrap align-middle">{slot.time}</td>
                           <td className="p-1.5 leading-relaxed align-middle">{slot.description}</td>
                         </tr>
                       ))}
@@ -6348,16 +8544,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               </div>
 
               {/* Signatures Section */}
-              <div className="grid grid-cols-2 gap-8 mt-auto pt-8 pb-6 text-center text-[12px]">
+              <div className="grid grid-cols-2 gap-8 mt-auto pt-6 pb-4 text-center text-[12px]">
                 <div className="space-y-3">
                   <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-bold">( {log.dutyTeacherName.replace(/^ครู\s*/, '')} )</p>
+                  <p className="font-bold">( {formatDutySignatureName(log.dutyTeacherName)} )</p>
                   <p className="text-slate-600">ครูเวรผู้รายงาน</p>
                 </div>
 
                 <div className="space-y-4">
                   <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-bold">( {directorFullName.replace(/^ครู\s*/, '')} )</p>
+                  <p className="font-bold">( {formatDutySignatureName(directorFullName)} )</p>
                   <p className="text-slate-700 font-semibold">{directorPositionTitle}</p>
                 </div>
               </div>
@@ -6400,28 +8596,32 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
                 <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-4xl w-full my-auto flex flex-col max-h-[96vh] overflow-hidden">
                   {/* Top Action Bar */}
-                  <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+                  <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap shrink-0">
                     <div className="flex items-center gap-2">
                       <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
                         <Shield className="w-5 h-5" />
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-800">ตัวอย่างแบบรายงานการปฏิบัติหน้าที่ครูเวร (ขนาด A4)</h3>
-                        <p className="text-xs text-slate-500">ตรวจสอบความถูกต้องก่อนสั่งพิมพ์ หรือดาวน์โหลดเป็นไฟล์ PDF</p>
+                        <p className="text-xs text-slate-500">
+                          ประจำวันที่ {formatThaiDate(previewDutyLog.date)}
+                        </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          window.print();
-                          onShowToast('success', 'ดาวน์โหลดสำเร็จ', 'เตรียมพิมพ์/บันทึกแบบรายงานครูเวรเป็นไฟล์ PDF');
-                        }}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                        disabled={isDownloadingDutyPdf}
+                        onClick={() => handleDownloadDutyPdf(previewDutyLog)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all disabled:opacity-60"
+                        title="ดาวน์โหลดเป็นไฟล์ PDF ทันที"
                       >
-                        <Download className="w-4 h-4" />
-                        <Printer className="w-4 h-4" />
-                        <span>ดาวน์โหลด / พิมพ์รายงาน A4</span>
+                        {isDownloadingDutyPdf ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        <span>{isDownloadingDutyPdf ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
                       </button>
                       <button
                         type="button"
@@ -6434,11 +8634,18 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </div>
 
                   {/* Scrollable A4 Document View */}
-                  <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
+                  <div className="p-4 sm:p-8 overflow-auto bg-slate-200/60 flex justify-center flex-1">
                     <div
                       id="duty-official-a4-print"
-                      className="bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-slate-900 leading-tight text-[11px] sm:text-[12px] flex flex-col justify-between"
-                      style={{ fontFamily: "'Sarabun', 'TH Sarabun New', serif" }}
+                      className="bg-white shadow-xl border border-slate-300 text-slate-900 leading-tight text-[12px] flex flex-col justify-between shrink-0 mx-auto box-border"
+                      style={{
+                        fontFamily: "'Sarabun', 'TH Sarabun New', serif",
+                        width: '210mm',
+                        minWidth: '210mm',
+                        minHeight: '297mm',
+                        padding: '10mm 12mm',
+                        boxSizing: 'border-box',
+                      }}
                     >
                       {renderDutyOfficialSheet(previewDutyLog)}
                     </div>
@@ -6505,21 +8712,23 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       </div>
                       <div>
                         <h3 className="text-sm font-bold text-slate-800">ตัวอย่างรายงานการปฏิบัติหน้าที่ครูเวรทั้งหมด ({dutyLogs.length} รายการ)</h3>
-                        <p className="text-xs text-slate-500">ตรวจสอบตัวอย่างก่อนดาวน์โหลดหรือพิมพ์เป็น PDF ทั้งหมด (รูปแบบ A4 สมบูรณ์ตรงกับแบบเดี่ยว)</p>
+                        <p className="text-xs text-slate-500">ตรวจสอบตัวอย่างก่อนดาวน์โหลดเป็นไฟล์ PDF (รูปแบบ A4 สมบูรณ์ตรงกับหน้าตัวอย่าง 100%)</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          window.print();
-                          onShowToast('success', 'ดาวน์โหลดทั้งหมดสำเร็จ', 'เตรียมพิมพ์/บันทึกรายงานครูเวรทั้งหมดเป็นไฟล์ PDF');
-                        }}
-                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                        disabled={isDownloadingDutyPdf}
+                        onClick={handleDownloadAllDutyPdf}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer transition-all disabled:opacity-60"
+                        title="ดาวน์โหลดเป็นไฟล์ PDF ทันที"
                       >
-                        <Download className="w-4 h-4" />
-                        <Printer className="w-4 h-4" />
-                        <span>ดาวน์โหลด / พิมพ์รายงานทั้งหมด A4</span>
+                        {isDownloadingDutyPdf ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Download className="w-4 h-4" />
+                        )}
+                        <span>{isDownloadingDutyPdf ? 'กำลังดาวน์โหลด...' : 'ดาวน์โหลด'}</span>
                       </button>
                       <button
                         type="button"
@@ -6532,7 +8741,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   </div>
 
                   {/* Scrollable A4 Document View */}
-                  <div className="p-4 sm:p-8 overflow-y-auto bg-slate-200/60 flex justify-center flex-1">
+                  <div className="p-4 sm:p-8 overflow-auto bg-slate-200/60 flex justify-center flex-1">
                     <div
                       id="duty-all-official-a4-print"
                       className="w-full space-y-8 print:space-y-0"
@@ -6540,8 +8749,15 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       {dutyLogs.map((log, index) => (
                         <div
                           key={log.id || index}
-                          className="duty-a4-all-sheet bg-white shadow-xl border border-slate-300 w-full max-w-[210mm] min-h-[297mm] p-6 sm:p-10 text-slate-900 leading-tight text-[11px] sm:text-[12px] flex flex-col justify-between mx-auto print:border-none print:shadow-none"
-                          style={{ fontFamily: "'Sarabun', 'TH Sarabun New', serif" }}
+                          className="duty-a4-all-sheet bg-white shadow-xl border border-slate-300 text-slate-900 leading-tight text-[12px] flex flex-col justify-between mx-auto print:border-none print:shadow-none shrink-0 box-border"
+                          style={{
+                            fontFamily: "'Sarabun', 'TH Sarabun New', serif",
+                            width: '210mm',
+                            minWidth: '210mm',
+                            minHeight: '297mm',
+                            padding: '10mm 12mm',
+                            boxSizing: 'border-box',
+                          }}
                         >
                           {renderDutyOfficialSheet(log, index)}
                         </div>
@@ -6588,12 +8804,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 onClick={() => {
                   const targetId = confirmDeleteDutyLog.id;
                   const targetDate = confirmDeleteDutyLog.date;
-                  setDutyLogs(prev => {
-                    const updated = prev.filter(l => l.id !== targetId);
-                    StorageService.setDailyDutyLogs(updated);
-                    return updated;
-                  });
-                  StorageService.deleteDailyDutyLog(targetId);
+                  const remaining = dutyLogs.filter(l => l.id !== targetId);
+                  StorageService.setDailyDutyLogs(remaining);
+                  const updated = StorageService.deleteDailyDutyLog(targetId);
+                  setDutyLogs(updated);
+                  if (previewDutyLog && previewDutyLog.id === targetId) {
+                    setPreviewDutyLog(null);
+                  }
                   setConfirmDeleteDutyLog(null);
                   onShowToast('info', 'ลบสำเร็จ', `ลบรายงานครูเวรประจำวันที่ ${targetDate} เรียบร้อยแล้ว`);
                 }}
@@ -6681,14 +8898,20 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   return;
                 }
                 if (editingDutyId) {
-                  setDutyAssignments(prev => prev.map(d => d.id === editingDutyId ? dutyForm : d));
+                  const updated = dutyAssignments.map(d => d.id === editingDutyId ? dutyForm : d);
+                  StorageService.setDutyAssignments(updated);
+                  StorageService.saveDutyAssignment(dutyForm);
+                  setDutyAssignments(updated);
                   onShowToast('success', 'แก้ไขสำเร็จ', 'อัปเดตข้อมูลตารางครูเวรเรียบร้อยแล้ว');
                 } else {
                   const newDuty: DutyAssignment = {
                     ...dutyForm,
                     id: 'duty-' + Date.now()
                   };
-                  setDutyAssignments(prev => [...prev, newDuty]);
+                  const updated = [...dutyAssignments, newDuty];
+                  StorageService.setDutyAssignments(updated);
+                  StorageService.saveDutyAssignment(newDuty);
+                  setDutyAssignments(updated);
                   onShowToast('success', 'บันทึกสำเร็จ', 'เพิ่มตารางครูเวรเข้าสู่ระบบเรียบร้อยแล้ว');
                 }
                 setIsDutyModalOpen(false);
@@ -6802,7 +9025,27 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">รายละเอียดการปฏิบัติหน้าที่</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">รายละเอียดการปฏิบัติหน้าที่</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const history = getLatestDutyLogHistory();
+                      const matchedSlot = history.latestSlots.find(s => s.time.trim() === editingSlotPopup.time.trim()) || history.latestSlots[editingSlotPopup.index];
+                      if (matchedSlot && matchedSlot.description) {
+                        setEditingSlotPopup(prev => prev ? { ...prev, description: matchedSlot.description } : null);
+                        onShowToast('info', 'ดึงประวัติข้อความสำเร็จ', 'ดึงรายละเอียดการปฏิบัติหน้าที่ล่าสุดเรียบร้อยแล้ว');
+                      } else {
+                        onShowToast('warning', 'ไม่พบข้อความก่อนหน้า', 'ยังไม่มีประวัติข้อความที่เคยกรอกสำหรับช่วงเวลานี้');
+                      }
+                    }}
+                    className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors"
+                    title="ดึงข้อความที่เคยกรอกในรายงานเวรล่าสุด"
+                  >
+                    <RotateCcw className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span>ดึงข้อความล่าสุดที่เคยกรอก</span>
+                  </button>
+                </div>
                 <textarea
                   rows={6}
                   value={editingSlotPopup.description}

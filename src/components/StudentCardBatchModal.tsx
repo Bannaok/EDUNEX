@@ -204,7 +204,7 @@ export const captureElementAsA4Canvas = async (element: HTMLElement): Promise<HT
 
   try {
     const canvas = await domToCanvas(element, {
-      scale: 3,
+      scale: 3.5,
       backgroundColor: '#ffffff',
       style: {
         boxShadow: 'none',
@@ -330,7 +330,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
     const gradeOrder: GradeLevel[] = [
       'อ.1', 'อ.2', 'อ.3',
       'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
-      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+      'ม.1', 'ม.2', 'ม.3'
     ];
     const unique = Array.from(new Set(students.map(s => s.gradeLevel))).filter(Boolean);
     return gradeOrder.filter(g => unique.includes(g));
@@ -377,59 +377,6 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
     }
   };
 
-  const handleDownloadPDF = async () => {
-    if (isDownloading) return;
-    setIsDownloading(true);
-    try {
-      if (document.fonts) {
-        await document.fonts.ready;
-      }
-
-      const pageElements = Array.from(document.querySelectorAll<HTMLElement>('.student-card-a4-page'));
-      if (!pageElements || pageElements.length === 0) {
-        if (onShowToast) {
-          onShowToast('warning', 'ไม่พบข้อมูล', 'ไม่มีข้อมูลบัตรนักเรียนสำหรับดาวน์โหลด');
-        }
-        setIsDownloading(false);
-        return;
-      }
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-        compress: true,
-      });
-
-      for (let i = 0; i < pageElements.length; i++) {
-        const pageEl = pageElements[i];
-        if (i > 0) {
-          pdf.addPage('a4', 'portrait');
-        }
-
-        const canvas = await captureElementAsA4Canvas(pageEl);
-        const imgData = canvas.toDataURL('image/jpeg', 0.98);
-        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-      }
-
-      const sideName = cardSide === 'front' ? 'หน้าบัตร' : 'หลังบัตร';
-      const gradeName = selectedGrade === 'all' ? 'ทุกระดับชั้น' : `ชั้น${selectedGrade}`;
-      const cleanSchool = (schoolInfo.schoolName || 'โรงเรียน').replace(/\s+/g, '_');
-      const fileName = `บัตรนักเรียน_${sideName}_${gradeName}_${cleanSchool}.pdf`;
-      pdf.save(fileName);
-
-      if (onShowToast) {
-        onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดไฟล์ PDF บัตรนักเรียน (${sideName}) เรียบร้อยแล้ว`);
-      }
-    } catch (err) {
-      console.error('Download student cards failed:', err);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
   // Helper date formatter
   const formatThaiBirthDate = (dateStr?: string) => {
     if (!dateStr) return '-';
@@ -449,6 +396,873 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
 
   const academicYear = schoolInfo.academicYear || '2569';
   const nextYear = String(parseInt(academicYear, 10) + 1);
+
+  /**
+   * Loads an image URL or Data URL into an HTMLImageElement for high-DPI canvas drawing.
+   */
+  const loadImageElement = (url?: string): Promise<HTMLImageElement | null> => {
+    if (!url) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const img = new Image();
+      if (!url.startsWith('data:')) {
+        img.crossOrigin = 'anonymous';
+      }
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        // Retry without crossOrigin if CORS header is missing
+        if (!url.startsWith('data:')) {
+          const fallbackImg = new Image();
+          fallbackImg.onload = () => resolve(fallbackImg);
+          fallbackImg.onerror = () => resolve(null);
+          fallbackImg.src = url;
+        } else {
+          resolve(null);
+        }
+      };
+      img.src = url;
+    });
+  };
+
+  /**
+   * Renders a full A4 page (210mm x 297mm) of up to 8 CR80 Student ID Cards (85.6mm x 54mm)
+   * directly onto a 406-DPI HTML5 Canvas (16 px/mm -> 3360 x 4752 px).
+   * Guarantees crystal-clear vector-grade Thai text/photos and 0% chance of line wrapping.
+   */
+  const renderStudentCardPageCanvas = async (
+    pageStudents: Student[],
+    side: 'front' | 'back'
+  ): Promise<HTMLCanvasElement> => {
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
+    const PX_PER_MM = 16; // 406.4 DPI (3360 x 4752 px per A4 sheet)
+    const mm = (val: number) => val * PX_PER_MM;
+    const cssPx = (px: number) => px * (PX_PER_MM / 3.779527559);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(mm(210));
+    canvas.height = Math.round(mm(297));
+    const ctx = canvas.getContext('2d')!;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    // Pure white A4 background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const FONT_SANS = '"Sarabun", "Plus Jakarta Sans", sans-serif';
+    const FONT_MONO = '"JetBrains Mono", "Sarabun", monospace';
+
+    // Helper: draw rounded rectangle path
+    const traceRoundRect = (x: number, y: number, w: number, h: number, r: number) => {
+      const radius = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+    };
+
+    // Helper: draw image with object-fit: cover or contain
+    const drawFittedImage = (
+      img: HTMLImageElement,
+      boxX: number,
+      boxY: number,
+      boxW: number,
+      boxH: number,
+      mode: 'cover' | 'contain'
+    ) => {
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      if (!iw || !ih) return;
+
+      if (mode === 'cover') {
+        const scale = Math.max(boxW / iw, boxH / ih);
+        const sw = boxW / scale;
+        const sh = boxH / scale;
+        const sx = (iw - sw) / 2;
+        const sy = (ih - sh) / 2;
+        ctx.drawImage(img, sx, sy, sw, sh, boxX, boxY, boxW, boxH);
+      } else {
+        const scale = Math.min(boxW / iw, boxH / ih);
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = boxX + (boxW - dw) / 2;
+        const dy = boxY + (boxH - dh) / 2;
+        ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+      }
+    };
+
+    // Helper: draw single-line text that automatically shrinks font size if needed so it NEVER wraps or overflows
+    const drawSingleLineText = (
+      text: string,
+      x: number,
+      y: number,
+      maxWidth: number,
+      opts: {
+        fontSizePx: number;
+        minFontSizePx?: number;
+        fontWeight?: string | number;
+        fontFamily?: string;
+        color: string;
+        align?: CanvasTextAlign;
+        baseline?: CanvasTextBaseline;
+      }
+    ): number => {
+      const family = opts.fontFamily || FONT_SANS;
+      const weight = opts.fontWeight ?? 400;
+      const minPx = opts.minFontSizePx ?? 4.5;
+      let currentPx = opts.fontSizePx;
+
+      ctx.save();
+      ctx.fillStyle = opts.color;
+      ctx.textAlign = opts.align || 'left';
+      ctx.textBaseline = opts.baseline || 'middle';
+
+      ctx.font = `${weight} ${cssPx(currentPx)}px ${family}`;
+      while (maxWidth > 0 && ctx.measureText(text).width > maxWidth && currentPx > minPx) {
+        currentPx = Math.max(minPx, currentPx - 0.2);
+        ctx.font = `${weight} ${cssPx(currentPx)}px ${family}`;
+      }
+
+      ctx.fillText(text, x, y);
+      const drawnWidth = ctx.measureText(text).width;
+      ctx.restore();
+      return drawnWidth;
+    };
+
+    // Preload shared images (school logo & director signature)
+    const [logoImg, signatureImg, ...studentPhotos] = await Promise.all([
+      loadImageElement(schoolInfo.logoUrl),
+      loadImageElement(directorSignature),
+      ...pageStudents.map((s) => loadImageElement(s.photoUrl)),
+    ]);
+
+    const startX = mm(15.15);
+    const startY = mm(14);
+    const cardW = mm(85.6);
+    const cardH = mm(54);
+    const gapX = mm(8.5);
+    const gapY = mm(6.5);
+
+    for (let idx = 0; idx < pageStudents.length; idx++) {
+      const student = pageStudents[idx];
+      const photoImg = studentPhotos[idx];
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const cx = startX + col * (cardW + gapX);
+      const cy = startY + row * (cardH + gapY);
+
+      const codeDisplay = student.studentCode || '-';
+      const idCardDisplay = student.idCard || student.citizenId || '-';
+      const gradeStage = getGradeStageLabel(student.gradeLevel);
+      const emergencyPhone =
+        student.guardianPhone || student.fatherPhone || student.motherPhone || schoolInfo.phone || '-';
+
+      ctx.save();
+      // Clip card to rounded 3mm rectangle
+      traceRoundRect(cx, cy, cardW, cardH, mm(3));
+      ctx.clip();
+
+      if (side === 'front') {
+        /* ===================== FRONT OF CARD (85.6 x 54 mm) ===================== */
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(cx, cy, cardW, cardH);
+
+        // 1. Top Header (13mm tall) with Royal Blue -> Indigo Gradient
+        const headerH = mm(13);
+        const grad = ctx.createLinearGradient(cx, cy, cx + cardW, cy);
+        grad.addColorStop(0, '#1d4ed8');
+        grad.addColorStop(0.5, '#1e40af');
+        grad.addColorStop(1, '#312e81');
+        ctx.fillStyle = grad;
+        ctx.fillRect(cx, cy, cardW, headerH);
+
+        // Subtle decorative circle on right of header
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx + cardW - mm(3), cy + headerH - mm(1), mm(8), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
+        ctx.fill();
+        ctx.restore();
+
+        // School Logo (8.5mm x 8.5mm circle)
+        const logoSize = mm(8.5);
+        const logoX = cx + mm(2.5);
+        const logoY = cy + (headerH - logoSize) / 2;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(logoX + logoSize / 2, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2);
+        if (logoImg) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+          ctx.fill();
+          ctx.clip();
+          const pad = mm(0.5);
+          drawFittedImage(logoImg, logoX + pad, logoY + pad, logoSize - pad * 2, logoSize - pad * 2, 'contain');
+        } else {
+          ctx.fillStyle = '#fbbf24';
+          ctx.fill();
+          drawSingleLineText('รร', logoX + logoSize / 2, logoY + logoSize / 2, logoSize, {
+            fontSizePx: 9,
+            fontWeight: 900,
+            color: '#172554',
+            align: 'center',
+          });
+        }
+        ctx.restore();
+
+        // Academic Year Badge on Right of Header
+        const badgeText = `ปีการศึกษา ${academicYear}`;
+        ctx.font = `800 ${cssPx(7)}px ${FONT_SANS}`;
+        const badgeTextW = ctx.measureText(badgeText).width;
+        const badgePadX = mm(1.6);
+        const badgeW = badgeTextW + badgePadX * 2;
+        const badgeH = mm(4.4);
+        const badgeX = cx + cardW - mm(2.5) - badgeW;
+        const badgeY = cy + (headerH - badgeH) / 2;
+
+        traceRoundRect(badgeX, badgeY, badgeW, badgeH, mm(1));
+        ctx.fillStyle = '#fbbf24';
+        ctx.fill();
+        drawSingleLineText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2, badgeW - mm(1), {
+          fontSizePx: 7,
+          fontWeight: 800,
+          color: '#172554',
+          align: 'center',
+        });
+
+        // School Name & Subtitle in Header
+        const titleLeftX = logoX + logoSize + mm(1.6);
+        const titleMaxW = badgeX - titleLeftX - mm(1.8);
+        drawSingleLineText(
+          schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ',
+          titleLeftX,
+          cy + mm(4.8),
+          titleMaxW,
+          {
+            fontSizePx: 9.5,
+            minFontSizePx: 6.5,
+            fontWeight: 900,
+            color: '#fcd34d',
+            align: 'left',
+          }
+        );
+        drawSingleLineText(
+          'บัตรประจำตัวนักเรียน • STUDENT IDENTITY CARD',
+          titleLeftX,
+          cy + mm(8.8),
+          titleMaxW,
+          {
+            fontSizePx: 6.8,
+            minFontSizePx: 5.2,
+            fontWeight: 600,
+            color: '#dbeafe',
+            align: 'left',
+          }
+        );
+
+        // 2. Thin Gold Accent Stripe (1mm)
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(cx, cy + headerH, cardW, mm(1));
+
+        // 3. Card Body (y = 14mm to 52mm)
+        const bodyTop = cy + mm(14);
+
+        // Left Column: Photo (22mm x 27.5mm) + ID Badge
+        const photoW = mm(22);
+        const photoH = mm(27.5);
+        const photoX = cx + mm(2.8);
+        const photoY = bodyTop + mm(2);
+
+        ctx.save();
+        traceRoundRect(photoX, photoY, photoW, photoH, mm(2));
+        ctx.fillStyle = '#f8fafc';
+        ctx.fill();
+        ctx.clip();
+        if (photoImg) {
+          drawFittedImage(photoImg, photoX, photoY, photoW, photoH, 'cover');
+        } else {
+          ctx.fillStyle = '#f1f5f9';
+          ctx.fillRect(photoX, photoY, photoW, photoH);
+          // User silhouette icon
+          ctx.fillStyle = '#cbd5e1';
+          ctx.beginPath();
+          ctx.arc(photoX + photoW / 2, photoY + mm(9.5), mm(3.2), 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(photoX + photoW / 2, photoY + mm(19.5), mm(5.5), Math.PI, 0, false);
+          ctx.fill();
+          drawSingleLineText('ไม่มีรูปถ่าย', photoX + photoW / 2, photoY + mm(23), photoW - mm(2), {
+            fontSizePx: 6.5,
+            fontWeight: 700,
+            color: '#94a3b8',
+            align: 'center',
+          });
+        }
+        ctx.restore();
+
+        // Photo border
+        ctx.save();
+        traceRoundRect(photoX, photoY, photoW, photoH, mm(2));
+        ctx.lineWidth = cssPx(1.8);
+        ctx.strokeStyle = '#60a5fa';
+        ctx.stroke();
+        ctx.restore();
+
+        // ID Badge below photo
+        const idBoxY = photoY + photoH + mm(1.2);
+        const idBoxH = mm(4.4);
+        traceRoundRect(photoX, idBoxY, photoW, idBoxH, mm(1));
+        ctx.fillStyle = '#eff6ff';
+        ctx.fill();
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#bfdbfe';
+        ctx.stroke();
+
+        drawSingleLineText(`ID: ${codeDisplay}`, photoX + photoW / 2, idBoxY + idBoxH / 2, photoW - mm(1.5), {
+          fontSizePx: 7.5,
+          minFontSizePx: 5.5,
+          fontWeight: 700,
+          fontFamily: FONT_MONO,
+          color: '#172554',
+          align: 'center',
+        });
+
+        // Right Column (Particulars & Signature)
+        const rightX = photoX + photoW + mm(2.8);
+        const rightW = cx + cardW - mm(2.8) - rightX;
+
+        // Student Full Name & Nickname
+        const fullName = `${student.prefix || ''}${student.firstName || ''} ${student.lastName || ''}`.trim();
+        drawSingleLineText(fullName, rightX, bodyTop + mm(3.8), rightW, {
+          fontSizePx: 11.8,
+          minFontSizePx: 8,
+          fontWeight: 900,
+          color: '#0f172a',
+          align: 'left',
+        });
+
+        let nameDividerY = bodyTop + mm(7.2);
+        if (student.nickname) {
+          drawSingleLineText(`ชื่อเล่น: ${student.nickname}`, rightX, bodyTop + mm(7.3), rightW, {
+            fontSizePx: 7.8,
+            minFontSizePx: 6,
+            fontWeight: 600,
+            color: '#64748b',
+            align: 'left',
+          });
+          nameDividerY = bodyTop + mm(9.6);
+        }
+
+        // Divider under student name
+        ctx.beginPath();
+        ctx.moveTo(rightX, nameDividerY);
+        ctx.lineTo(rightX + rightW, nameDividerY);
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.stroke();
+
+        // Particulars 3 rows (National ID, Grade Stage Badge, Birth Date & Blood Group)
+        const row1Y = nameDividerY + mm(3.1);
+        const row2Y = row1Y + mm(4.7);
+        const row3Y = row2Y + mm(4.7);
+
+        // Row 1: เลขประชาชน
+        const lblIdW = drawSingleLineText('เลขประชาชน:', rightX, row1Y, mm(20), {
+          fontSizePx: 7.5,
+          fontWeight: 600,
+          color: '#64748b',
+        });
+        drawSingleLineText(
+          idCardDisplay,
+          rightX + lblIdW + mm(1.5),
+          row1Y,
+          rightW - lblIdW - mm(1.5),
+          {
+            fontSizePx: 8.5,
+            minFontSizePx: 6.5,
+            fontWeight: 700,
+            fontFamily: FONT_MONO,
+            color: '#0f172a',
+          }
+        );
+
+        // Row 2: ระดับชั้น + Pill Badge (never wraps!)
+        const lblGradeW = drawSingleLineText('ระดับชั้น:', rightX, row2Y, mm(16), {
+          fontSizePx: 7.5,
+          fontWeight: 600,
+          color: '#64748b',
+        });
+
+        const pillX = rightX + lblGradeW + mm(1.5);
+        const pillMaxW = rightW - lblGradeW - mm(1.5);
+        ctx.font = `700 ${cssPx(8.5)}px ${FONT_SANS}`;
+        const rawStageW = ctx.measureText(gradeStage).width;
+        const pillPadX = mm(1.8);
+        const pillW = Math.min(pillMaxW, rawStageW + pillPadX * 2);
+        const pillH = mm(4.1);
+
+        traceRoundRect(pillX, row2Y - pillH / 2, pillW, pillH, mm(1));
+        ctx.fillStyle = '#eff6ff';
+        ctx.fill();
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#bfdbfe';
+        ctx.stroke();
+
+        drawSingleLineText(
+          gradeStage,
+          pillX + pillW / 2,
+          row2Y,
+          pillW - mm(1.4),
+          {
+            fontSizePx: 8.5,
+            minFontSizePx: 6.2,
+            fontWeight: 700,
+            color: '#1e3a8a',
+            align: 'center',
+          }
+        );
+
+        // Row 3: วันเกิด & หมู่เลือด (both guaranteed single-line!)
+        let bloodReservedW = 0;
+        if (student.bloodGroup) {
+          const bloodValW = drawSingleLineText(
+            student.bloodGroup,
+            rightX + rightW,
+            row3Y,
+            mm(10),
+            {
+              fontSizePx: 7.5,
+              fontWeight: 700,
+              color: '#be123c',
+              align: 'right',
+            }
+          );
+          const bloodLblW = drawSingleLineText(
+            'หมู่เลือด:',
+            rightX + rightW - bloodValW - mm(0.8),
+            row3Y,
+            mm(14),
+            {
+              fontSizePx: 7.3,
+              fontWeight: 600,
+              color: '#64748b',
+              align: 'right',
+            }
+          );
+          bloodReservedW = bloodValW + bloodLblW + mm(2.5);
+        }
+
+        const lblDobW = drawSingleLineText('วันเกิด:', rightX, row3Y, mm(13), {
+          fontSizePx: 7.5,
+          fontWeight: 600,
+          color: '#64748b',
+        });
+        drawSingleLineText(
+          formatThaiBirthDate(student.birthDate),
+          rightX + lblDobW + mm(1.2),
+          row3Y,
+          rightW - lblDobW - mm(1.2) - bloodReservedW,
+          {
+            fontSizePx: 7.6,
+            minFontSizePx: 6,
+            fontWeight: 700,
+            color: '#1e293b',
+          }
+        );
+
+        // Signature Section Divider
+        const sigDividerY = cy + mm(39.4);
+        ctx.beginPath();
+        ctx.moveTo(rightX, sigDividerY);
+        ctx.lineTo(rightX + rightW, sigDividerY);
+        ctx.lineWidth = cssPx(0.7);
+        ctx.strokeStyle = '#f1f5f9';
+        ctx.stroke();
+
+        // Left: Issued By (constrained width so it never touches director name)
+        const sigBlockW = mm(34);
+        const sigCenterX = rightX + rightW - sigBlockW / 2;
+        const issuedByMaxW = rightW - sigBlockW - mm(1);
+
+        drawSingleLineText(
+          `ออกโดย ${schoolInfo.schoolName || 'สถานศึกษา'}`,
+          rightX,
+          cy + mm(49.5),
+          issuedByMaxW,
+          {
+            fontSizePx: 5.8,
+            minFontSizePx: 4.5,
+            fontWeight: 500,
+            color: '#94a3b8',
+            align: 'left',
+          }
+        );
+
+        // Right: Director Signature + ( Name ) + Position (all single-line auto-fitted!)
+        if (signatureImg) {
+          drawFittedImage(
+            signatureImg,
+            sigCenterX - mm(13),
+            sigDividerY + mm(0.4),
+            mm(26),
+            mm(5.6),
+            'contain'
+          );
+        } else {
+          ctx.save();
+          ctx.beginPath();
+          ctx.setLineDash([mm(0.5), mm(0.5)]);
+          ctx.moveTo(sigCenterX - mm(10), sigDividerY + mm(4.8));
+          ctx.lineTo(sigCenterX + mm(10), sigDividerY + mm(4.8));
+          ctx.lineWidth = cssPx(0.8);
+          ctx.strokeStyle = '#cbd5e1';
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        drawSingleLineText(
+          `( ${directorDisplayName} )`,
+          sigCenterX,
+          cy + mm(47.3),
+          sigBlockW,
+          {
+            fontSizePx: 7.4,
+            minFontSizePx: 5.5,
+            fontWeight: 700,
+            color: '#0f172a',
+            align: 'center',
+          }
+        );
+
+        drawSingleLineText(
+          directorPositionTitle,
+          sigCenterX,
+          cy + mm(49.8),
+          sigBlockW,
+          {
+            fontSizePx: 6.3,
+            minFontSizePx: 4.8,
+            fontWeight: 500,
+            color: '#64748b',
+            align: 'center',
+          }
+        );
+
+        // 4. Bottom Micro Strip (2mm tall)
+        const footerH = mm(2);
+        const footerY = cy + cardH - footerH;
+        ctx.fillStyle = '#1e3a8a';
+        ctx.fillRect(cx, footerY, cardW, footerH);
+
+        drawSingleLineText(
+          'กระทรวงศึกษาธิการ • MINISTRY OF EDUCATION',
+          cx + mm(2.5),
+          footerY + footerH / 2,
+          mm(55),
+          {
+            fontSizePx: 5,
+            fontWeight: 500,
+            color: '#bfdbfe',
+            align: 'left',
+          }
+        );
+        drawSingleLineText(
+          `VALID THRU 03/${nextYear}`,
+          cx + cardW - mm(2.5),
+          footerY + footerH / 2,
+          mm(25),
+          {
+            fontSizePx: 5,
+            fontWeight: 600,
+            fontFamily: FONT_MONO,
+            color: '#bfdbfe',
+            align: 'right',
+          }
+        );
+      } else {
+        /* ===================== BACK OF CARD (85.6 x 54 mm) ===================== */
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(cx, cy, cardW, cardH);
+
+        const padX = mm(2.8);
+        const innerW = cardW - padX * 2;
+        const centerX = cx + cardW / 2;
+
+        // 1. Header School Info
+        drawSingleLineText(
+          schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ',
+          centerX,
+          cy + mm(4.2),
+          innerW,
+          {
+            fontSizePx: 9,
+            minFontSizePx: 6.5,
+            fontWeight: 900,
+            color: '#172554',
+            align: 'center',
+          }
+        );
+
+        if (schoolInfo.address) {
+          drawSingleLineText(schoolInfo.address, centerX, cy + mm(7.3), innerW, {
+            fontSizePx: 6.4,
+            minFontSizePx: 4.8,
+            fontWeight: 500,
+            color: '#475569',
+            align: 'center',
+          });
+        }
+
+        drawSingleLineText(
+          `โทรศัพท์ติดต่อ: ${schoolInfo.phone || 'ยังไม่ได้ระบุ'}`,
+          centerX,
+          cy + (schoolInfo.address ? mm(10.1) : mm(7.8)),
+          innerW,
+          {
+            fontSizePx: 6.8,
+            minFontSizePx: 5.5,
+            fontWeight: 700,
+            color: '#1e3a8a',
+            align: 'center',
+          }
+        );
+
+        // Header bottom border
+        const headerBottomY = cy + mm(12.2);
+        ctx.beginPath();
+        ctx.moveTo(cx + padX, headerBottomY);
+        ctx.lineTo(cx + cardW - padX, headerBottomY);
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.stroke();
+
+        // 2. Rules Box
+        const rulesY = cy + mm(13.4);
+        const rulesH = mm(20.6);
+        traceRoundRect(cx + padX, rulesY, innerW, rulesH, mm(1.4));
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.stroke();
+
+        const ruleTextX = cx + padX + mm(1.8);
+        const ruleMaxW = innerW - mm(3.6);
+        drawSingleLineText(
+          'ข้อปฏิบัติในการใช้บัตรประจำตัวนักเรียน:',
+          ruleTextX,
+          rulesY + mm(2.8),
+          ruleMaxW,
+          {
+            fontSizePx: 6.8,
+            fontWeight: 700,
+            color: '#1e3a8a',
+          }
+        );
+
+        const rules = [
+          '1. บัตรนี้เป็นเอกสารแสดงตนของผู้ถือบัตร และเป็นสมบัติของโรงเรียน',
+          '2. นักเรียนต้องพกติดตัวตลอดเวลาขณะอยู่ในสถานศึกษา และแสดงเมื่อเจ้าหน้าที่ร้องขอ',
+          '3. ใช้ในการติดต่อราชการ เข้าห้องสอบ ยืม-คืนหนังสือห้องสมุด และร่วมกิจกรรม',
+          '4. หากเก็บบัตรนี้ได้ กรุณาส่งคืนสถานศึกษาตามที่อยู่ข้างต้น หรือหย่อนลงตู้ไปรษณีย์',
+        ];
+        rules.forEach((ruleLine, rIdx) => {
+          drawSingleLineText(
+            ruleLine,
+            ruleTextX,
+            rulesY + mm(6.6 + rIdx * 3.6),
+            ruleMaxW,
+            {
+              fontSizePx: 6.2,
+              minFontSizePx: 5,
+              fontWeight: 500,
+              color: '#334155',
+            }
+          );
+        });
+
+        // 3. Student Details Summary Bar
+        const summaryY = cy + mm(35.3);
+        const summaryH = mm(5.2);
+        traceRoundRect(cx + padX, summaryY, innerW, summaryH, mm(1.2));
+        ctx.fillStyle = '#eff6ff';
+        ctx.fill();
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#bfdbfe';
+        ctx.stroke();
+
+        const summaryMidY = summaryY + summaryH / 2;
+        const phoneValW = drawSingleLineText(
+          emergencyPhone,
+          cx + cardW - padX - mm(2),
+          summaryMidY,
+          mm(24),
+          {
+            fontSizePx: 7,
+            fontWeight: 700,
+            fontFamily: FONT_MONO,
+            color: '#be123c',
+            align: 'right',
+          }
+        );
+        const phoneLblW = drawSingleLineText(
+          'ฉุกเฉินโทร: ',
+          cx + cardW - padX - mm(2) - phoneValW,
+          summaryMidY,
+          mm(16),
+          {
+            fontSizePx: 7,
+            fontWeight: 500,
+            color: '#64748b',
+            align: 'right',
+          }
+        );
+
+        const holderLblW = drawSingleLineText(
+          'ผู้ถือบัตร: ',
+          cx + padX + mm(2),
+          summaryMidY,
+          mm(15),
+          {
+            fontSizePx: 7,
+            fontWeight: 500,
+            color: '#64748b',
+            align: 'left',
+          }
+        );
+        drawSingleLineText(
+          `${student.prefix || ''}${student.firstName || ''} ${student.lastName || ''}`.trim(),
+          cx + padX + mm(2) + holderLblW,
+          summaryMidY,
+          innerW - mm(4) - holderLblW - phoneLblW - phoneValW - mm(2),
+          {
+            fontSizePx: 7,
+            minFontSizePx: 5.5,
+            fontWeight: 700,
+            color: '#0f172a',
+            align: 'left',
+          }
+        );
+
+        // 4. Barcode & Validity Strip
+        const bottomDividerY = cy + mm(42);
+        ctx.beginPath();
+        ctx.moveTo(cx + padX, bottomDividerY);
+        ctx.lineTo(cx + cardW - padX, bottomDividerY);
+        ctx.lineWidth = cssPx(0.8);
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.stroke();
+
+        // Barcode bars
+        let barX = cx + padX;
+        const barY = cy + mm(43.4);
+        const barH = mm(3.6);
+        for (let b = 0; b < 38; b++) {
+          const wPx = b % 4 === 0 ? cssPx(2) : b % 3 === 0 ? cssPx(1.5) : cssPx(0.8);
+          ctx.fillStyle = b % 5 === 0 ? 'rgba(15, 23, 42, 0.35)' : '#0f172a';
+          ctx.fillRect(barX, barY, wPx, barH);
+          barX += wPx + cssPx(1);
+        }
+
+        drawSingleLineText(`*${codeDisplay}*`, cx + padX, cy + mm(49.2), mm(35), {
+          fontSizePx: 5.5,
+          fontWeight: 600,
+          fontFamily: FONT_MONO,
+          color: '#64748b',
+          align: 'left',
+        });
+
+        drawSingleLineText(
+          `วันออกบัตร: 16 พ.ค. ${academicYear}`,
+          cx + cardW - padX,
+          cy + mm(45.2),
+          mm(40),
+          {
+            fontSizePx: 6,
+            fontWeight: 500,
+            color: '#475569',
+            align: 'right',
+          }
+        );
+        drawSingleLineText(
+          `วันหมดอายุ: 31 มี.ค. ${nextYear}`,
+          cx + cardW - padX,
+          cy + mm(48.8),
+          mm(40),
+          {
+            fontSizePx: 6,
+            fontWeight: 700,
+            color: '#1e3a8a',
+            align: 'right',
+          }
+        );
+      }
+
+      ctx.restore();
+
+      // Card crisp outer border
+      ctx.save();
+      traceRoundRect(cx, cy, cardW, cardH, mm(3));
+      ctx.lineWidth = cssPx(1);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    return canvas;
+  };
+
+  const handleDownloadPDF = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      if (studentPages.length === 0) {
+        if (onShowToast) {
+          onShowToast('warning', 'ไม่พบข้อมูล', 'ไม่มีข้อมูลบัตรนักเรียนสำหรับดาวน์โหลด');
+        }
+        setIsDownloading(false);
+        return;
+      }
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      for (let i = 0; i < studentPages.length; i++) {
+        if (i > 0) {
+          pdf.addPage('a4', 'portrait');
+        }
+
+        const canvas = await renderStudentCardPageCanvas(studentPages[i], cardSide);
+        const imgData = canvas.toDataURL('image/jpeg', 0.99);
+        pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297);
+      }
+
+      const sideName = cardSide === 'front' ? 'หน้าบัตร' : 'หลังบัตร';
+      const gradeName = selectedGrade === 'all' ? 'ทุกระดับชั้น' : `ชั้น${selectedGrade}`;
+      const cleanSchoolName = (schoolInfo.schoolName || 'โรงเรียน').replace(/\s+/g, '_');
+      const fileName = `บัตรนักเรียน_${sideName}_${gradeName}_${cleanSchoolName}.pdf`;
+      pdf.save(fileName);
+
+      if (onShowToast) {
+        onShowToast('success', 'ดาวน์โหลดสำเร็จ', `ดาวน์โหลดไฟล์ PDF บัตรนักเรียน (${sideName}) เรียบร้อยแล้ว`);
+      }
+    } catch (err) {
+      console.error('Download student cards failed:', err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-xs animate-in fade-in duration-150 overflow-hidden">
@@ -474,7 +1288,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
             height: 297mm !important;
             min-height: 297mm !important;
             max-height: 297mm !important;
-            padding: 11mm 13.5mm !important;
+            padding: 14mm 15.15mm !important;
             margin: 0 !important;
             page-break-after: always !important;
             break-after: page !important;
@@ -571,8 +1385,6 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
           </button>
 
           {/* Close Modal Button */}
-
-          {/* Close Modal Button */}
           <button
             type="button"
             onClick={onClose}
@@ -616,7 +1428,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
               }}
             >
               {/* Page Number indicator for screen view */}
-              <div className="no-print absolute top-2 right-4 text-[10px] text-slate-400 font-mono font-medium">
+              <div className="no-print absolute top-2 right-4 text-[10px] text-slate-400 font-mono font-medium whitespace-nowrap">
                 หน้า A4 ที่ {pageIdx + 1} / {studentPages.length} ({cardSide === 'front' ? 'หน้าบัตร' : 'หลังบัตร'})
               </div>
 
@@ -662,15 +1474,15 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                                 className="w-[8.5mm] h-[8.5mm] object-contain rounded-full bg-white/10 p-0.5 shrink-0"
                               />
                             ) : (
-                              <div className="w-[8.5mm] h-[8.5mm] rounded-full bg-amber-400 text-blue-950 font-black text-[9px] flex items-center justify-center shrink-0 shadow-xs">
+                              <div className="w-[8.5mm] h-[8.5mm] rounded-full bg-amber-400 text-blue-950 font-black text-[9px] flex items-center justify-center shrink-0 shadow-xs whitespace-nowrap">
                                 รร
                               </div>
                             )}
                             <div className="min-w-0">
-                              <h4 className="text-[9.5px] font-black text-amber-300 leading-tight truncate tracking-tight">
+                              <h4 className="text-[9.5px] font-black text-amber-300 leading-tight truncate tracking-tight whitespace-nowrap">
                                 {schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
                               </h4>
-                              <p className="text-[7px] text-blue-100 font-medium leading-none mt-0.5 truncate">
+                              <p className="text-[6.8px] text-blue-100 font-medium leading-none mt-0.5 truncate whitespace-nowrap">
                                 บัตรประจำตัวนักเรียน • STUDENT IDENTITY CARD
                               </p>
                             </div>
@@ -685,11 +1497,11 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                         {/* Thin Gold accent stripe */}
                         <div className="h-[1mm] bg-amber-400 shrink-0" />
 
-                        {/* Card Body: Larger fonts, balanced spacing, no empty dead zones */}
-                        <div className="flex-1 px-3 py-1.5 flex items-center gap-3 min-w-0">
+                        {/* Card Body: Non-wrapping single-line rows */}
+                        <div className="flex-1 px-2.5 py-1.5 flex items-center gap-2.5 min-w-0">
                           {/* Left Column: Photo & Student Code */}
-                          <div className="w-[23mm] flex flex-col items-center shrink-0">
-                            <div className="w-[22.5mm] h-[28mm] rounded-[2mm] border-2 border-blue-400 bg-slate-50 overflow-hidden flex items-center justify-center shadow-2xs">
+                          <div className="w-[22mm] flex flex-col items-center shrink-0">
+                            <div className="w-[22mm] h-[27.5mm] rounded-[2mm] border-2 border-blue-400 bg-slate-50 overflow-hidden flex items-center justify-center shadow-2xs">
                               {student.photoUrl ? (
                                 <img
                                   src={student.photoUrl}
@@ -699,49 +1511,49 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                               ) : (
                                 <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 bg-slate-100">
                                   <User className="w-8 h-8 text-slate-300" />
-                                  <span className="text-[6.5px] text-slate-400 font-bold mt-0.5">ไม่มีรูปถ่าย</span>
+                                  <span className="text-[6.5px] text-slate-400 font-bold mt-0.5 whitespace-nowrap">ไม่มีรูปถ่าย</span>
                                 </div>
                               )}
                             </div>
-                            <div className="text-[7.5px] font-bold font-mono text-blue-950 text-center mt-1 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 w-full truncate">
+                            <div className="text-[7.5px] font-bold font-mono text-blue-950 text-center mt-1 bg-blue-50 px-1 py-0.5 rounded border border-blue-200 w-full truncate whitespace-nowrap">
                               ID: {codeDisplay}
                             </div>
                           </div>
 
                           {/* Right Column: Particulars & Official Seal */}
                           <div className="flex-1 flex flex-col justify-between h-full min-w-0 py-0.5">
-                            {/* Student Name: Larger and bolder */}
-                            <div className="border-b border-slate-200 pb-1">
-                              <h3 className="text-[12px] font-black text-slate-900 leading-tight truncate">
+                            {/* Student Name */}
+                            <div className="border-b border-slate-200 pb-0.5">
+                              <h3 className="text-[11.5px] font-black text-slate-900 leading-tight truncate whitespace-nowrap">
                                 {student.prefix}{student.firstName} {student.lastName}
                               </h3>
                               {student.nickname && (
-                                <p className="text-[8px] text-slate-500 font-medium leading-none mt-0.5">
+                                <p className="text-[7.8px] text-slate-500 font-medium leading-none mt-0.5 truncate whitespace-nowrap">
                                   ชื่อเล่น: {student.nickname}
                                 </p>
                               )}
                             </div>
 
-                            {/* Particulars grid (no roll number, larger font) */}
-                            <div className="space-y-1 text-[8px] text-slate-700 py-0.5">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-medium text-[7.5px]">เลขประชาชน:</span>
-                                <span className="font-mono font-bold text-slate-900 text-[8.5px] tracking-tight">{idCardDisplay}</span>
+                            {/* Particulars grid (guaranteed single-line rows) */}
+                            <div className="space-y-0.5 text-[7.8px] text-slate-700 py-0.5">
+                              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                <span className="text-slate-500 font-medium text-[7.5px] shrink-0">เลขประชาชน:</span>
+                                <span className="font-mono font-bold text-slate-900 text-[8.5px] tracking-tight truncate">{idCardDisplay}</span>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-medium text-[7.5px]">ระดับชั้น:</span>
-                                <span className="font-bold text-blue-900 text-[9px] bg-blue-50/80 px-1.5 py-0.2 rounded border border-blue-200/60">
+                              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                <span className="text-slate-500 font-medium text-[7.5px] shrink-0">ระดับชั้น:</span>
+                                <span className="font-bold text-blue-900 text-[8.2px] bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 whitespace-nowrap leading-none">
                                   {gradeStage}
                                 </span>
                               </div>
-                              <div className="flex items-center justify-between text-[7.5px]">
-                                <div className="flex items-center gap-1">
-                                  <span className="text-slate-400">วันเกิด:</span>
-                                  <span className="font-medium text-slate-800">{formatThaiBirthDate(student.birthDate)}</span>
+                              <div className="flex items-center justify-between text-[7.4px] whitespace-nowrap gap-1">
+                                <div className="flex items-center gap-1 whitespace-nowrap min-w-0">
+                                  <span className="text-slate-500 shrink-0">วันเกิด:</span>
+                                  <span className="font-semibold text-slate-800 whitespace-nowrap">{formatThaiBirthDate(student.birthDate)}</span>
                                 </div>
                                 {student.bloodGroup && (
-                                  <div className="flex items-center gap-0.5 pr-1">
-                                    <span className="text-slate-400">หมู่เลือด:</span>
+                                  <div className="flex items-center gap-0.5 pr-0.5 whitespace-nowrap shrink-0">
+                                    <span className="text-slate-500">หมู่เลือด:</span>
                                     <span className="font-bold text-rose-700">{student.bloodGroup}</span>
                                   </div>
                                 )}
@@ -749,26 +1561,26 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                             </div>
 
                             {/* Director Signature verification */}
-                            <div className="border-t border-slate-100 pt-1 flex items-end justify-between">
-                              <div className="text-[6px] text-slate-400 font-medium pb-0.5">
+                            <div className="border-t border-slate-100 pt-0.5 flex items-end justify-between gap-1 whitespace-nowrap">
+                              <div className="text-[5.8px] text-slate-400 font-medium pb-0.5 truncate max-w-[19mm] whitespace-nowrap">
                                 ออกโดย {schoolInfo.schoolName || 'สถานศึกษา'}
                               </div>
-                              <div className="text-center min-w-[30mm] flex flex-col items-center">
+                              <div className="text-center flex flex-col items-center shrink-0 whitespace-nowrap">
                                 {directorSignature ? (
                                   <img 
                                     src={directorSignature} 
                                     alt="ลายเซ็นผู้บริหาร" 
-                                    className="h-[6.5mm] max-w-[28mm] object-contain mb-0.5" 
+                                    className="h-[5.8mm] max-w-[26mm] object-contain mb-0.5" 
                                   />
                                 ) : (
-                                  <div className="h-[4.5mm] flex items-end">
-                                    <div className="w-20 border-b border-dotted border-slate-300 mb-0.5" />
+                                  <div className="h-[4.2mm] flex items-end">
+                                    <div className="w-18 border-b border-dotted border-slate-300 mb-0.5" />
                                   </div>
                                 )}
-                                <p className="text-[7.5px] font-bold text-slate-900 leading-none">
+                                <p className="text-[7.2px] font-bold text-slate-900 leading-none whitespace-nowrap">
                                   ( {directorDisplayName} )
                                 </p>
-                                <p className="text-[6.5px] text-slate-500 font-medium leading-none mt-0.5">
+                                <p className="text-[6.2px] text-slate-500 font-medium leading-none mt-0.5 whitespace-nowrap">
                                   {directorPositionTitle}
                                 </p>
                               </div>
@@ -777,7 +1589,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                         </div>
 
                         {/* Micro bottom strip */}
-                        <div className="h-[2mm] bg-blue-900 flex items-center justify-between px-2.5 text-[5px] text-blue-200 shrink-0 font-medium">
+                        <div className="h-[2mm] bg-blue-900 flex items-center justify-between px-2.5 text-[5px] text-blue-200 shrink-0 font-medium whitespace-nowrap">
                           <span>กระทรวงศึกษาธิการ • MINISTRY OF EDUCATION</span>
                           <span className="font-mono">VALID THRU 03/{nextYear}</span>
                         </div>
@@ -787,44 +1599,44 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                       <div className="w-full h-full flex flex-col justify-between bg-slate-50 relative p-2.5 text-slate-800">
                         {/* Header School Info */}
                         <div className="border-b border-slate-200 pb-1 text-center">
-                          <h4 className="text-[9px] font-black text-blue-950 leading-tight">
+                          <h4 className="text-[9px] font-black text-blue-950 leading-tight truncate whitespace-nowrap">
                             {schoolInfo.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
                           </h4>
                           {schoolInfo.address && (
-                            <p className="text-[6.5px] text-slate-600 leading-tight mt-0.5 truncate">
+                            <p className="text-[6.4px] text-slate-600 leading-tight mt-0.5 truncate whitespace-nowrap">
                               {schoolInfo.address}
                             </p>
                           )}
-                          <p className="text-[6.8px] text-blue-900 font-bold leading-tight mt-0.5">
+                          <p className="text-[6.8px] text-blue-900 font-bold leading-tight mt-0.5 whitespace-nowrap">
                             โทรศัพท์ติดต่อ: {schoolInfo.phone || 'ยังไม่ได้ระบุ'}
                           </p>
                         </div>
 
                         {/* Card Rules / Regulations */}
-                        <div className="py-1 px-1.5 bg-white rounded border border-slate-200 text-[6.2px] text-slate-700 space-y-0.5 leading-snug">
-                          <div className="font-bold text-blue-900 text-[6.8px] mb-0.5">ข้อปฏิบัติในการใช้บัตรประจำตัวนักเรียน:</div>
-                          <p>1. บัตรนี้เป็นเอกสารแสดงตนของผู้ถือบัตร และเป็นสมบัติของโรงเรียน</p>
-                          <p>2. นักเรียนต้องพกติดตัวตลอดเวลาขณะอยู่ในสถานศึกษา และแสดงเมื่อเจ้าหน้าที่ร้องขอ</p>
-                          <p>3. ใช้ในการติดต่อราชการ เข้าห้องสอบ ยืม-คืนหนังสือห้องสมุด และร่วมกิจกรรม</p>
-                          <p>4. หากเก็บบัตรนี้ได้ กรุณาส่งคืนสถานศึกษาตามที่อยู่ข้างต้น หรือหย่อนลงตู้ไปรษณีย์</p>
+                        <div className="py-1 px-1.5 bg-white rounded border border-slate-200 text-[6.1px] text-slate-700 space-y-0.5 leading-snug">
+                          <div className="font-bold text-blue-900 text-[6.8px] mb-0.5 whitespace-nowrap">ข้อปฏิบัติในการใช้บัตรประจำตัวนักเรียน:</div>
+                          <p className="whitespace-nowrap truncate">1. บัตรนี้เป็นเอกสารแสดงตนของผู้ถือบัตร และเป็นสมบัติของโรงเรียน</p>
+                          <p className="whitespace-nowrap truncate">2. นักเรียนต้องพกติดตัวตลอดเวลาขณะอยู่ในสถานศึกษา และแสดงเมื่อเจ้าหน้าที่ร้องขอ</p>
+                          <p className="whitespace-nowrap truncate">3. ใช้ในการติดต่อราชการ เข้าห้องสอบ ยืม-คืนหนังสือห้องสมุด และร่วมกิจกรรม</p>
+                          <p className="whitespace-nowrap truncate">4. หากเก็บบัตรนี้ได้ กรุณาส่งคืนสถานศึกษาตามที่อยู่ข้างต้น หรือหย่อนลงตู้ไปรษณีย์</p>
                         </div>
 
-                        {/* Student Details Summary Bar (No grade level on back as requested) */}
-                        <div className="flex items-center justify-between bg-blue-50/90 px-2 py-0.5 rounded border border-blue-200 text-[7px]">
-                          <div>
+                        {/* Student Details Summary Bar */}
+                        <div className="flex items-center justify-between bg-blue-50/90 px-2 py-0.5 rounded border border-blue-200 text-[7px] whitespace-nowrap gap-2">
+                          <div className="truncate min-w-0">
                             <span className="text-slate-500">ผู้ถือบัตร: </span>
                             <span className="font-bold text-slate-900">
                               {student.prefix}{student.firstName} {student.lastName}
                             </span>
                           </div>
-                          <div>
+                          <div className="shrink-0">
                             <span className="text-slate-500">ฉุกเฉินโทร: </span>
                             <span className="font-bold font-mono text-rose-700">{emergencyPhone}</span>
                           </div>
                         </div>
 
                         {/* Barcode & Security strip simulation */}
-                        <div className="flex items-center justify-between pt-0.5 border-t border-slate-200">
+                        <div className="flex items-center justify-between pt-0.5 border-t border-slate-200 whitespace-nowrap">
                           {/* Simulated Barcode */}
                           <div className="flex flex-col">
                             <div className="flex items-center gap-[1px] h-3">
@@ -845,7 +1657,7 @@ export const StudentCardBatchModal: React.FC<StudentCardBatchModalProps> = ({
                           </div>
 
                           {/* Validity dates */}
-                          <div className="text-right text-[6px] text-slate-600 space-y-0.2">
+                          <div className="text-right text-[6px] text-slate-600 space-y-0.2 whitespace-nowrap">
                             <div>วันออกบัตร: 16 พ.ค. {academicYear}</div>
                             <div className="font-bold text-blue-900">วันหมดอายุ: 31 มี.ค. {nextYear}</div>
                           </div>

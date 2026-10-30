@@ -45,14 +45,19 @@ export const SettingsView: React.FC<SettingsProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'school'>(user.role === 'admin' ? 'school' : 'profile');
 
-  // Profile Form States (Requirement 10.2)
-  const [userPrefix, setUserPrefix] = useState<string>(user.prefix || 'ครู');
-  const [userFirstName, setUserFirstName] = useState<string>(
-    user.firstName || user.fullName.split(' ')[0] || ''
-  );
-  const [userLastName, setUserLastName] = useState<string>(
-    user.lastName || user.fullName.split(' ').slice(1).join(' ') || ''
-  );
+  // Profile Form States (Requirement 10.2) - Ensure prefix (e.g., นาย) and firstName (e.g., อีรฟัน) have no space between them
+  const parsedPrefixMatch = (user.fullName || '').trim().match(/^(นางสาว|นาย|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)/u);
+  const [userPrefix, setUserPrefix] = useState<string>(user.prefix || (parsedPrefixMatch ? parsedPrefixMatch[1] : 'นาย'));
+  const [userFirstName, setUserFirstName] = useState<string>(() => {
+    const stripped = (user.fullName || '').trim().replace(/^(นางสาว|นาย|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s*/u, '');
+    const rawFirst = user.firstName || stripped.split(/\s+/)[0] || '';
+    return rawFirst.replace(/^(นางสาว|นาย|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s*/u, '').trim();
+  });
+  const [userLastName, setUserLastName] = useState<string>(() => {
+    if (user.lastName) return user.lastName.trim();
+    const stripped = (user.fullName || '').trim().replace(/^(นางสาว|นาย|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s*/u, '');
+    return stripped.split(/\s+/).slice(1).join(' ').trim();
+  });
   const [userGradeLevel, setUserGradeLevel] = useState<string>(
     (user.assignedGrade as string) || 'ป.1'
   );
@@ -189,16 +194,18 @@ export const SettingsView: React.FC<SettingsProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Handle Save Profile Form (Requirement: include contact phone)
+  // Handle Save Profile Form (Requirement: include contact phone & attach prefix directly to firstName with no space)
   const handleSaveProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const full = `${userPrefix} ${userFirstName} ${userLastName}`.trim();
+    const cleanFirst = userFirstName.trim().replace(/^(นางสาว|นาย|นาง|ดร\.|ครู|ว่าที่\s*ร\.ต\.|ว่าที่ร้อยตรี)\s*/u, '');
+    const cleanLast = userLastName.trim();
+    const full = `${userPrefix.trim()}${cleanFirst}${cleanLast ? ` ${cleanLast}` : ''}`.trim();
 
     const updatedUser: UserSession = {
       ...user,
-      prefix: userPrefix,
-      firstName: userFirstName,
-      lastName: userLastName,
+      prefix: userPrefix.trim(),
+      firstName: cleanFirst,
+      lastName: cleanLast,
       fullName: full || user.fullName,
       phone: userPhone,
       assignedGrade: userGradeLevel === 'ไม่ได้เป็นครูประจำชั้น' ? undefined : userGradeLevel,

@@ -308,6 +308,12 @@ export default function App() {
     setStudents(updated);
   };
 
+  const handleSaveBulkStudents = (updatedStudents: Student[]) => {
+    if (!verifyCanEdit()) return;
+    const updated = StorageService.saveBulkStudents(updatedStudents);
+    setStudents(updated);
+  };
+
   const handleDeleteStudent = (id: string) => {
     if (!verifyCanEdit()) return;
     const updated = StorageService.deleteStudent(id);
@@ -748,6 +754,7 @@ export default function App() {
             personnel={personnel}
             schoolInfo={schoolInfo}
             onSaveStudent={handleSaveStudent}
+            onSaveBulkStudents={handleSaveBulkStudents}
             onDeleteStudent={handleDeleteStudent}
             onSavePersonnel={handleSavePersonnel}
             onDeletePersonnel={handleDeletePersonnel}

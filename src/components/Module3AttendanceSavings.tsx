@@ -1043,7 +1043,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   const getStudentBalance = (studentId: string): number => {
     const list = currentTermSavings.filter(s => s.studentId === studentId);
     const totalDeposits = list.filter(s => s.type === 'deposit').reduce((sum, r) => sum + r.amount, 0);
-    const totalWithdrawals = list.filter(s => s.type === 'withdrawal').reduce((sum, r) => sum + r.amount, 0);
+    const totalWithdrawals = list.filter(s => s.type === 'withdrawal' && !s.deductedFromDeposits).reduce((sum, r) => sum + r.amount, 0);
     return Math.max(0, totalDeposits - totalWithdrawals);
   };
 
@@ -1331,6 +1331,41 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     const reason = withdrawReason.trim() || 'ถอนเงินออมทรัพย์';
     const effectiveWithdrawDate = withdrawDate || selectedDate;
 
+    // 1. ดึงรายการเงินฝากทั้งหมดของนักเรียนในเทอมนี้ที่มียอด > 0 เรียงตามวันที่ฝากจากวันแรกสุดไปหาวันล่าสุด (FIFO: First-In First-Out)
+    const studentDeposits = currentTermSavings
+      .filter(s => s.studentId === withdrawStudent.id && s.type === 'deposit' && s.amount > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    let remainingToDeduct = amt;
+    const deductionMap = new Map<string, { newAmount: number; deductedFromThis: number; orig: number }>();
+    const breakdownList: { depositId: string; date: string; amount: number; prevAmount: number; newAmount: number }[] = [];
+
+    for (const dep of studentDeposits) {
+      if (remainingToDeduct <= 0) break;
+      const deductFromThis = Math.min(dep.amount, remainingToDeduct);
+      const newAmt = dep.amount - deductFromThis;
+      const orig = dep.originalAmount ?? dep.amount;
+      deductionMap.set(dep.id, {
+        newAmount: newAmt,
+        deductedFromThis: deductFromThis,
+        orig
+      });
+      breakdownList.push({
+        depositId: dep.id,
+        date: dep.date,
+        amount: deductFromThis,
+        prevAmount: dep.amount,
+        newAmount: newAmt
+      });
+      remainingToDeduct -= deductFromThis;
+    }
+
+    // สรุปข้อความว่าหักจากวันที่ใดบ้าง เช่น "หักจากวันที่ 1 (หัก 50 เหลือ 0 บ.), วันที่ 2 (หัก 10 เหลือ 40 บ.)"
+    const breakdownText = breakdownList.map(b => 
+      `${formatThaiDate(b.date)}: หัก ฿${b.amount} (เหลือ ฿${b.newAmount})`
+    ).join(', ');
+
+    // 2. สร้างรายการถอนเงิน (Withdrawal Record) พร้อมบันทึกรายละเอียดการหักแบบ FIFO
     const withdrawalRec: SavingsRecord = {
       id: 'sav-w-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       date: effectiveWithdrawDate,
@@ -1342,10 +1377,41 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
       balanceAfter: Math.max(0, balance - amt),
       semester: activeSemester,
       academicYear: activeAcademicYear,
-      notes: reason
+      deductedFromDeposits: true,
+      deductionBreakdown: breakdownList.map(b => ({
+        depositId: b.depositId,
+        date: b.date,
+        amount: b.amount
+      })),
+      notes: reason ? `${reason} (หักจาก: ${breakdownText})` : `ถอนเงิน (หักจาก: ${breakdownText})`
     };
 
-    onSaveSavingsRecord(withdrawalRec);
+    // 3. ปรับปรุงยอดเงินฝากของแต่ละวันที่ถูกหักถอนในรายการ savings ทั้งหมด
+    const updatedFullList = savings.map(s => {
+      const deduction = deductionMap.get(s.id);
+      if (deduction) {
+        const totalDeductedSoFar = (s.deductedAmount || 0) + deduction.deductedFromThis;
+        return {
+          ...s,
+          amount: deduction.newAmount,
+          originalAmount: deduction.orig,
+          deductedAmount: totalDeductedSoFar,
+          notes: deduction.newAmount === 0
+            ? `ฝากเดิม ฿${deduction.orig} (หักถอนหมดแล้ว ฿${totalDeductedSoFar})`
+            : `ฝากเดิม ฿${deduction.orig} (หักถอนไป ฿${totalDeductedSoFar} เหลือ ฿${deduction.newAmount})`
+        };
+      }
+      return s;
+    });
+
+    updatedFullList.push(withdrawalRec);
+
+    // 4. บันทึกและซิงค์ข้อมูล
+    if (onUpdateAllSavings) {
+      onUpdateAllSavings(updatedFullList);
+    } else {
+      StorageService.setAllSavings(updatedFullList);
+    }
 
     setWithdrawStudent(null);
     setWithdrawAmount(50);
@@ -1354,7 +1420,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     onShowToast(
       'success', 
       'ถอนเงินสำเร็จ', 
-      `ถอนเงินให้ ${withdrawStudent.prefix}${withdrawStudent.firstName} จำนวน ฿${amt.toLocaleString()} บาท เรียบร้อยแล้ว`
+      `ถอนเงินให้ ${withdrawStudent.prefix}${withdrawStudent.firstName} จำนวน ฿${amt.toLocaleString()} บาท (หักเงินจากวันที่เคยฝากตามลำดับเรียบร้อยแล้ว)`
     );
   };
 
@@ -1689,13 +1755,44 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     }
 
     const recordId = historyItemToDelete.id;
-    if (onDeleteSavingsRecord) {
-      onDeleteSavingsRecord(recordId);
-    } else {
-      StorageService.deleteSavingsRecord(recordId);
-    }
-
     const isWithdrawal = historyItemToDelete.type === 'withdrawal';
+
+    if (isWithdrawal && historyItemToDelete.deductionBreakdown && historyItemToDelete.deductionBreakdown.length > 0) {
+      const breakdown = historyItemToDelete.deductionBreakdown;
+      const restoreMap = new Map<string, number>();
+      breakdown.forEach(b => restoreMap.set(b.depositId, b.amount));
+
+      const restoredList = savings
+        .filter(s => s.id !== recordId)
+        .map(s => {
+          const restoreAmt = restoreMap.get(s.id);
+          if (restoreAmt && restoreAmt > 0) {
+            const restoredAmount = s.amount + restoreAmt;
+            const newDeducted = Math.max(0, (s.deductedAmount || 0) - restoreAmt);
+            return {
+              ...s,
+              amount: restoredAmount,
+              deductedAmount: newDeducted,
+              notes: newDeducted > 0
+                ? `ฝากเดิม ฿${s.originalAmount || restoredAmount} (หักถอนไป ฿${newDeducted} เหลือ ฿${restoredAmount})`
+                : (s.originalAmount ? `ฝากเงินประจำวัน` : s.notes)
+            };
+          }
+          return s;
+        });
+
+      if (onUpdateAllSavings) {
+        onUpdateAllSavings(restoredList);
+      } else {
+        StorageService.setAllSavings(restoredList);
+      }
+    } else {
+      if (onDeleteSavingsRecord) {
+        onDeleteSavingsRecord(recordId);
+      } else {
+        StorageService.deleteSavingsRecord(recordId);
+      }
+    }
     onShowToast(
       'success',
       'ลบรายการประวัติสำเร็จ',
@@ -2416,31 +2513,55 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                           {/* Deposit Today: Editable with Pencil icon + Recent deposit history display */}
                           <td className="py-2.5 px-2 text-center">
                             {isDepositedToday && editingDepositStudentId !== student.id ? (
-                              <div className="flex items-center justify-center gap-1.5">
-                                <div className="relative w-22">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-emerald-600 font-mono text-xs font-bold">฿</span>
-                                  <input
-                                    type="text"
-                                    readOnly
-                                    disabled
-                                    value={todayDepositRec.amount.toLocaleString()}
-                                    className="w-full pl-5 pr-1.5 py-1 text-xs rounded-lg border border-emerald-300 bg-emerald-50/80 font-mono font-bold text-emerald-800 cursor-not-allowed select-none shadow-2xs"
-                                    title="บันทึกแล้ว (กดไอคอนดินสอด้านข้างเพื่อแก้ไข)"
-                                  />
+                              <div className="flex flex-col items-center justify-center gap-0.5">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <div className="relative w-22">
+                                    <span className={`absolute left-2 top-1/2 -translate-y-1/2 font-mono text-xs font-bold ${
+                                      todayDepositRec.amount === 0 ? 'text-slate-400' : 'text-emerald-600'
+                                    }`}>฿</span>
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      disabled
+                                      value={todayDepositRec.amount.toLocaleString()}
+                                      className={`w-full pl-5 pr-1.5 py-1 text-xs rounded-lg border font-mono font-bold cursor-not-allowed select-none shadow-2xs ${
+                                        todayDepositRec.amount === 0
+                                          ? 'border-slate-300 bg-slate-100/90 text-slate-400'
+                                          : 'border-emerald-300 bg-emerald-50/80 text-emerald-800'
+                                      }`}
+                                      title={
+                                        todayDepositRec.deductedAmount && todayDepositRec.deductedAmount > 0
+                                          ? `ยอดเดิม ฿${(todayDepositRec.originalAmount ?? (todayDepositRec.amount + todayDepositRec.deductedAmount)).toLocaleString()} (หักถอนไป ฿${todayDepositRec.deductedAmount.toLocaleString()} เหลือ ฿${todayDepositRec.amount.toLocaleString()})`
+                                          : "บันทึกแล้ว (กดไอคอนดินสอด้านข้างเพื่อแก้ไข)"
+                                      }
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={!isAllowedToRecord}
+                                    onClick={() => handleStartEditDeposit(student.id, todayDepositRec.amount)}
+                                    className={`p-1 rounded-md transition-colors ${
+                                      !isAllowedToRecord
+                                        ? 'text-slate-300 cursor-not-allowed'
+                                        : 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100 cursor-pointer shadow-2xs'
+                                    }`}
+                                    title={!isAllowedToRecord ? 'ไม่สามารถแก้ไขได้' : 'แก้ไขยอดเงินฝาก'}
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-emerald-700" />
+                                  </button>
                                 </div>
-                                <button
-                                  type="button"
-                                  disabled={!isAllowedToRecord}
-                                  onClick={() => handleStartEditDeposit(student.id, todayDepositRec.amount)}
-                                  className={`p-1 rounded-md transition-colors ${
-                                    !isAllowedToRecord
-                                      ? 'text-slate-300 cursor-not-allowed'
-                                      : 'text-emerald-700 hover:text-emerald-800 hover:bg-emerald-100 cursor-pointer shadow-2xs'
-                                  }`}
-                                  title={!isAllowedToRecord ? 'ไม่สามารถแก้ไขได้' : 'แก้ไขยอดเงินฝาก'}
-                                >
-                                  <Pencil className="w-3.5 h-3.5 text-emerald-700" />
-                                </button>
+                                {todayDepositRec.deductedAmount && todayDepositRec.deductedAmount > 0 ? (
+                                  <span
+                                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md leading-none ${
+                                      todayDepositRec.amount === 0
+                                        ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                    }`}
+                                    title={`ยอดเดิม ฿${(todayDepositRec.originalAmount ?? (todayDepositRec.amount + todayDepositRec.deductedAmount)).toLocaleString()}`}
+                                  >
+                                    {todayDepositRec.amount === 0 ? 'หักถอนหมดแล้ว (0 บ.)' : `หักถอน -฿${todayDepositRec.deductedAmount.toLocaleString()}`}
+                                  </span>
+                                ) : null}
                               </div>
                             ) : editingDepositStudentId === student.id ? (
                               <div className="flex items-center justify-center gap-1">
@@ -3633,6 +3754,50 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                 </div>
               </div>
 
+              {/* FIFO Deduction Live Preview */}
+              {Number(withdrawAmount) > 0 && (() => {
+                const reqAmt = Number(withdrawAmount);
+                const studentDeposits = currentTermSavings
+                  .filter(s => s.studentId === withdrawStudent.id && s.type === 'deposit' && s.amount > 0)
+                  .sort((a, b) => a.date.localeCompare(b.date));
+
+                let remainingToDeduct = reqAmt;
+                const plan: { date: string; before: number; deducted: number; after: number }[] = [];
+
+                for (const dep of studentDeposits) {
+                  if (remainingToDeduct <= 0) break;
+                  const canTake = Math.min(dep.amount, remainingToDeduct);
+                  plan.push({
+                    date: dep.date,
+                    before: dep.amount,
+                    deducted: canTake,
+                    after: dep.amount - canTake
+                  });
+                  remainingToDeduct -= canTake;
+                }
+
+                if (plan.length === 0) return null;
+
+                return (
+                  <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200 text-xs text-amber-950 space-y-1.5">
+                    <div className="font-semibold flex items-center gap-1.5 text-amber-800">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>ลำดับการหักเงินฝาก (เริ่มหักจากวันแรกสุดที่เคยฝากก่อน):</span>
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
+                      {plan.map((p, i) => (
+                        <div key={i} className="flex items-center justify-between bg-white/90 px-2.5 py-1 rounded-lg border border-amber-200/60 shadow-2xs">
+                          <span className="font-medium text-slate-700">{formatThaiDate(p.date)}:</span>
+                          <span>
+                            <span className="text-slate-500">เดิม ฿{p.before.toLocaleString()}</span> &rarr; <span className="text-rose-600 font-bold">หัก ฿{p.deducted.toLocaleString()}</span> &rarr; <span className={p.after === 0 ? "text-slate-400 font-bold" : "text-emerald-700 font-bold"}>เหลือ ฿{p.after.toLocaleString()}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="p-3 bg-rose-50/70 rounded-xl border border-rose-200/80 text-xs flex justify-between items-center text-rose-900">
                 <span>ยอดเงินคงเหลือหลังถอน:</span>
                 <span className="font-mono font-bold text-sm">
@@ -3739,15 +3904,27 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                           {studentWithdrawals.map((item) => (
                             <div
                               key={item.id}
-                              className="py-2 px-3 bg-rose-50/50 rounded-lg border border-rose-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs"
+                              className="py-2.5 px-3 bg-rose-50/50 rounded-lg border border-rose-100/90 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs"
                             >
-                              <div className="flex items-center gap-2.5 flex-wrap">
-                                <span className="font-mono text-slate-600 font-bold bg-white px-2 py-0.5 rounded border border-rose-200 text-[11px]">
-                                  {item.date}
-                                </span>
-                                <span className="font-bold text-rose-700">
-                                  ถอน ฿{item.amount.toLocaleString()} บาท
-                                </span>
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                  <span className="font-mono text-slate-600 font-bold bg-white px-2 py-0.5 rounded border border-rose-200 text-[11px]">
+                                    {item.date}
+                                  </span>
+                                  <span className="font-bold text-rose-700">
+                                    ถอน ฿{item.amount.toLocaleString()} บาท
+                                  </span>
+                                </div>
+                                {item.deductionBreakdown && item.deductionBreakdown.length > 0 && (
+                                  <div className="text-[11px] text-slate-600 flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-amber-800 font-bold text-[10px]">หักจาก:</span>
+                                    {item.deductionBreakdown.map((b, bIdx) => (
+                                      <span key={bIdx} className="bg-amber-100/80 text-amber-900 px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold border border-amber-200/60">
+                                        {formatThaiDate(b.date)} (-฿{b.amount.toLocaleString()})
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
 
                               <div className="flex items-center gap-2">
@@ -3858,8 +4035,15 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="font-mono font-bold text-emerald-700 text-sm">
-                        +฿{item.amount.toLocaleString()}
+                      <div className="text-right">
+                        <div className={`font-mono font-bold text-sm ${item.amount === 0 ? 'text-slate-400' : 'text-emerald-700'}`}>
+                          +฿{item.amount.toLocaleString()}
+                        </div>
+                        {item.deductedAmount && item.deductedAmount > 0 ? (
+                          <div className={`text-[10px] font-bold ${item.amount === 0 ? 'text-rose-600' : 'text-amber-700'}`}>
+                            {item.amount === 0 ? `(หักหมดแล้ว เดิม ฿${item.originalAmount})` : `(หักไป ฿${item.deductedAmount})`}
+                          </div>
+                        ) : null}
                       </div>
                       <button
                         type="button"
@@ -4392,11 +4576,24 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                     <PiggyBank className="w-4 h-4 text-emerald-600" />
                     <span>ฝากเงินวันนี้ (บาท)</span>
                   </span>
-                  {getStudentTodayDepositRecord(selectedStudentModal.id) && (
-                    <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-mono font-bold">
-                      ฝากแล้ว ฿{getStudentTodayDepositRecord(selectedStudentModal.id)?.amount.toLocaleString()}
-                    </span>
-                  )}
+                  {(() => {
+                    const rec = getStudentTodayDepositRecord(selectedStudentModal.id);
+                    if (!rec) return null;
+                    if (rec.deductedAmount && rec.deductedAmount > 0) {
+                      return (
+                        <span className={`text-[11px] px-2 py-0.5 rounded-md font-mono font-bold ${
+                          rec.amount === 0 ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}>
+                          {rec.amount === 0 ? `หักถอนหมดแล้ว (0 บ. เดิม ฿${rec.originalAmount ?? rec.amount})` : `เหลือ ฿${rec.amount.toLocaleString()} (หัก -฿${rec.deductedAmount.toLocaleString()})`}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-mono font-bold">
+                        ฝากแล้ว ฿{rec.amount.toLocaleString()}
+                      </span>
+                    );
+                  })()}
                 </label>
 
                 {/* Quick preset chips */}

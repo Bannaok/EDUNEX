@@ -2187,29 +2187,29 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     </div>
                   </div>
 
-                  {/* All Subjects Table */}
-                  <div className="border border-slate-300">
-                    <table className="w-full text-left text-[10px] border-collapse">
+                  {/* All Subjects Table (แสดงเป็นสีขาว-ดำเพื่อความเป็นทางการ) */}
+                  <div className="border border-slate-800 bg-white">
+                    <table className="w-full text-left text-[10px] border-collapse bg-white">
                       <thead>
-                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center leading-normal">
-                          <th className="py-2 px-1 border-r border-slate-300 w-8 shrink-0 font-mono text-[9px] align-middle">
+                        <tr className="bg-white text-black font-bold border-b border-slate-800 text-center leading-normal">
+                          <th className="py-2 px-1 border-r border-slate-800 w-8 shrink-0 font-mono text-[9px] align-middle text-black">
                             ที่
                           </th>
-                          <th className="py-2 px-1 border-r border-slate-300 w-20 shrink-0 font-mono text-[9px] align-middle">
+                          <th className="py-2 px-1 border-r border-slate-800 w-20 shrink-0 font-mono text-[9px] align-middle text-black">
                             รหัสประจำตัว
                           </th>
-                          <th className="py-2 px-2 border-r border-slate-300 w-36 shrink-0 text-left text-[10px] align-middle">
+                          <th className="py-2 px-2 border-r border-slate-800 w-36 shrink-0 text-left text-[10px] align-middle text-black">
                             ชื่อ - นามสกุล
                           </th>
                           {assessmentGradeSubjects.map((subj) => (
                             <th 
                               key={subj.id}
-                              className="py-1.5 px-1 border-r border-slate-300 text-center bg-indigo-50/70 text-slate-900 font-semibold align-middle"
+                              className="py-1.5 px-1 border-r border-slate-800 text-center bg-white text-black font-bold align-middle"
                             >
-                              <div className="font-bold text-[9px] leading-snug mx-auto text-indigo-950">
+                              <div className="font-bold text-[9px] leading-snug mx-auto text-black">
                                 {subj.code || subj.name}
                               </div>
-                              <div className="text-[7.5px] font-mono text-indigo-700 font-normal leading-snug">
+                              <div className="text-[7.5px] font-mono text-black font-normal leading-snug">
                                 {subj.name !== subj.code ? subj.name.slice(0, 8) : ''}
                               </div>
                             </th>
@@ -2217,7 +2217,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                         </tr>
                       </thead>
 
-                      <tbody className="divide-y divide-slate-200 text-slate-800">
+                      <tbody className="divide-y divide-slate-800 bg-white text-black">
                         {assessmentGradeStudents.map((s, sIdx) => {
                           let totalPoints = 0;
                           let totalCredits = 0;
@@ -2245,16 +2245,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                             return (
                               <td 
                                 key={subj.id}
-                                className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-[9.5px] align-middle"
+                                className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-[9.5px] align-middle bg-white text-black"
                               >
-                                <span className={`inline-block px-1.5 py-0.5 rounded font-mono leading-normal ${
-                                  gradeStr === '4' ? 'bg-emerald-100 text-emerald-800 font-black' :
-                                  gradeStr === '3.5' || gradeStr === '3' ? 'bg-blue-100 text-blue-800 font-bold' :
-                                  gradeStr === '2.5' || gradeStr === '2' ? 'bg-amber-100 text-amber-800 font-semibold' :
-                                  gradeStr === '1.5' || gradeStr === '1' ? 'bg-orange-100 text-orange-800 font-semibold' :
-                                  gradeStr === '0' ? 'bg-rose-100 text-rose-800 font-bold' :
-                                  'text-slate-400'
-                                }`}>
+                                <span className="font-mono font-bold text-black leading-normal">
                                   {gradeStr}
                                 </span>
                               </td>
@@ -2264,14 +2257,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           const gpa = totalCredits > 0 ? (totalPoints / totalCredits).toFixed(2) : '-';
 
                           return (
-                            <tr key={s.id} className="hover:bg-slate-50 leading-normal">
-                              <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
+                            <tr key={s.id} className="bg-white leading-normal">
+                              <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9px] align-middle">
                                 {s.rollNumber || sIdx + 1}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9px] align-middle">
                                 {s.studentCode || '-'}
                               </td>
-                              <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
+                              <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                                 {s.prefix}{s.firstName} {s.lastName}
                               </td>
                               {subjGradeCols}
@@ -2282,8 +2275,8 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
                       {/* Footer */}
                       <tfoot>
-                        <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-800 text-[9px]">
-                          <td colSpan={3} className="py-1.5 px-2 border-r border-slate-300 text-right font-bold">
+                        <tr className="bg-white font-bold border-t-2 border-slate-800 text-black text-[9px]">
+                          <td colSpan={3} className="py-1.5 px-2 border-r border-slate-800 text-right font-bold text-black">
                             เกรดเฉลี่ยรายวิชา:
                           </td>
                           {assessmentGradeSubjects.map((subj) => {
@@ -2305,7 +2298,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                             });
                             const avgPt = countPts > 0 ? (totalPts / countPts).toFixed(2) : '-';
                             return (
-                              <td key={subj.id} className="py-1 px-0.5 border-r border-slate-300 text-center font-mono text-[9px] text-indigo-950 font-bold">
+                              <td key={subj.id} className="py-1 px-0.5 border-r border-slate-800 text-center font-mono text-[9px] text-black font-bold bg-white">
                                 {avgPt}
                               </td>
                             );
@@ -2396,19 +2389,19 @@ export const Module7Reports: React.FC<Module7Props> = ({
                         </div>
                       </div>
 
-                      {/* Compact A4 Portrait Matrix Table showing 5 Subjects per Sheet */}
-                      <div className="border border-slate-300">
-                        <table className="w-full text-left text-[10px] border-collapse">
+                      {/* Compact A4 Portrait Matrix Table showing 5 Subjects per Sheet (แสดงเป็นสีขาว-ดำเพื่อความเป็นทางการ) */}
+                      <div className="border border-slate-800 bg-white">
+                        <table className="w-full text-left text-[10px] border-collapse bg-white">
                           <thead>
                             {/* Row 1: Fixed Headers and 5 Subject Group Headers */}
-                            <tr className="text-slate-800 font-bold leading-normal">
-                              <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-6 shrink-0 font-mono text-[9px] align-middle">
+                            <tr className="text-black font-bold leading-normal bg-white">
+                              <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-6 shrink-0 font-mono text-[9px] align-middle text-black">
                                 ที่
                               </th>
-                              <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-16 shrink-0 font-mono text-[9px] align-middle">
+                              <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-16 shrink-0 font-mono text-[9px] align-middle text-black">
                                 รหัสประจำตัว
                               </th>
-                              <th rowSpan={2} className="py-1.5 px-2 bg-slate-100 border-r border-b border-slate-300 w-36 shrink-0 text-[10px] align-middle">
+                              <th rowSpan={2} className="py-1.5 px-2 bg-white border-r border-b border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black">
                                 ชื่อ - นามสกุล
                               </th>
 
@@ -2417,9 +2410,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                 <th 
                                   key={subj.id} 
                                   colSpan={3} 
-                                  className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-indigo-50/70 text-slate-900 align-middle"
+                                  className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle"
                                 >
-                                  <div className="font-bold text-[9.5px] leading-snug mx-auto text-indigo-950">
+                                  <div className="font-bold text-[9.5px] leading-snug mx-auto text-black">
                                     {subj.code ? `${subj.code} ` : ''}{subj.name}
                                   </div>
                                 </th>
@@ -2427,16 +2420,16 @@ export const Module7Reports: React.FC<Module7Props> = ({
                             </tr>
 
                             {/* Row 2: Sub-columns for each subject (ระหว่างภาค, สอบ, รวม) */}
-                            <tr className="text-slate-700 font-bold text-[8.5px] leading-normal">
+                            <tr className="text-black font-bold text-[8.5px] leading-normal bg-white">
                               {chunk.map((subj) => (
                                 <React.Fragment key={subj.id}>
-                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-11 bg-slate-50 text-slate-700 font-medium align-middle">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-800 text-center w-11 bg-white text-black font-semibold align-middle">
                                     ระหว่างภาค
                                   </th>
-                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-9 bg-slate-50 text-slate-700 font-medium align-middle">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-800 text-center w-9 bg-white text-black font-semibold align-middle">
                                     สอบ
                                   </th>
-                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-9 bg-indigo-100/70 text-indigo-900 font-bold align-middle">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-800 text-center w-9 bg-white text-black font-bold align-middle">
                                     รวม
                                   </th>
                                 </React.Fragment>
@@ -2444,17 +2437,17 @@ export const Module7Reports: React.FC<Module7Props> = ({
                             </tr>
                           </thead>
 
-                          <tbody className="divide-y divide-slate-200 text-slate-800">
+                          <tbody className="divide-y divide-slate-800 bg-white text-black">
                             {assessmentGradeStudents.map((s, sIdx) => {
                               return (
-                                <tr key={s.id} className="hover:bg-slate-50 leading-normal">
-                                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
+                                <tr key={s.id} className="bg-white leading-normal">
+                                  <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9px] align-middle">
                                     {s.rollNumber || sIdx + 1}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9px] align-middle">
                                     {s.studentCode || '-'}
                                   </td>
-                                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
+                                  <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                                     {s.prefix}{s.firstName} {s.lastName}
                                   </td>
 
@@ -2463,13 +2456,13 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                     const scores = getStudentScores(s.id, subj);
                                     return (
                                       <React.Fragment key={subj.id}>
-                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700 align-middle">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9px] tabular-nums text-black align-middle">
                                           {scores.coursework}
                                         </td>
-                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700 align-middle">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9px] tabular-nums text-black align-middle">
                                           {scores.exam}
                                         </td>
-                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-bold bg-indigo-50/40 text-indigo-950 align-middle">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9px] tabular-nums font-bold bg-white text-black align-middle">
                                           {scores.total}
                                         </td>
                                       </React.Fragment>
@@ -2482,8 +2475,8 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
                           {/* Footer with Class Average */}
                           <tfoot>
-                            <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-800 text-[9px]">
-                              <td colSpan={3} className="py-1 px-2 border-r border-slate-300 text-right font-bold">
+                            <tr className="bg-white font-bold border-t-2 border-slate-800 text-black text-[9px]">
+                              <td colSpan={3} className="py-1 px-2 border-r border-slate-800 text-right font-bold text-black">
                                 คะแนนเฉลี่ย:
                               </td>
                               {chunk.map((subj) => {
@@ -2504,13 +2497,13 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
                                 return (
                                   <React.Fragment key={subj.id}>
-                                    <td className="py-1 px-0.5 border-r border-slate-300 text-center font-mono font-medium text-slate-700">
+                                    <td className="py-1 px-0.5 border-r border-slate-800 text-center font-mono font-medium text-black bg-white">
                                       {avgCw}
                                     </td>
-                                    <td className="py-1 px-0.5 border-r border-slate-300 text-center font-mono font-medium text-slate-700">
+                                    <td className="py-1 px-0.5 border-r border-slate-800 text-center font-mono font-medium text-black bg-white">
                                       {avgEx}
                                     </td>
-                                    <td className="py-1 px-0.5 border-r border-slate-300 text-center font-mono font-bold bg-indigo-100/60 text-indigo-950">
+                                    <td className="py-1 px-0.5 border-r border-slate-800 text-center font-mono font-bold bg-white text-black">
                                       {avgTt}
                                     </td>
                                   </React.Fragment>

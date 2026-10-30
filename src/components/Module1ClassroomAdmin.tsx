@@ -1391,23 +1391,23 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
               </div>
 
               {/* CLEAN STUDENT TABLE (RESPONSIVE MOBILE VIEW: GRADE COLUMN HIDDEN ON MOBILE) */}
-              <div className="overflow-x-hidden sm:overflow-x-auto">
-                <table className="w-full table-fixed sm:table-auto text-left text-xs border-collapse">
-                  <thead className="bg-slate-100/80 text-slate-700 font-bold border-b border-slate-200 text-[11px] sm:text-xs">
+              <div className="overflow-x-hidden sm:overflow-x-auto bg-white border border-slate-800 rounded-2xl">
+                <table className="w-full table-fixed sm:table-auto text-left text-xs border-collapse bg-white">
+                  <thead className="bg-white text-black font-bold border-b border-slate-800 text-[11px] sm:text-xs">
                     <tr>
-                      <th className="py-2.5 px-1 sm:px-3 text-center w-9 sm:w-14">เลขที่</th>
-                      <th className="py-2.5 px-2 text-center w-16 hidden sm:table-cell">ชั้น</th>
-                      <th className="py-2.5 px-1.5 sm:px-4">ชื่อ - นามสกุล</th>
-                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36">น้ำหนัก<span className="hidden sm:inline"> (kg)</span></th>
-                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36">ส่วนสูง<span className="hidden sm:inline"> (cm)</span></th>
-                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-52">BMI / ภาวะโภชนาการ<span className="hidden sm:inline"> (กรมอนามัย)</span></th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-9 sm:w-14 text-black">เลขที่</th>
+                      <th className="py-2.5 px-2 text-center w-16 hidden sm:table-cell text-black">ชั้น</th>
+                      <th className="py-2.5 px-1.5 sm:px-4 text-black">ชื่อ - นามสกุล</th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36 text-black">น้ำหนัก<span className="hidden sm:inline"> (kg)</span></th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-36 text-black">ส่วนสูง<span className="hidden sm:inline"> (cm)</span></th>
+                      <th className="py-2.5 px-1 sm:px-3 text-center w-16 sm:w-52 text-black">BMI / ภาวะโภชนาการ<span className="hidden sm:inline"> (กรมอนามัย)</span></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-800 bg-white">
                     {displayedStudents.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400">
-                          <p className="font-semibold text-slate-600">ไม่มีรายชื่อนักเรียนในเงื่อนไขนี้</p>
+                        <td colSpan={6} className="py-12 text-center text-slate-500 bg-white">
+                          <p className="font-semibold text-black">ไม่มีรายชื่อนักเรียนในเงื่อนไขนี้</p>
                         </td>
                       </tr>
                     ) : (
@@ -2499,25 +2499,25 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     </p>
                   </div>
 
-                  {/* Main Student Data Table */}
+                  {/* Main Student Data Table (แสดงเป็นสีขาวและฟอนต์ดำเพื่อความเป็นทางการ) */}
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse border border-slate-300">
+                    <table className="w-full text-left text-xs border-collapse border border-slate-800 bg-white">
                       <thead>
-                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-12">ลำดับ</th>
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-16">ชั้น</th>
-                          <th className="py-2 px-3 border-r border-slate-300">ชื่อ - นามสกุล</th>
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-14">เพศ</th>
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-20">น้ำหนัก (กก.)</th>
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-20">ส่วนสูง (ซม.)</th>
-                          <th className="py-2 px-2 text-center border-r border-slate-300 w-16">BMI</th>
-                          <th className="py-2 px-2 text-center w-28">ภาวะโภชนาการ</th>
+                        <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-12 text-black">ลำดับ</th>
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-16 text-black">ชั้น</th>
+                          <th className="py-2 px-3 border-r border-slate-800 text-black">ชื่อ - นามสกุล</th>
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-14 text-black">เพศ</th>
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-20 text-black">น้ำหนัก (กก.)</th>
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-20 text-black">ส่วนสูง (ซม.)</th>
+                          <th className="py-2 px-2 text-center border-r border-slate-800 w-16 text-black">BMI</th>
+                          <th className="py-2 px-2 text-center w-28 text-black">ภาวะโภชนาการ</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200">
+                      <tbody className="divide-y divide-slate-800 bg-white">
                         {previewStudents.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-6 text-center text-slate-400">
+                            <td colSpan={8} className="py-6 text-center text-slate-500 bg-white">
                               ไม่มีข้อมูลนักเรียน
                             </td>
                           </tr>
@@ -2530,37 +2530,31 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                             const gender = getStudentGender(st);
 
                             return (
-                              <tr key={st.id} className="even:bg-slate-50/50">
-                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200">
+                              <tr key={st.id} className="bg-white">
+                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-800 text-black">
                                   {st.rollNumber ?? (idx + 1)}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-semibold border-r border-slate-200">
+                                <td className="py-1.5 px-2 text-center font-semibold border-r border-slate-800 text-black">
                                   {st.gradeLevel}
                                 </td>
-                                <td className="py-1.5 px-3 font-semibold border-r border-slate-200">
+                                <td className="py-1.5 px-3 font-semibold border-r border-slate-800 text-black">
                                   {st.prefix}{st.firstName} {st.lastName}
                                 </td>
-                                <td className="py-1.5 px-2 text-center border-r border-slate-200">
+                                <td className="py-1.5 px-2 text-center border-r border-slate-800 text-black">
                                   {gender}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200">
+                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-800 text-black">
                                   {w > 0 ? w : '-'}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200">
+                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-800 text-black">
                                   {h > 0 ? h : '-'}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200">
+                                <td className="py-1.5 px-2 text-center font-mono border-r border-slate-800 text-black">
                                   {bmi > 0 ? bmi : '-'}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-bold">
+                                <td className="py-1.5 px-2 text-center font-bold text-black">
                                   {w > 0 && h > 0 ? (
-                                    <span className={`inline-block px-2 py-0.5 rounded text-[11px] ${
-                                      status === 'สมส่วน' ? 'bg-emerald-100 text-emerald-800' :
-                                      status === 'ผอม' ? 'bg-sky-100 text-sky-800' :
-                                      status === 'ท้วม' ? 'bg-amber-100 text-amber-800' :
-                                      status === 'เริ่มอ้วน' ? 'bg-orange-100 text-orange-800' :
-                                      'bg-rose-100 text-rose-800'
-                                    }`}>
+                                    <span className="font-bold text-black text-xs">
                                       {status}
                                     </span>
                                   ) : (
@@ -2698,27 +2692,27 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
   };
 
   return (
-    <tr className="hover:bg-slate-50/80 transition-colors border-b border-slate-100">
+    <tr className="bg-white hover:bg-slate-50 transition-colors border-b border-slate-800">
       <td className="py-2 px-1 sm:px-3 text-center font-bold">
-        <span className="inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-blue-50 text-blue-700 font-bold text-[11px] sm:text-xs border border-blue-200 shadow-2xs">
+        <span className="inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-white text-black font-bold text-[11px] sm:text-xs border border-slate-800 shadow-2xs">
           {index}
         </span>
       </td>
       <td className="py-2 px-2 text-center hidden sm:table-cell">
-        <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-bold text-slate-700 border border-slate-200">
+        <span className="px-2 py-0.5 bg-white rounded text-[11px] font-bold text-black border border-slate-800">
           {student.gradeLevel}
         </span>
       </td>
       <td className="py-2 px-1.5 sm:px-4">
         <div className="flex items-center gap-1.5">
-          <span className="font-bold text-slate-800 text-[11px] sm:text-xs leading-snug break-words">
+          <span className="font-bold text-black text-[11px] sm:text-xs leading-snug break-words">
             {student.prefix}{student.firstName} {student.lastName}
           </span>
         </div>
       </td>
       <td className="py-2 px-1 sm:px-3 text-center">
         {isViewOnly ? (
-          <span className="font-mono font-bold text-[11px] sm:text-xs text-slate-800">
+          <span className="font-mono font-bold text-[11px] sm:text-xs text-black">
             {weight > 0 ? `${weight}` : '-'}
           </span>
         ) : (
@@ -2728,13 +2722,13 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
             value={weight || ''}
             onChange={(e) => handleWeightChange(e.target.value)}
             placeholder="กก."
-            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
+            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-800 tabular-nums focus:outline-none focus:ring-1 focus:ring-slate-500 shadow-2xs font-bold text-black bg-white"
           />
         )}
       </td>
       <td className="py-2 px-1 sm:px-3 text-center">
         {isViewOnly ? (
-          <span className="font-mono font-bold text-[11px] sm:text-xs text-slate-800">
+          <span className="font-mono font-bold text-[11px] sm:text-xs text-black">
             {height > 0 ? `${height}` : '-'}
           </span>
         ) : (
@@ -2744,22 +2738,17 @@ const WeightTrackingRow: React.FC<TrackingRowProps> = ({
             value={height || ''}
             onChange={(e) => handleHeightChange(e.target.value)}
             placeholder="ซม."
-            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-200 tabular-nums focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-semibold bg-white"
+            className="w-14 sm:w-20 text-center text-[11px] sm:text-xs px-1 sm:px-2 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-slate-800 tabular-nums focus:outline-none focus:ring-1 focus:ring-slate-500 shadow-2xs font-bold text-black bg-white"
           />
         )}
       </td>
       <td className="py-2 px-1 sm:px-3 text-center">
         <div className="flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5">
-          <span className="font-mono font-bold tabular-nums text-slate-700 text-[11px] sm:text-sm">
+          <span className="font-mono font-bold tabular-nums text-black text-[11px] sm:text-sm">
             {bmiVal > 0 ? bmiVal : '-'}
           </span>
           {bmiVal > 0 && (
-            <span className={`px-1 py-0.2 sm:px-2 sm:py-0.5 rounded text-[9px] sm:text-[10px] font-bold ${
-              bmiStatus === 'สมส่วน' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-              bmiStatus === 'ผอม' ? 'bg-sky-50 text-sky-700 border border-sky-200' :
-              bmiStatus === 'ท้วม' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-              'bg-rose-50 text-rose-700 border border-rose-200'
-            }`} title={`ประเมินตามเกณฑ์กรมอนามัย (${gender})`}>
+            <span className="px-1 py-0.2 sm:px-2 sm:py-0.5 rounded text-[9px] sm:text-[10px] font-bold text-black bg-white border border-slate-800" title={`ประเมินตามเกณฑ์กรมอนามัย (${gender})`}>
               {bmiStatus}
             </span>
           )}

@@ -460,28 +460,28 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     return (
       <div 
         key={table.id}
-        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
         style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
       >
         {renderA4Header(`แบบประเมินการอ่าน คิดวิเคราะห์ และเขียน (ตารางที่ ${tableIndex}: ${table.title})`)}
 
-        <div className="border border-slate-300">
+        <div className="border border-slate-800">
           <table className="w-full text-left text-[10px] border-collapse text-black">
             <thead>
-              <tr className="bg-slate-100 text-black font-bold border-b border-slate-300 leading-normal">
-                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   ที่
                 </th>
-                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   รหัสประจำตัว
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-300 w-40 shrink-0 text-[10px] align-middle text-black">
+                <th className="py-1.5 px-2 border-r border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Indicator Columns */}
                 {table.indicators.map((ind) => (
-                  <th key={ind.id} className="py-1.5 px-1 border-r border-slate-300 text-center bg-teal-50/70 text-black align-middle">
+                  <th key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center bg-white text-black align-middle">
                     <div className="font-bold text-[9.5px] leading-snug mx-auto text-black">
                       {ind.name}
                     </div>
@@ -491,16 +491,16 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                   </th>
                 ))}
 
-                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-13 bg-teal-100/70 text-black font-bold align-middle">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-13 bg-white text-black font-bold align-middle">
                   รวม ({maxScore})
                 </th>
-                <th className="py-1.5 px-1 text-center w-16 bg-slate-100 text-black font-bold align-middle">
+                <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
                   ระดับคุณภาพ
                 </th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-200 text-black">
+            <tbody className="divide-y divide-slate-800 text-black">
               {classStudents.map((s, idx) => {
                 const rec = getStudentAssessment(s);
                 const hasTable = hasStudentTableScore(rec, table);
@@ -509,13 +509,13 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50 leading-normal text-black">
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                       {s.rollNumber || idx + 1}
                     </td>
-                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                    <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                       {s.studentCode || '-'}
                     </td>
-                    <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-black whitespace-nowrap text-[10px] align-middle">
+                    <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                       {s.prefix}{s.firstName} {s.lastName}
                     </td>
 
@@ -524,23 +524,18 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                       const hasInd = hasIndicatorScore(rec, ind.id);
                       const sc = rec.indicatorScores?.[ind.id];
                       return (
-                        <td key={ind.id} className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums text-black align-middle">
+                        <td key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums text-black align-middle">
                           {hasInd ? sc : ''}
                         </td>
                       );
                     })}
 
-                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-bold bg-teal-50/40 text-black align-middle">
+                    <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-bold bg-white text-black align-middle">
                       {hasTable && tableScore !== null ? tableScore : ''}
                     </td>
                     <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle text-black">
                       {hasTable && level !== null ? (
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal text-black ${
-                          level === 3 ? 'bg-emerald-100 text-black' :
-                          level === 2 ? 'bg-sky-100 text-black' :
-                          level === 1 ? 'bg-amber-100 text-black' :
-                          'bg-rose-100 text-black'
-                        }`}>
+                        <span className="font-bold text-black text-[9px]">
                           {getLevelBadgeText(level)}
                         </span>
                       ) : ''}
@@ -551,8 +546,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             </tbody>
 
             <tfoot>
-              <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-black text-[9.5px] leading-normal">
-                <td colSpan={3} className="py-1.5 px-2 border-r border-slate-300 text-right font-bold align-middle text-black">
+              <tr className="bg-white font-bold border-t-2 border-slate-800 text-black text-[9.5px] leading-normal">
+                <td colSpan={3} className="py-1.5 px-2 border-r border-slate-800 text-right font-bold align-middle text-black">
                   คะแนนเฉลี่ย:
                 </td>
                 {table.indicators.map((ind) => {
@@ -565,12 +560,12 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     }
                   });
                   return (
-                    <td key={ind.id} className="py-1.5 px-1 border-r border-slate-300 text-center font-mono font-medium text-black align-middle">
+                    <td key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-medium text-black align-middle">
                       {count > 0 ? (total / count).toFixed(1) : ''}
                     </td>
                   );
                 })}
-                <td className="py-1.5 px-1 border-r border-slate-300 text-center font-mono font-bold bg-teal-100/60 text-black align-middle">
+                <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-bold bg-white text-black align-middle">
                   {(() => {
                     let total = 0, count = 0;
                     classStudents.forEach(s => {
@@ -583,7 +578,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     return count > 0 ? (total / count).toFixed(1) : '';
                   })()}
                 </td>
-                <td className="py-1.5 px-1 text-center text-[9px] text-black align-middle">
+                <td className="py-1.5 px-1 text-center text-[9px] text-black align-middle font-bold">
                   รวม {classStudents.length} คน
                 </td>
               </tr>
@@ -593,8 +588,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
         {renderSignatures()}
 
-        <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-teal-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-teal-50/60 py-1 rounded">
-          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+        <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1 rounded">
+          <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
           <span>--- สิ้นสุดความยาวกระดาษ A4 แผ่นที่ {pageNum} (297 mm) ---</span>
         </div>
       </div>
@@ -610,66 +605,66 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
     return (
       <div 
-        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
         style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
       >
         {renderA4Header('แบบสรุปผลการประเมินการอ่าน คิดวิเคราะห์ และเขียน', 'สรุปผลเชิงปริมาณและคุณภาพ')}
 
-        <div className="border border-slate-300">
+        <div className="border border-slate-800">
           <table className="w-full text-left text-[10px] border-collapse text-black">
             <thead>
               <tr className="text-black font-bold leading-normal">
-                <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+                <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   ที่
                 </th>
-                <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+                <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   รหัสประจำตัว
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 bg-slate-100 border-r border-b border-slate-300 w-40 shrink-0 text-[10px] align-middle text-black">
+                <th rowSpan={2} className="py-1.5 px-2 bg-white border-r border-b border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Column การอ่าน */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-teal-50/80 text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
                   การอ่าน ({rMax})
                 </th>
 
                 {/* Column คิดวิเคราะห์ */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-sky-50/80 text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
                   คิดวิเคราะห์ ({tMax})
                 </th>
 
                 {/* Column การเขียน */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-indigo-50/80 text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
                   การเขียน ({wMax})
                 </th>
 
                 {/* Column รวม */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-emerald-50/80 text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
                   รวม ({totalMax})
                 </th>
 
-                <th rowSpan={2} className="py-1.5 px-1 border-b border-slate-300 text-center w-16 bg-slate-100 text-black font-bold align-middle">
+                <th rowSpan={2} className="py-1.5 px-1 border-b border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                   สรุปผล
                 </th>
               </tr>
 
               <tr className="text-black font-bold text-[8.5px] leading-normal">
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 border-r border-b border-slate-300 text-center w-12 bg-emerald-50/50 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 border-r border-b border-slate-300 text-center w-14 bg-emerald-50/50 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-12 bg-white align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-14 bg-white align-middle text-black">คุณภาพ</th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-200 text-black">
+            <tbody className="divide-y divide-slate-800 text-black">
               {classStudents.map((s, idx) => {
                 const rec = getStudentAssessment(s);
                 const hasR = hasStudentTableScore(rec, readingTable);
@@ -693,41 +688,36 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                 return (
                   <tr key={s.id} className="hover:bg-slate-50 leading-normal text-black">
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                       {s.rollNumber || idx + 1}
                     </td>
-                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                    <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                       {s.studentCode || '-'}
                     </td>
-                    <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-black whitespace-nowrap text-[10px] align-middle">
+                    <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                       {s.prefix}{s.firstName} {s.lastName}
                     </td>
 
                     {/* การอ่าน */}
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasR && rScore !== null ? rScore : ''}</td>
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle text-black">{hasR && lR !== null ? getLevelBadgeText(lR) : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasR && rScore !== null ? rScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center text-[9px] font-bold align-middle text-black">{hasR && lR !== null ? getLevelBadgeText(lR) : ''}</td>
 
                     {/* คิดวิเคราะห์ */}
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasT && tScore !== null ? tScore : ''}</td>
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle text-black">{hasT && lT !== null ? getLevelBadgeText(lT) : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasT && tScore !== null ? tScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center text-[9px] font-bold align-middle text-black">{hasT && lT !== null ? getLevelBadgeText(lT) : ''}</td>
 
                     {/* การเขียน */}
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasW && wScore !== null ? wScore : ''}</td>
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle text-black">{hasW && lW !== null ? getLevelBadgeText(lW) : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums align-middle text-black">{hasW && wScore !== null ? wScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center text-[9px] font-bold align-middle text-black">{hasW && lW !== null ? getLevelBadgeText(lW) : ''}</td>
 
                     {/* รวม */}
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-bold bg-emerald-50/40 align-middle text-black">{hasAny && sumScore !== null ? sumScore : ''}</td>
-                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold bg-emerald-50/40 align-middle text-black">{hasAny && overallLevel !== null ? getLevelBadgeText(overallLevel) : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-bold bg-white align-middle text-black">{hasAny && sumScore !== null ? sumScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-800 text-center text-[9px] font-bold bg-white align-middle text-black">{hasAny && overallLevel !== null ? getLevelBadgeText(overallLevel) : ''}</td>
 
                     {/* Overall Badge */}
                     <td className="py-1.5 px-1 text-center font-bold text-[9px] align-middle text-black">
                       {hasAny && overallLevel !== null ? (
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal text-black ${
-                          overallLevel === 3 ? 'bg-emerald-100 text-black' :
-                          overallLevel === 2 ? 'bg-sky-100 text-black' :
-                          overallLevel === 1 ? 'bg-amber-100 text-black' :
-                          'bg-rose-100 text-black'
-                        }`}>
+                        <span className="font-bold text-black text-[9px]">
                           {getLevelBadgeText(overallLevel)}
                         </span>
                       ) : ''}
@@ -741,8 +731,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
         {renderSignatures()}
 
-        <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-teal-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-teal-50/60 py-1 rounded">
-          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" />
+        <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1 rounded">
+          <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
           <span>--- สิ้นสุดความยาวกระดาษ A4 แผ่นที่ {pageNum} (297 mm) ---</span>
         </div>
       </div>
@@ -752,42 +742,42 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 2: Characteristics Overview Sheet (สรุปข้อหลักทั้ง 8 ข้อ)
   const renderCharacteristicsOverviewSheet = () => (
     <div 
-      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
       style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
     >
       {renderA4Header('แบบสรุปผลการประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
-      <div className="border border-slate-300">
+      <div className="border border-slate-800">
         <table className="w-full text-left text-[10px] border-collapse text-black">
           <thead>
-            <tr className="bg-slate-100 text-black font-bold border-b border-slate-300 leading-normal">
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+            <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
                 ที่
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
                 รหัสประจำตัว
               </th>
-              <th className="py-1.5 px-2 border-r border-slate-300 w-36 shrink-0 text-[10px] align-middle text-black">
+              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 8 Core Characteristics - Equal Width & Wrapping Full Titles */}
               {CHARACTERISTICS_GROUPS.map((grp) => (
-                <th key={grp.id} className="py-1.5 px-0.5 border-r border-slate-300 text-center w-[9%] bg-amber-50/70 text-black font-bold align-middle" title={grp.title}>
-                  <div className="text-[9px] font-bold border-b border-amber-200 pb-0.5 mb-0.5 text-black leading-snug">ข้อ {grp.number}</div>
-                  <div className="text-[8px] font-semibold leading-snug whitespace-normal break-words text-black">
+                <th key={grp.id} className="py-1.5 px-0.5 border-r border-slate-800 text-center w-[9%] bg-white text-black font-bold align-middle" title={grp.title}>
+                  <div className="text-[9px] font-bold text-black leading-snug">ข้อ {grp.number}</div>
+                  <div className="text-[8px] font-semibold leading-snug whitespace-normal break-words text-black mt-0.5">
                     {grp.title.replace(/^\d+\)\s*/, '')}
                   </div>
                 </th>
               ))}
 
-              <th className="py-1.5 px-1 text-center w-16 bg-amber-100/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
                 สรุปผล
               </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-200 text-black">
+          <tbody className="divide-y divide-slate-800 text-black">
             {classStudents.map((s, idx) => {
               const rec = getStudentAssessment(s);
               const hasChar = hasStudentCharacteristicsScore(rec);
@@ -806,13 +796,13 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
               return (
                 <tr key={s.id} className="hover:bg-slate-50 leading-normal text-black">
-                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                  <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                     {s.rollNumber || idx + 1}
                   </td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                     {s.studentCode || '-'}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-black whitespace-nowrap text-[10px] align-middle">
+                  <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                     {s.prefix}{s.firstName} {s.lastName}
                   </td>
 
@@ -821,7 +811,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     const rawScore = (char as any)[grp.itemKey];
                     const hasScore = hasChar && rawScore !== undefined && rawScore !== null;
                     return (
-                      <td key={grp.id} className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">
+                      <td key={grp.id} className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">
                         {hasScore ? rawScore : ''}
                       </td>
                     );
@@ -829,12 +819,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                   <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle text-black">
                     {hasChar && overall !== null ? (
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal text-black ${
-                        overall === 3 ? 'bg-emerald-100 text-black' :
-                        overall === 2 ? 'bg-sky-100 text-black' :
-                        overall === 1 ? 'bg-amber-100 text-black' :
-                        'bg-rose-100 text-black'
-                      }`}>
+                      <span className="font-bold text-black text-[9px]">
                         {getLevelBadgeText(overall)}
                       </span>
                     ) : ''}
@@ -848,8 +833,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
       {renderSignatures()}
 
-      <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1 rounded">
-        <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+      <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1 rounded">
+        <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
         <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 1 (297 mm) ---</span>
       </div>
     </div>
@@ -883,13 +868,13 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             <div key={st.id} className="space-y-8 print:space-y-0 text-black">
               {/* PAGE 1: Items 1 - 4 */}
               <div 
-                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-5 sm:py-6 mx-auto text-black relative transition-all print:shadow-none print:m-0 print:border-none`}
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm py-5 sm:py-6 mx-auto text-black relative transition-all print:shadow-none print:m-0 print:border-none`}
                 style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm', pageBreakAfter: 'always', breakAfter: 'page' }}
               >
                 {renderA4Header('แบบประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ (รายบุคคล)')}
 
                 {/* Student Info Bar */}
-                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between gap-2 leading-normal text-black">
+                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-800 rounded text-xs flex items-center justify-between gap-2 leading-normal text-black">
                   <span className="shrink-0 text-black">
                     <span className="text-black font-medium">รหัสประจำตัว: </span>
                     <strong className="text-black font-mono font-bold">{st.studentCode || '-'}</strong>
@@ -905,37 +890,37 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 </div>
 
                 {/* Groups 1 to 4 Table */}
-                <div className="border border-slate-300 mb-4">
+                <div className="border border-slate-800 mb-4">
                   <table className="w-full text-left text-xs border-collapse text-black">
                     <thead>
-                      <tr className="bg-amber-100/80 text-black font-bold border-b border-slate-300 text-xs leading-normal">
-                        <th className="py-2.5 px-3 border-r border-slate-300 text-left align-middle text-black">
+                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-xs leading-normal">
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-left align-middle text-black">
                           คุณลักษณะและตัวชี้วัด (ข้อ 1 - 4)
                         </th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ดีเยี่ยม (3)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ดี (2)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ผ่าน (1)</th>
                         <th className="py-2.5 px-1 text-center w-16 align-middle text-black">ไม่ผ่าน (0)</th>
                       </tr>
                     </thead>
 
-                    <tbody className="divide-y divide-slate-200 text-black">
+                    <tbody className="divide-y divide-slate-800 text-black">
                       {group1_4.map((grp) => {
                         const itemScore = hasChar ? (rec.characteristics as any)?.[grp.itemKey] : undefined;
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-amber-50 font-bold text-black text-xs leading-normal">
-                              <td className="py-1.5 px-3 border-r border-slate-200 align-middle text-black">
+                            <tr className="bg-white font-bold text-black text-xs leading-normal">
+                              <td className="py-1.5 px-3 border-r border-slate-800 align-middle text-black">
                                 {grp.title}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 3 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 2 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 1 ? '✓' : ''}
                               </td>
                               <td className="py-1.5 px-1 text-center font-bold text-black align-middle">
@@ -949,16 +934,16 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                                 : undefined;
                               return (
                                 <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-black leading-normal">
-                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7 align-middle text-black">
+                                  <td className="py-1.5 px-3 border-r border-slate-800 pl-7 align-middle text-black">
                                     {ind.text}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 3 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 2 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 1 ? '✓' : ''}
                                   </td>
                                   <td className="py-1.5 px-1 text-center font-bold text-black align-middle">
@@ -974,19 +959,19 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                   </table>
                 </div>
 
-                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-xs font-bold text-black no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1.5 rounded">
-                  <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-xs font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1.5 rounded">
+                  <CheckCircle2 className="w-4 h-4 text-slate-600" />
                   <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 1 (297 mm) - {st.prefix}{st.firstName} {st.lastName} ---</span>
                 </div>
               </div>
 
               {/* PAGE 2: Items 5 - 8 + Signatures */}
               <div 
-                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm pb-5 sm:pb-6 mx-auto text-black relative transition-all print:shadow-none print:m-0 print:border-none`}
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm pb-5 sm:pb-6 mx-auto text-black relative transition-all print:shadow-none print:m-0 print:border-none`}
                 style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingTop: '19mm', paddingLeft: '20mm', paddingRight: '10mm', pageBreakAfter: 'always', breakAfter: 'page' }}
               >
                 {/* Student Info Bar */}
-                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between gap-2 leading-normal text-black">
+                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-800 rounded text-xs flex items-center justify-between gap-2 leading-normal text-black">
                   <span className="shrink-0 text-black">
                     <span className="text-black font-medium">รหัสประจำตัว: </span>
                     <strong className="text-black font-mono font-bold">{st.studentCode || '-'}</strong>
@@ -1002,37 +987,37 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 </div>
 
                 {/* Groups 5 to 8 Table */}
-                <div className="border border-slate-300 mb-6">
+                <div className="border border-slate-800 mb-6">
                   <table className="w-full text-left text-xs border-collapse text-black">
                     <thead>
-                      <tr className="bg-amber-100/80 text-black font-bold border-b border-slate-300 text-xs leading-normal">
-                        <th className="py-2.5 px-3 border-r border-slate-300 text-left align-middle text-black">
+                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-xs leading-normal">
+                        <th className="py-2.5 px-3 border-r border-slate-800 text-left align-middle text-black">
                           คุณลักษณะและตัวชี้วัด (ข้อ 5 - 8)
                         </th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ดีเยี่ยม (3)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ดี (2)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle text-black">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-800 text-center w-16 align-middle text-black">ผ่าน (1)</th>
                         <th className="py-2.5 px-1 text-center w-16 align-middle text-black">ไม่ผ่าน (0)</th>
                       </tr>
                     </thead>
 
-                    <tbody className="divide-y divide-slate-200 text-black">
+                    <tbody className="divide-y divide-slate-800 text-black">
                       {group5_8.map((grp) => {
                         const itemScore = hasChar ? (rec.characteristics as any)?.[grp.itemKey] : undefined;
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-amber-50 font-bold text-black text-xs leading-normal">
-                              <td className="py-1.5 px-3 border-r border-slate-200 align-middle text-black">
+                            <tr className="bg-white font-bold text-black text-xs leading-normal">
+                              <td className="py-1.5 px-3 border-r border-slate-800 align-middle text-black">
                                 {grp.title}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 3 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 2 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                              <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                 {itemScore === 1 ? '✓' : ''}
                               </td>
                               <td className="py-1.5 px-1 text-center font-bold text-black align-middle">
@@ -1046,16 +1031,16 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                                 : undefined;
                               return (
                                 <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-black leading-normal">
-                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7 align-middle text-black">
+                                  <td className="py-1.5 px-3 border-r border-slate-800 pl-7 align-middle text-black">
                                     {ind.text}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 3 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 2 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-black align-middle">
+                                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-bold text-black align-middle">
                                     {subSc === 1 ? '✓' : ''}
                                   </td>
                                   <td className="py-1.5 px-1 text-center font-bold text-black align-middle">
@@ -1073,8 +1058,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
                 {renderSignatures()}
 
-                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-amber-400 text-center text-xs font-bold text-black no-print flex items-center justify-center gap-2 bg-amber-50/60 py-1.5 rounded">
-                  <CheckCircle2 className="w-4 h-4 text-amber-600" />
+                <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-xs font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1.5 rounded">
+                  <CheckCircle2 className="w-4 h-4 text-slate-600" />
                   <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 2 (297 mm) - {st.prefix}{st.firstName} {st.lastName} ---</span>
                 </div>
               </div>
@@ -1088,49 +1073,49 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 3: Competencies Sheet (สมรรถนะสำคัญ 5 ด้าน ตามตารางปกติ)
   const renderCompetenciesSheet = () => (
     <div 
-      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-800 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-black relative transition-all`}
       style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
     >
       {renderA4Header('แบบรายงานการประเมินสมรรถนะสำคัญของผู้เรียน 5 ด้าน', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
-      <div className="border border-slate-300">
+      <div className="border border-slate-800">
         <table className="w-full text-left text-[10px] border-collapse text-black">
           <thead>
-            <tr className="bg-slate-100 text-black font-bold border-b border-slate-300 leading-normal">
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+            <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
                 ที่
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
                 รหัสประจำตัว
               </th>
-              <th className="py-1.5 px-2 border-r border-slate-300 w-36 shrink-0 text-[10px] align-middle text-black">
+              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 5 Competencies */}
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                 1. การสื่อสาร
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                 2. การคิด
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                 3. แก้ปัญหา
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                 4. ทักษะชีวิต
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
                 5. เทคโนโลยี
               </th>
 
-              <th className="py-1.5 px-1 text-center w-16 bg-blue-100/70 text-black font-bold align-middle">
+              <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
                 สรุปผล
               </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-200 text-black">
+          <tbody className="divide-y divide-slate-800 text-black">
             {classStudents.map((s, idx) => {
               const rec = getStudentAssessment(s);
               const hasComp = hasStudentCompetencyScore(rec);
@@ -1152,30 +1137,25 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
               return (
                 <tr key={s.id} className="hover:bg-slate-50 leading-normal text-black">
-                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                  <td className="py-1.5 px-0.5 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                     {s.rollNumber || idx + 1}
                   </td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono tabular-nums text-black text-[9.5px] align-middle">
                     {s.studentCode || '-'}
                   </td>
-                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-black whitespace-nowrap text-[10px] align-middle">
+                  <td className="py-1.5 px-2 border-r border-slate-800 font-medium text-black whitespace-nowrap text-[10px] align-middle">
                     {s.prefix}{s.firstName} {s.lastName}
                   </td>
 
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c1 !== null ? c1 : ''}</td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c2 !== null ? c2 : ''}</td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c3 !== null ? c3 : ''}</td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c4 !== null ? c4 : ''}</td>
-                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c5 !== null ? c5 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c1 !== null ? c1 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c2 !== null ? c2 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c3 !== null ? c3 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c4 !== null ? c4 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono text-[9.5px] tabular-nums font-semibold text-black align-middle">{c5 !== null ? c5 : ''}</td>
 
                   <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle text-black">
                     {hasComp && overall !== null ? (
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal text-black ${
-                        overall === 3 ? 'bg-emerald-100 text-black' :
-                        overall === 2 ? 'bg-sky-100 text-black' :
-                        overall === 1 ? 'bg-amber-100 text-black' :
-                        'bg-rose-100 text-black'
-                      }`}>
+                      <span className="font-bold text-black text-[9px]">
                         {getLevelBadgeText(overall)}
                       </span>
                     ) : ''}
@@ -1189,8 +1169,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
       {renderSignatures()}
 
-      <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-blue-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-blue-50/60 py-1 rounded">
-        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+      <div className="a4-page-limit-line mt-6 pt-2 border-t-2 border-dashed border-slate-400 text-center text-[10px] font-bold text-black no-print flex items-center justify-center gap-2 bg-slate-50 py-1 rounded">
+        <CheckCircle2 className="w-3.5 h-3.5 text-slate-600" />
         <span>--- สิ้นสุดความยาวกระดาษ A4 หน้าที่ 1 (297 mm) ---</span>
       </div>
     </div>

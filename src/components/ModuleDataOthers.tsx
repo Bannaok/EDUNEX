@@ -1173,18 +1173,18 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     const rightMargin = mm(195);
 
     // 1. Title
-    drawText('แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว', mm(105), mm(17), {
+    drawText('แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว', mm(105), mm(25), {
       sizeMm: 5.4,
       weight: 700,
       align: 'center',
     });
 
     // 2. Date & Location (Right Indented)
-    const writeAtY = mm(26);
+    const writeAtY = mm(34);
     const writeLblW = drawText('เขียนที่', mm(110), writeAtY);
     drawDottedField(mm(110) + writeLblW + mm(1.5), rightMargin, writeAtY, d.formattedSchoolName, 'center');
 
-    const dateRowY = mm(33.5);
+    const dateRowY = mm(41.5);
     let curX = mm(92);
     curX += drawText('วันที่', curX, dateRowY) + mm(1.2);
     drawDottedField(curX, curX + mm(13), dateRowY, d.createdDate.day, 'center');
@@ -1196,7 +1196,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     drawDottedField(curX, rightMargin, dateRowY, d.createdDate.year, 'center');
 
     // 3. Subject & Recipient
-    const subjY = mm(42.5);
+    const subjY = mm(50.5);
     drawText('เรื่อง', leftMargin, subjY, { weight: 700 });
     const subjectStr = d.isPersonal
       ? 'ขอลากิจส่วนตัว'
@@ -1207,12 +1207,12 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
       : `ขอ${targetLeave.leaveType}`;
     drawDottedField(mm(29), rightMargin, subjY, subjectStr, 'left');
 
-    const toY = mm(50);
+    const toY = mm(58);
     drawText('เรียน', leftMargin, toY, { weight: 700 });
     drawDottedField(mm(29), rightMargin, toY, d.directorPositionTitle, 'left');
 
     // 4. Applicant Info
-    const appY = mm(58.5);
+    const appY = mm(66.5);
     let ax = mm(27); // 12mm paragraph indent
     ax += drawText('ข้าพเจ้า', ax, appY) + mm(1.5);
     drawDottedField(ax, mm(117), appY, d.applicantFullName, 'center');
@@ -1220,7 +1220,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     ax += drawText('ตำแหน่ง', ax, appY) + mm(1.5);
     drawDottedField(ax, rightMargin, appY, d.teacherPosition, 'center');
 
-    const affY = mm(66);
+    const affY = mm(74);
     const affLblW = drawText('สังกัด', leftMargin, affY);
     drawDottedField(
       leftMargin + affLblW + mm(1.8),
@@ -1232,16 +1232,16 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
     // 5. Leave Checkboxes & Reasons
     const chkX = mm(26);
-    const chk1Y = mm(74.5);
+    const chk1Y = mm(82.5);
     drawText('ขอลา', leftMargin, chk1Y);
     const c1W = drawCheckOption(chkX, chk1Y, d.isSick, 'ป่วย เนื่องจาก');
     drawDottedField(chkX + c1W + mm(2), rightMargin, chk1Y, d.isSick ? targetLeave.reason : '', 'left');
 
-    const chk2Y = mm(82);
+    const chk2Y = mm(90);
     const c2W = drawCheckOption(chkX, chk2Y, d.isPersonal, 'กิจส่วนตัว เนื่องจาก');
     drawDottedField(chkX + c2W + mm(2), rightMargin, chk2Y, d.isPersonal ? targetLeave.reason : '', 'left');
 
-    const chk3Y = mm(89.5);
+    const chk3Y = mm(97.5);
     const c3W = drawCheckOption(
       chkX,
       chk3Y,
@@ -1250,7 +1250,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
     );
     drawDottedField(chkX + c3W + mm(2), rightMargin, chk3Y, d.isMaternity ? targetLeave.reason : '', 'left');
 
-    let nextY = mm(97.5);
+    let nextY = mm(105.5);
     if (d.isOther) {
       const cOtherW = drawCheckOption(chkX, nextY, true, `${targetLeave.leaveType} เนื่องจาก`);
       drawDottedField(chkX + cOtherW + mm(2), rightMargin, nextY, targetLeave.reason || '', 'left');
@@ -7469,7 +7469,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   min-height: 297mm !important;
                   max-height: 297mm !important;
                   margin: 0 !important;
-                  padding: 10mm 15mm 7mm 15mm !important;
+                  padding: 25mm 15mm 7mm 15mm !important;
                   border: none !important;
                   box-shadow: none !important;
                   background: white !important;
@@ -7555,7 +7555,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                     width: '210mm',
                     minHeight: '297mm',
                     height: '297mm',
-                    padding: leavePreviewDataUrl ? '0' : '10mm 15mm 7mm 15mm',
+                    padding: leavePreviewDataUrl ? '0' : '25mm 15mm 7mm 15mm',
                     fontSize: '15.5pt',
                     lineHeight: '1.4',
                     boxSizing: 'border-box'
@@ -7572,12 +7572,12 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       {/* Top Portion: Official Leave Letter Body */}
                       <div>
                         {/* Form Title */}
-                        <h1 className="text-center font-bold text-[19.5pt] text-black tracking-normal mb-2.5">
+                        <h1 className="text-center font-bold text-[19.5pt] text-black tracking-normal mb-3">
                           แบบใบลาป่วย ลาคลอดบุตร ลากิจส่วนตัว
                         </h1>
 
                         {/* Date & Location (Right indented) */}
-                        <div className="mb-2.5 flex flex-col items-end pr-2 font-normal text-[15.5pt]">
+                        <div className="mb-3 flex flex-col items-end pr-2 font-normal text-[15.5pt]">
                           <div className="flex items-baseline gap-1 w-[320px]">
                             <span className="shrink-0">เขียนที่</span>
                             <span className="inline-block border-b-[1.5px] border-dotted border-black flex-1 text-center font-normal px-2 pb-0 leading-none">
@@ -7601,7 +7601,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Subject & Recipient */}
-                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                        <div className="space-y-1.5 mb-3 font-normal text-[15.5pt]">
                           <div className="flex items-baseline">
                             <span className="font-bold w-14 shrink-0">เรื่อง</span>
                             <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 font-normal ml-1 pb-0 leading-none">
@@ -7617,7 +7617,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Applicant Information */}
-                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                        <div className="space-y-1.5 mb-3 font-normal text-[15.5pt]">
                           <div className="flex items-baseline">
                             <span className="inline-block w-12 shrink-0"></span>
                             <span className="shrink-0">ข้าพเจ้า</span>
@@ -7638,7 +7638,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Checkboxes with reasons */}
-                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                        <div className="space-y-1.5 mb-3 font-normal text-[15.5pt]">
                           <div className="flex items-baseline">
                             <span className="shrink-0">ขอลา</span>
                             <span className="font-mono text-[16pt] ml-2 shrink-0 font-normal">({isSick ? ' ✓ ' : '   '})</span>
@@ -7680,7 +7680,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Leave Dates & Duration */}
-                        <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
+                        <div className="mb-3 flex items-baseline font-normal text-[15.5pt]">
                           <span className="shrink-0">ตั้งแต่วันที่</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 min-w-[155px] text-center font-normal ml-1 pb-0 leading-none">
                             {startDateThai}
@@ -7697,7 +7697,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Previous Leave History */}
-                        <div className="space-y-1 mb-2.5 font-normal text-[15.5pt]">
+                        <div className="space-y-1.5 mb-3 font-normal text-[15.5pt]">
                           <div className="flex items-baseline gap-2 font-normal flex-wrap">
                             <span>ข้าพเจ้าได้ลา</span>
                             <span className="font-mono text-[16pt] font-normal">({lastLeaveSick ? ' ✓ ' : '   '}) ป่วย</span>
@@ -7722,7 +7722,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         </div>
 
                         {/* Contact Phone */}
-                        <div className="mb-2.5 flex items-baseline font-normal text-[15.5pt]">
+                        <div className="mb-3 flex items-baseline font-normal text-[15.5pt]">
                           <span className="shrink-0">ในระหว่างลาจะติดต่อข้าพเจ้าได้ที่โทรศัพท์</span>
                           <span className="inline-block border-b-[1.5px] border-dotted border-black px-2 flex-1 text-center font-normal ml-2 pb-0 leading-none">
                             {teacherPhone}
@@ -7745,7 +7745,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       </div>
 
                       {/* Bottom Section (2 Columns: Fiscal Year Stats & Approvals) */}
-                      <div className="grid grid-cols-2 gap-5 mt-2 pt-1 font-normal text-[14pt]">
+                      <div className="grid grid-cols-2 gap-5 mt-2.5 pt-1 font-normal text-[14pt]">
                         {/* Left Column: Fiscal Year Stats & Auditor */}
                         <div className="space-y-1 font-normal">
                           <div>

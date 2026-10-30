@@ -1424,24 +1424,75 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     );
   };
 
+  // Helper to persist updated schoolDaysList to the active selected term (semester & academicYear)
+  const saveTermSchoolDaysList = (updatedList: SchoolDayItem[]) => {
+    const existingTermCfg = configsByTerm[currentTermKey];
+    if (updatedList.length === 0) {
+      setSchoolDaysList([]);
+      const updatedConfigs = StorageService.deleteAttendanceConfigForTerm(currentTermKey);
+      setConfigsByTerm(updatedConfigs);
+      onSaveAttendanceConfig({
+        ...(existingTermCfg || attendanceConfig),
+        semester: selectedSemester,
+        academicYear: selectedAcademicYear,
+        startDate: '',
+        endDate: '',
+        targetDays: 0,
+        schoolDays: []
+      });
+      return;
+    }
+
+    const activeCount = updatedList.filter(d => !d.isHoliday).length;
+    const sortedDates = updatedList.map(d => d.date).filter(Boolean).sort();
+    const startDate = existingTermCfg?.startDate || sortedDates[0] || attendanceConfig.startDate || '';
+    const endDate = existingTermCfg?.endDate || sortedDates[sortedDates.length - 1] || attendanceConfig.endDate || '';
+
+    const updatedConfig: AttendanceDayConfig = {
+      ...(existingTermCfg || attendanceConfig),
+      semester: selectedSemester,
+      academicYear: selectedAcademicYear,
+      startDate,
+      endDate,
+      targetDays: activeCount,
+      schoolDays: updatedList
+    };
+
+    setSchoolDaysList(updatedList);
+    const allConfigs = StorageService.setAttendanceConfigForTerm(updatedConfig);
+    setConfigsByTerm(allConfigs);
+    onSaveAttendanceConfig(updatedConfig);
+  };
+
   // Toggle holiday status for a date item in school structure
   const handleToggleHolidayItem = (targetDate: string, saveImmediately = true) => {
+    let toggledToHoliday = false;
     const updated = schoolDaysList.map(item => {
       if (item.date === targetDate) {
-        return { ...item, isHoliday: !item.isHoliday };
+        const nextHoliday = !item.isHoliday;
+        toggledToHoliday = nextHoliday;
+        const isWeekend = item.dayOfWeek === 'เสาร์' || item.dayOfWeek === 'อาทิตย์';
+        let nextNote = item.note || '';
+        if (nextHoliday && (!nextNote || nextNote === 'วันเรียนปกติ')) {
+          nextNote = isWeekend ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด';
+        } else if (!nextHoliday && (!nextNote || nextNote === 'วันหยุด' || nextNote === 'วันหยุดสุดสัปดาห์')) {
+          nextNote = 'วันเรียนปกติ';
+        }
+        return { ...item, isHoliday: nextHoliday, note: nextNote };
       }
       return item;
     });
-    setSchoolDaysList(updated);
 
     if (saveImmediately) {
+      saveTermSchoolDaysList(updated);
       const activeCount = updated.filter(d => !d.isHoliday).length;
-      onSaveAttendanceConfig({
-        ...attendanceConfig,
-        targetDays: activeCount > 0 ? activeCount : attendanceConfig.targetDays,
-        schoolDays: updated
-      });
-      onShowToast('info', 'อัปเดตวันทำการ', `ปรับสถานะวันที่ ${targetDate} สำเร็จ (รวมวันทำการ ${activeCount} วัน)`);
+      onShowToast(
+        'success',
+        'อัปเดตสถานะวันสำเร็จ',
+        `ตั้งค่าวันที่ ${formatThaiDate(targetDate)} เป็น "${toggledToHoliday ? 'วันหยุด' : 'วันเรียน'}" เรียบร้อยแล้ว (รวมวันเรียน ${activeCount} วัน)`
+      );
+    } else {
+      setSchoolDaysList(updated);
     }
   };
 
@@ -1455,27 +1506,30 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   // Save changes from editing a school day item
   const handleSaveEditDay = () => {
     if (!editingDayItem) return;
+    const isWeekend = editingDayItem.dayOfWeek === 'เสาร์' || editingDayItem.dayOfWeek === 'อาทิตย์';
+    let cleanedNote = editingDayNote.trim();
+    if (editingDayIsHoliday && (!cleanedNote || cleanedNote === 'วันเรียนปกติ')) {
+      cleanedNote = isWeekend ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด';
+    } else if (!editingDayIsHoliday && (!cleanedNote || cleanedNote === 'วันหยุด' || cleanedNote === 'วันหยุดสุดสัปดาห์')) {
+      cleanedNote = 'วันเรียนปกติ';
+    }
+
     const updated = schoolDaysList.map(item => {
       if (item.date === editingDayItem.date) {
         return {
           ...item,
           isHoliday: editingDayIsHoliday,
-          note: editingDayNote.trim() || (editingDayIsHoliday ? 'วันหยุด' : 'วันเรียนปกติ')
+          note: cleanedNote
         };
       }
       return item;
     });
-    setSchoolDaysList(updated);
-    const activeCount = updated.filter(d => !d.isHoliday).length;
-    onSaveAttendanceConfig({
-      ...attendanceConfig,
-      targetDays: activeCount,
-      schoolDays: updated
-    });
+
+    saveTermSchoolDaysList(updated);
     onShowToast(
       'success',
       'บันทึกสำเร็จ',
-      `ตั้งค่าวันที่ ${formatThaiDate(editingDayItem.date)} เป็น "${editingDayIsHoliday ? 'วันหยุด' : 'เวลาเรียน'}" เรียบร้อยแล้ว`
+      `ตั้งค่าวันที่ ${formatThaiDate(editingDayItem.date)} เป็น "${editingDayIsHoliday ? 'วันหยุด' : 'วันเรียน'}" เรียบร้อยแล้ว`
     );
     setEditingDayItem(null);
   };
@@ -1493,11 +1547,11 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     if (!newCustomDate) return;
 
     if (schoolDaysList.some(d => d.date === newCustomDate)) {
-      onShowToast('warning', 'มีอยู่แล้ว', `วันที่ ${newCustomDate} มีอยู่ในรายการแล้ว`);
+      onShowToast('warning', 'มีอยู่แล้ว', `วันที่ ${formatThaiDate(newCustomDate)} มีอยู่ในรายการแล้ว`);
       return;
     }
 
-    const dObj = new Date(newCustomDate);
+    const dObj = new Date(newCustomDate + 'T00:00:00');
     if (isNaN(dObj.getTime())) {
       onShowToast('error', 'รูปแบบไม่ถูกต้อง', 'โปรดระบุวันที่ในรูปแบบที่ถูกต้อง');
       return;
@@ -1514,31 +1568,21 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     };
 
     const nextList = [...schoolDaysList, newItem].sort((a, b) => a.date.localeCompare(b.date));
-    setSchoolDaysList(nextList);
-
-    const activeCount = nextList.filter(d => !d.isHoliday).length;
-    onSaveAttendanceConfig({
-      ...attendanceConfig,
-      targetDays: activeCount,
-      schoolDays: nextList
-    });
+    saveTermSchoolDaysList(nextList);
 
     setIsAddDayModalOpen(false);
     setNewCustomNote('');
-    onShowToast('success', 'เพิ่มวันเรียบร้อย 🎉', `เพิ่มวันที่ ${formatThaiDate(newCustomDate)} (${dayName}) เรียบร้อยแล้ว`);
+    onShowToast('success', 'เพิ่มวันเรียบร้อย 🎉', `เพิ่มวันที่ ${formatThaiDate(newCustomDate)} (วัน${dayName}) เรียบร้อยแล้ว`);
   };
 
-  // Delete a custom day
+  // Delete a single day from the 100-day structure
   const handleDeleteDay = (targetDate: string) => {
     const updated = schoolDaysList.filter(d => d.date !== targetDate);
-    setSchoolDaysList(updated);
-    const activeCount = updated.filter(d => !d.isHoliday).length;
-    onSaveAttendanceConfig({
-      ...attendanceConfig,
-      targetDays: activeCount,
-      schoolDays: updated
-    });
-    onShowToast('success', 'ลบวันเรียบร้อย', `ลบวันที่ ${targetDate} ออกจากโครงสร้างแล้ว`);
+    saveTermSchoolDaysList(updated);
+    if (editingDayItem && editingDayItem.date === targetDate) {
+      setEditingDayItem(null);
+    }
+    onShowToast('success', 'ลบวันเรียบร้อย 🗑️', `ลบวันที่ ${formatThaiDate(targetDate)} ออกจากตารางวันเรียนแล้ว`);
   };
 
   // Save 100 Days Config with schoolDays
@@ -1638,12 +1682,8 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
 
   // Save changes made in "หน้าวันทำการ"
   const handleSaveAllSchoolDaysChanges = () => {
+    saveTermSchoolDaysList(schoolDaysList);
     const activeCount = schoolDaysList.filter(d => !d.isHoliday).length;
-    onSaveAttendanceConfig({
-      ...attendanceConfig,
-      targetDays: activeCount,
-      schoolDays: schoolDaysList
-    });
     onShowToast('success', 'บันทึกวันทำการสำเร็จ 🎉', `บันทึกโครงสร้างวันทำการทั้งหมด ${activeCount} วัน เรียบร้อยแล้ว`);
   };
 
@@ -3027,7 +3067,30 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                             </td>
 
                             <td className="py-2.5 px-3 text-center">
-                              {isHoliday ? (
+                              {user.role === 'admin' ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleHolidayItem(item.date, true)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer active:scale-95 ${
+                                    isHoliday
+                                      ? 'bg-red-50 hover:bg-red-100 text-red-700 border border-red-200'
+                                      : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  }`}
+                                  title="คลิกเพื่อสลับเป็น วันเรียน / วันหยุด ทันที"
+                                >
+                                  {isHoliday ? (
+                                    <>
+                                      <AlertCircle className="w-3 h-3 text-red-500" />
+                                      <span>วันหยุด</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>วันเรียน</span>
+                                    </>
+                                  )}
+                                </button>
+                              ) : isHoliday ? (
                                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-[11px] font-bold">
                                   <AlertCircle className="w-3 h-3 text-red-500" />
                                   <span>วันหยุด</span>
@@ -3586,7 +3649,13 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditingDayIsHoliday(false)}
+                    onClick={() => {
+                      setEditingDayIsHoliday(false);
+                      const trimmed = editingDayNote.trim();
+                      if (!trimmed || trimmed === 'วันหยุด' || trimmed === 'วันหยุดสุดสัปดาห์') {
+                        setEditingDayNote('วันเรียนปกติ');
+                      }
+                    }}
                     className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
                       !editingDayIsHoliday
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
@@ -3598,7 +3667,14 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEditingDayIsHoliday(true)}
+                    onClick={() => {
+                      setEditingDayIsHoliday(true);
+                      const trimmed = editingDayNote.trim();
+                      const isWeekend = editingDayItem.dayOfWeek === 'เสาร์' || editingDayItem.dayOfWeek === 'อาทิตย์';
+                      if (!trimmed || trimmed === 'วันเรียนปกติ') {
+                        setEditingDayNote(isWeekend ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด');
+                      }
+                    }}
                     className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
                       editingDayIsHoliday
                         ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
@@ -3624,22 +3700,32 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setEditingDayItem(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  onClick={() => handleDeleteDay(editingDayItem.date)}
+                  className="px-3.5 py-2 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
                 >
-                  ยกเลิก
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>ลบวันนี้</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleSaveEditDay}
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>บันทึกการตั้งค่า</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingDayItem(null)}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveEditDay}
+                    className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>บันทึกการตั้งค่า</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

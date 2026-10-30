@@ -1136,7 +1136,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           
           {/* TAB 1: ปก (COVER PAGE - Formatted as per reference PDF) */}
           {(activeTab === 'cover' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 font-['Sarabun','TH_Sarabun_New',sans-serif] text-[13px] leading-relaxed flex flex-col justify-between">
+            <div
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 font-['Sarabun','TH_Sarabun_New',sans-serif] text-[13px] leading-relaxed flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+            >
               <div>
                 {/* Top Section: Logo in Center, Photo on Right */}
                 <div className="relative flex items-start justify-between mb-4">
@@ -1187,7 +1190,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 </div>
 
                 {/* School & Student Info Lines */}
-                <div className="space-y-1.5 text-[13px] mb-6 px-2">
+                <div className="space-y-1.5 text-[13px] mb-6">
                   <div className="flex flex-wrap items-baseline gap-1">
                     <span className="font-bold text-slate-900">โรงเรียน :</span>
                     <span className="font-semibold text-slate-900 px-2 border-b border-dotted border-slate-600 inline-block min-w-[220px]">{cleanSchoolName}</span>
@@ -1331,7 +1334,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           {(activeTab === 'info' || activeTab === 'all') && (
             <div className="space-y-8 print:space-y-0 font-['Sarabun','TH_Sarabun_New',sans-serif]">
               {/* Page 1 of Student Profile */}
-              <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 text-[13px] leading-relaxed flex flex-col justify-between">
+              <div
+                className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 text-[13px] leading-relaxed flex flex-col justify-between"
+                style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+              >
                 <div>
                   {/* Title: ข้อมูลส่วนตัวผู้เรียน */}
                   <div className="text-center mb-6">
@@ -1541,7 +1547,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               </div>
 
               {/* Page 2 of Student Profile (Matching Reference PDF Page 2) */}
-              <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-10 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-8 print:break-before-page text-[13px] leading-relaxed flex flex-col justify-between">
+              <div
+                className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page text-[13px] leading-relaxed flex flex-col justify-between"
+                style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+              >
                 <div>
                   {/* Section: โรงเรียนเดิม */}
                   <div className="space-y-1.5 mb-3">
@@ -1722,7 +1731,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 3: วัดผล (ACADEMIC EVALUATION & GRADES) */}
           {(activeTab === 'academic' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
+            <div
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+            >
               
               <div className="space-y-6">
                 {renderPP6Header()}
@@ -1840,7 +1852,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 4: เวลาเรียน (ATTENDANCE RECORD) */}
           {(activeTab === 'attendance' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
+            <div
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+            >
               
               <div className="space-y-6">
                 {renderPP6Header(undefined, 'เวลาเรียนนักเรียน')}
@@ -1917,7 +1932,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 5: สุขภาพ (น้ำหนัก, แปรงฟัน, ดื่มนม) */}
           {(activeTab === 'health' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
+            <div
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+            >
               
               <div className="space-y-6">
                 {renderPP6Header(undefined, 'บันทึกข้อมูลสุขภาพ')}
@@ -2057,7 +2075,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 6: ความคิดเห็นและการประเมินพฤติกรรม 8 ด้าน (ครูและผู้ปกครอง) */}
           {(activeTab === 'comments' || activeTab === 'all') && (
-            <div className="a4-pp6-page bg-white border border-slate-300 rounded-lg p-6 sm:p-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:p-6 print:break-before-page flex flex-col justify-between">
+            <div
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+            >
               
               <div className="space-y-4">
                 {renderPP6Header()}

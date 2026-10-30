@@ -90,16 +90,17 @@ const RW_CONFIG_KEY = 'ams_reading_writing_config_v2';
 const ASSESSMENT_DATA_KEY = 'ams_assessment_3_booklets_v2';
 
 export interface Characteristics8Criteria {
-  item1: number; // รักชาติ ศาสน์ กษัตริย์ (0-3)
-  item2: number; // ซื่อสัตย์สุจริต (0-3)
-  item3: number; // มีวินัย (0-3)
-  item4: number; // ใฝ่เรียนรู้ (0-3)
-  item5: number; // อยู่อย่างพอเพียง (0-3)
-  item6: number; // มุ่งมั่นในการทำงาน (0-3)
-  item7: number; // รักความเป็นไทย (0-3)
-  item8: number; // มีจิตสาธารณะ (0-3)
-  overallLevel: number; // สรุปผล (0-3)
+  item1?: number; // รักชาติ ศาสน์ กษัตริย์ (0-3)
+  item2?: number; // ซื่อสัตย์สุจริต (0-3)
+  item3?: number; // มีวินัย (0-3)
+  item4?: number; // ใฝ่เรียนรู้ (0-3)
+  item5?: number; // อยู่อย่างพอเพียง (0-3)
+  item6?: number; // มุ่งมั่นในการทำงาน (0-3)
+  item7?: number; // รักความเป็นไทย (0-3)
+  item8?: number; // มีจิตสาธารณะ (0-3)
+  overallLevel?: number; // สรุปผล (0-3)
   subScores?: Record<string, number>; // รายละเอียดย่อย 1.1 - 8.4 (0-3)
+  evaluated?: boolean;
 }
 
 export interface CharacteristicIndicator {
@@ -209,12 +210,13 @@ export const CHARACTERISTICS_GROUPS: CharacteristicGroup[] = [
 ];
 
 export interface Competency5Criteria {
-  comp1: number; // ความสามารถในการสื่อสาร (0-3)
-  comp2: number; // ความสามารถในการคิด (0-3)
-  comp3: number; // ความสามารถในการแก้ปัญหา (0-3)
-  comp4: number; // ความสามารถในการใช้ทักษะชีวิต (0-3)
-  comp5: number; // ความสามารถในการใช้เทคโนโลยี (0-3)
-  overallLevel: number; // สรุปผล (0-3)
+  comp1?: number; // ความสามารถในการสื่อสาร (0-3)
+  comp2?: number; // ความสามารถในการคิด (0-3)
+  comp3?: number; // ความสามารถในการแก้ปัญหา (0-3)
+  comp4?: number; // ความสามารถในการใช้ทักษะชีวิต (0-3)
+  comp5?: number; // ความสามารถในการใช้เทคโนโลยี (0-3)
+  overallLevel?: number; // สรุปผล (0-3)
+  evaluated?: boolean;
 }
 
 export interface AssessmentThresholds {
@@ -352,29 +354,46 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
   // ==========================================
   // GRADE LEVEL & STUDENTS SELECTOR
   // ==========================================
-  const availableGrades: GradeLevel[] = useMemo(() => {
-    const list: GradeLevel[] = ['ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
-    const presentGrades = Array.from(new Set(students.map(s => s.gradeLevel)));
-    return list.filter(g => presentGrades.includes(g) || g === currentGradeLevel);
-  }, [students, currentGradeLevel]);
+  const memberHomeroomGrade = useMemo<GradeLevel | undefined>(() => {
+    if (user.role !== 'member') return undefined;
+    const members = StorageService.getMembers();
+    const matched = members.find(
+      m => m.id === user.id || m.username?.toLowerCase() === user.username?.toLowerCase()
+    );
+    return (matched?.gradeLevel || (user.assignedGrade as GradeLevel)) as GradeLevel | undefined;
+  }, [user]);
 
-  const [selectedGrade, setSelectedGrade] = useState<GradeLevel>(currentGradeLevel);
+  const availableGrades: GradeLevel[] = useMemo(() => {
+    const list: GradeLevel[] = ['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+    const presentGrades = Array.from(new Set(students.map(s => s.gradeLevel)));
+    return list.filter(g => presentGrades.includes(g) || g === currentGradeLevel || g === memberHomeroomGrade);
+  }, [students, currentGradeLevel, memberHomeroomGrade]);
+
+  const [selectedGrade, setSelectedGrade] = useState<GradeLevel>(() => {
+    return memberHomeroomGrade || currentGradeLevel;
+  });
 
   useEffect(() => {
-    if (currentGradeLevel && availableGrades.includes(currentGradeLevel)) {
+    if (memberHomeroomGrade && availableGrades.includes(memberHomeroomGrade)) {
+      setSelectedGrade(memberHomeroomGrade);
+    } else if (currentGradeLevel && availableGrades.includes(currentGradeLevel)) {
       setSelectedGrade(currentGradeLevel);
     }
-  }, [currentGradeLevel]);
+  }, [currentGradeLevel, memberHomeroomGrade]);
 
-  // นักเรียนในระดับชั้นที่เลือก เรียงตามเลขที่
+  // นักเรียนในระดับชั้นที่เลือก เรียงตามเลขที่ 1 -> สุดท้าย
   const classStudents = useMemo(() => {
     return [...students.filter(s => s.gradeLevel === selectedGrade)].sort((a, b) => {
-      if (a.rollNumber !== undefined && b.rollNumber !== undefined) {
-        return a.rollNumber - b.rollNumber;
+      const rollA = Number(a.rollNumber);
+      const rollB = Number(b.rollNumber);
+      const hasRollA = !isNaN(rollA) && rollA > 0;
+      const hasRollB = !isNaN(rollB) && rollB > 0;
+      if (hasRollA && hasRollB && rollA !== rollB) {
+        return rollA - rollB;
       }
-      if (a.rollNumber !== undefined) return -1;
-      if (b.rollNumber !== undefined) return 1;
-      return (a.studentCode || '').localeCompare(b.studentCode || '');
+      if (hasRollA && !hasRollB) return -1;
+      if (!hasRollA && hasRollB) return 1;
+      return (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true });
     });
   }, [students, selectedGrade]);
 
@@ -403,6 +422,42 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
   // Helper calculating total max score across all tables
   const getGrandMaxScore = (): number => {
     return rwConfig.tables.reduce((sum, t) => sum + getTableMaxScore(t), 0);
+  };
+
+  // Helper checking if a student has any score entered in a specific table
+  const hasStudentTableScore = (rec: StudentAssessmentRecord | undefined, table: AssessmentTableConfig): boolean => {
+    if (!rec || !rec.indicatorScores) return false;
+    return table.indicators.some(ind => {
+      const val = rec.indicatorScores[ind.id];
+      return val !== undefined && val !== null && (val as any) !== '';
+    });
+  };
+
+  // Helper checking if a student has any RW score entered across all tables
+  const hasStudentAnyRWScore = (rec: StudentAssessmentRecord | undefined): boolean => {
+    if (!rec || !rec.indicatorScores) return false;
+    return rwConfig.tables.some(t => hasStudentTableScore(rec, t));
+  };
+
+  // Helper checking if a student has been evaluated in Characteristics (Booklet 2)
+  const hasStudentCharacteristicsScore = (rec: StudentAssessmentRecord | undefined): boolean => {
+    const ch = rec?.characteristics;
+    if (!ch) return false;
+    if (ch.evaluated === true) return true;
+    if (ch.subScores && Object.keys(ch.subScores).length > 0) return true;
+    return [ch.item1, ch.item2, ch.item3, ch.item4, ch.item5, ch.item6, ch.item7, ch.item8].some(
+      v => typeof v === 'number' && v > 0
+    );
+  };
+
+  // Helper checking if a student has been evaluated in Competencies (Booklet 3)
+  const hasStudentCompetencyScore = (rec: StudentAssessmentRecord | undefined): boolean => {
+    const comp = rec?.competency;
+    if (!comp) return false;
+    if (comp.evaluated === true) return true;
+    return [comp.comp1, comp.comp2, comp.comp3, comp.comp4, comp.comp5].some(
+      v => typeof v === 'number' && v > 0
+    );
   };
 
   // Helper calculating student's total score for a single table
@@ -657,59 +712,29 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
       semester: currentSemester,
       academicYear: currentAcademicYear,
       indicatorScores: {},
-      characteristics: {
-        item1: 0, item2: 0, item3: 0, item4: 0,
-        item5: 0, item6: 0, item7: 0, item8: 0,
-        overallLevel: 0
-      },
-      competency: {
-        comp1: 0, comp2: 0, comp3: 0, comp4: 0, comp5: 0,
-        overallLevel: 0
-      }
+      characteristics: {},
+      competency: {}
     };
   };
 
-  // Get student assessment record with fallback migration
+  // Get student assessment record strictly from saved 3-booklets data (never prefill from mock/subject grades)
   const getStudentAssessment = (student: Student): StudentAssessmentRecord => {
     const key = getRecordKey(student.id);
     const existing = assessmentData[key];
     if (existing) {
-      // Ensure indicatorScores exists
       if (!existing.indicatorScores) {
         existing.indicatorScores = {};
-        // Migrate legacy readingWriting object if present
-        const legacy = (existing as any).readingWriting;
-        if (legacy) {
-          existing.indicatorScores['r1'] = legacy.reading1 ?? 9;
-          existing.indicatorScores['r2'] = legacy.reading2 ?? 9;
-          existing.indicatorScores['r3'] = legacy.reading3 ?? 8;
-          existing.indicatorScores['t1'] = legacy.thinking1 ?? 9;
-          existing.indicatorScores['t2'] = legacy.thinking2 ?? 13;
-          existing.indicatorScores['t3'] = legacy.thinking3 ?? 13;
-          existing.indicatorScores['w1'] = legacy.writing1 ?? 9;
-          existing.indicatorScores['w2'] = legacy.writing2 ?? 9;
-          existing.indicatorScores['w3'] = legacy.writing3 ?? 8;
-        }
+      }
+      if (!existing.characteristics) {
+        existing.characteristics = {};
+      }
+      if (!existing.competency) {
+        existing.competency = {};
       }
       return existing;
     }
 
-    // Default record
-    const def = createDefaultRecord(student);
-    const existingGrade = grades.find(g => 
-      g.studentId === student.id && 
-      g.semester === currentSemester && 
-      g.gradeLevel === selectedGrade
-    );
-    if (existingGrade) {
-      if (existingGrade.desiredCharacteristicsScore !== undefined) {
-        def.characteristics.overallLevel = existingGrade.desiredCharacteristicsScore;
-      }
-      if (existingGrade.competencyScore !== undefined) {
-        def.competency.overallLevel = existingGrade.competencyScore;
-      }
-    }
-    return def;
+    return createDefaultRecord(student);
   };
 
   // Update single indicator score for student
@@ -746,15 +771,21 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
     if (isLocked) return;
     const key = getRecordKey(student.id);
     const current = getStudentAssessment(student);
-    const updatedChar = { ...current.characteristics, [itemKey]: value };
+    const updatedChar: Characteristics8Criteria = {
+      ...current.characteristics,
+      [itemKey]: value,
+      evaluated: true
+    };
 
     if (itemKey !== 'overallLevel') {
       const items = [
         updatedChar.item1, updatedChar.item2, updatedChar.item3, updatedChar.item4,
         updatedChar.item5, updatedChar.item6, updatedChar.item7, updatedChar.item8
-      ];
-      const avg = items.reduce((a, b) => a + b, 0) / items.length;
-      updatedChar.overallLevel = Math.round(avg);
+      ].filter((v): v is number => typeof v === 'number');
+      if (items.length > 0) {
+        const avg = items.reduce((a, b) => a + b, 0) / items.length;
+        updatedChar.overallLevel = Math.round(avg);
+      }
     }
 
     const updatedRecord: StudentAssessmentRecord = {
@@ -772,18 +803,29 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
   };
 
   // Update competency item
-  const updateCompetency = (student: Student, compKey: keyof Competency5Criteria, value: number) => {
+  const updateCompetency = (student: Student, compKey: keyof Competency5Criteria, rawValue: string | number) => {
     if (isLocked) return;
     const key = getRecordKey(student.id);
     const current = getStudentAssessment(student);
-    const updatedComp = { ...current.competency, [compKey]: value };
+    const updatedComp: Competency5Criteria = { ...current.competency };
 
-    if (compKey !== 'overallLevel') {
-      const comps = [
-        updatedComp.comp1, updatedComp.comp2, updatedComp.comp3, updatedComp.comp4, updatedComp.comp5
-      ];
+    if (rawValue === '' || rawValue === undefined || rawValue === null) {
+      delete (updatedComp as any)[compKey];
+    } else {
+      (updatedComp as any)[compKey] = Number(rawValue);
+    }
+
+    const comps = [
+      updatedComp.comp1, updatedComp.comp2, updatedComp.comp3, updatedComp.comp4, updatedComp.comp5
+    ].filter((v): v is number => typeof v === 'number');
+
+    if (comps.length > 0) {
       const avg = comps.reduce((a, b) => a + b, 0) / comps.length;
       updatedComp.overallLevel = Math.round(avg);
+      updatedComp.evaluated = true;
+    } else {
+      delete updatedComp.overallLevel;
+      updatedComp.evaluated = false;
     }
 
     const updatedRecord: StudentAssessmentRecord = {
@@ -805,12 +847,13 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
     setEvaluatingStudent(st);
     setActiveCategoryIndex(0);
     const curr = getStudentAssessment(st);
-    const ch = curr.characteristics;
+    const ch = curr.characteristics || {};
+    const hasExisting = hasStudentCharacteristicsScore(curr);
     const initialSubScores: Record<string, number> = {};
     CHARACTERISTICS_GROUPS.forEach(g => {
-      const parentVal = ch[g.itemKey] ?? 3;
+      const parentVal = hasExisting && ch[g.itemKey] !== undefined ? ch[g.itemKey]! : 3;
       g.indicators.forEach(ind => {
-        initialSubScores[ind.id] = ch.subScores && ch.subScores[ind.id] !== undefined
+        initialSubScores[ind.id] = hasExisting && ch.subScores && ch.subScores[ind.id] !== undefined
           ? ch.subScores[ind.id]
           : parentVal;
       });
@@ -885,7 +928,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
     const updatedChar: Characteristics8Criteria = {
       item1, item2, item3, item4, item5, item6, item7, item8,
       overallLevel,
-      subScores: { ...modalSubScores }
+      subScores: { ...modalSubScores },
+      evaluated: true
     };
 
     const nextData = {
@@ -936,7 +980,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
           item1: level, item2: level, item3: level, item4: level,
           item5: level, item6: level, item7: level, item8: level,
           overallLevel: level,
-          subScores: { ...allSubScores }
+          subScores: { ...allSubScores },
+          evaluated: true
         }
       };
     });
@@ -961,7 +1006,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
         ...curr,
         competency: {
           comp1: level, comp2: level, comp3: level, comp4: level, comp5: level,
-          overallLevel: level
+          overallLevel: level,
+          evaluated: true
         }
       };
     });
@@ -998,7 +1044,14 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
       classStudents.forEach(st => {
         const assessment = getStudentAssessment(st);
-        const rwLevel = calculateStudentLevel(assessment);
+        const hasRW = hasStudentAnyRWScore(assessment);
+        const hasChar = hasStudentCharacteristicsScore(assessment);
+        const hasComp = hasStudentCompetencyScore(assessment);
+        if (!hasRW && !hasChar && !hasComp) return;
+
+        const rwLevel = hasRW ? calculateStudentLevel(assessment) : undefined;
+        const charLevel = hasChar ? (assessment.characteristics.overallLevel ?? 0) : undefined;
+        const compLevel = hasComp ? (assessment.competency.overallLevel ?? 0) : undefined;
 
         classSubjectIds.forEach(subId => {
           const sub = subjects.find(s => s.id === subId);
@@ -1012,30 +1065,10 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
           if (idx >= 0) {
             updatedGrades[idx] = {
               ...updatedGrades[idx],
-              readingWritingScore: rwLevel,
-              desiredCharacteristicsScore: assessment.characteristics.overallLevel,
-              competencyScore: assessment.competency.overallLevel
+              ...(rwLevel !== undefined ? { readingWritingScore: rwLevel } : {}),
+              ...(charLevel !== undefined ? { desiredCharacteristicsScore: charLevel } : {}),
+              ...(compLevel !== undefined ? { competencyScore: compLevel } : {})
             };
-            changesCount++;
-          } else {
-            updatedGrades.push({
-              id: `grd-${st.id}-${subId}-${currentSemester}`,
-              studentId: st.id,
-              studentName: `${st.prefix}${st.firstName} ${st.lastName}`,
-              gradeLevel: selectedGrade,
-              subjectId: sub.id,
-              subjectCode: sub.code,
-              subjectName: sub.name,
-              semester: currentSemester,
-              academicYear: currentAcademicYear,
-              courseworkScore: 0,
-              examScore: 0,
-              totalScore: 0,
-              gradeGpa: 0,
-              readingWritingScore: rwLevel,
-              desiredCharacteristicsScore: assessment.characteristics.overallLevel,
-              competencyScore: assessment.competency.overallLevel
-            });
             changesCount++;
           }
         });
@@ -1525,6 +1558,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                   <tbody className="divide-y divide-slate-100">
                     {classStudents.map((st) => {
                       const rec = getStudentAssessment(st);
+                      const hasScore = hasStudentTableScore(rec, activeTableConfig);
                       const tableTotal = getStudentTableScore(rec, activeTableConfig);
 
                       return (
@@ -1558,11 +1592,11 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
                           <td className="py-2 px-3 text-center bg-amber-50/40 border-r border-slate-100">
                             <span className="font-bold font-mono text-amber-900 text-xs">
-                              {tableTotal} / {getTableMaxScore(activeTableConfig)}
+                              {hasScore ? `${tableTotal} / ${getTableMaxScore(activeTableConfig)}` : `- / ${getTableMaxScore(activeTableConfig)}`}
                             </span>
                           </td>
                           <td className="py-2 px-3 text-center bg-amber-100/30">
-                            {getTableLevelTextBadge(tableTotal, activeTableConfig)}
+                            {hasScore ? getTableLevelTextBadge(tableTotal, activeTableConfig) : <span className="text-slate-400 font-normal">-</span>}
                           </td>
                         </tr>
                       );
@@ -1639,6 +1673,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {classStudents.map((st) => {
                         const rec = getStudentAssessment(st);
+                        const hasAny = hasStudentAnyRWScore(rec);
                         const grandTotal = getStudentGrandTotalScore(rec);
 
                         return (
@@ -1651,16 +1686,17 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                             </td>
 
                             {rwConfig.tables.map(tbl => {
+                              const hasTbl = hasStudentTableScore(rec, tbl);
                               const tScore = getStudentTableScore(rec, tbl);
                               return (
                                 <td key={tbl.id} className="py-2 px-3 text-center font-mono font-bold text-slate-700 bg-amber-50/10">
-                                  {tScore}
+                                  {hasTbl ? tScore : '-'}
                                 </td>
                               );
                             })}
 
                             <td className="py-2 px-3 text-center font-mono font-bold text-amber-950 bg-amber-100/40 text-xs">
-                              {grandTotal} / {getGrandMaxScore()}
+                              {hasAny ? `${grandTotal} / ${getGrandMaxScore()}` : '-'}
                             </td>
                           </tr>
                         );
@@ -1694,6 +1730,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {classStudents.map((st) => {
                         const rec = getStudentAssessment(st);
+                        const hasAny = hasStudentAnyRWScore(rec);
                         const overallLvl = calculateStudentLevel(rec);
 
                         return (
@@ -1706,16 +1743,17 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                             </td>
 
                             {rwConfig.tables.map(tbl => {
+                              const hasTbl = hasStudentTableScore(rec, tbl);
                               const tScore = getStudentTableScore(rec, tbl);
                               return (
                                 <td key={tbl.id} className="py-2 px-3 text-center bg-blue-50/10">
-                                  {getTableLevelTextBadge(tScore, tbl)}
+                                  {hasTbl ? getTableLevelTextBadge(tScore, tbl) : <span className="text-slate-400 font-normal">-</span>}
                                 </td>
                               );
                             })}
 
                             <td className="py-2 px-3 text-center bg-blue-100/40">
-                              {getQualityTextBadge(overallLvl)}
+                              {hasAny ? getQualityTextBadge(overallLvl) : <span className="text-slate-400 font-normal">-</span>}
                             </td>
                           </tr>
                         );
@@ -1776,7 +1814,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {classStudents.map((st) => {
                     const rec = getStudentAssessment(st);
-                    const ch = rec.characteristics;
+                    const ch = rec.characteristics || {};
+                    const hasChar = hasStudentCharacteristicsScore(rec);
                     const items: ('item1' | 'item2' | 'item3' | 'item4' | 'item5' | 'item6' | 'item7' | 'item8')[] = [
                       'item1', 'item2', 'item3', 'item4',
                       'item5', 'item6', 'item7', 'item8'
@@ -1802,25 +1841,31 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                           </button>
                         </td>
                         {items.map((itKey) => {
-                          const val = ch[itKey] ?? 0;
+                          const val = hasChar ? ch[itKey] : undefined;
                           return (
                             <td key={itKey} className="py-2 px-1 text-center font-mono select-none">
-                              <span 
-                                className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold shadow-2xs ${
-                                  val === 3 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                  val === 2 ? 'bg-sky-50 text-sky-700 border border-sky-200' :
-                                  val === 1 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                  'bg-rose-50 text-rose-700 border border-rose-200'
-                                }`}
-                                title={`คะแนนระดับ ${val} (กดชื่อนักเรียนเพื่อแก้ไข)`}
-                              >
-                                {val}
-                              </span>
+                              {val !== undefined && val !== null ? (
+                                <span 
+                                  className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-bold shadow-2xs ${
+                                    val === 3 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                    val === 2 ? 'bg-sky-50 text-sky-700 border border-sky-200' :
+                                    val === 1 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                    'bg-rose-50 text-rose-700 border border-rose-200'
+                                  }`}
+                                  title={`คะแนนระดับ ${val} (กดชื่อนักเรียนเพื่อแก้ไข)`}
+                                >
+                                  {val}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-normal text-slate-400 bg-slate-50 border border-slate-200/70">
+                                  -
+                                </span>
+                              )}
                             </td>
                           );
                         })}
                         <td className="py-2 px-3 text-center bg-amber-50/40">
-                          {getLevelBadge(ch.overallLevel)}
+                          {hasChar && ch.overallLevel !== undefined ? getLevelBadge(ch.overallLevel) : <span className="text-slate-400 font-normal">-</span>}
                         </td>
                       </tr>
                     );
@@ -1867,8 +1912,9 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {classStudents.map((st) => {
                     const rec = getStudentAssessment(st);
-                    const comp = rec.competency;
-                    const comps: (keyof Competency5Criteria)[] = [
+                    const comp = rec.competency || {};
+                    const hasComp = hasStudentCompetencyScore(rec);
+                    const comps: ('comp1' | 'comp2' | 'comp3' | 'comp4' | 'comp5')[] = [
                       'comp1', 'comp2', 'comp3', 'comp4', 'comp5'
                     ];
 
@@ -1880,23 +1926,27 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                         <td className="py-2 px-3 font-semibold text-slate-800 whitespace-nowrap">
                           {st.prefix}{st.firstName} {st.lastName}
                         </td>
-                        {comps.map((cKey) => (
-                          <td key={cKey} className="py-1.5 px-1.5 text-center">
-                            <select
-                              value={comp[cKey]}
-                              disabled={isLocked}
-                              onChange={(e) => updateCompetency(st, cKey, Number(e.target.value))}
-                              className="text-xs font-bold font-mono px-2 py-1 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-                            >
-                              <option value={3}>3</option>
-                              <option value={2}>2</option>
-                              <option value={1}>1</option>
-                              <option value={0}>0</option>
-                            </select>
-                          </td>
-                        ))}
+                        {comps.map((cKey) => {
+                          const val = hasComp && comp[cKey] !== undefined && comp[cKey] !== null ? comp[cKey] : '';
+                          return (
+                            <td key={cKey} className="py-1.5 px-1.5 text-center">
+                              <select
+                                value={val}
+                                disabled={isLocked}
+                                onChange={(e) => updateCompetency(st, cKey, e.target.value)}
+                                className="text-xs font-bold font-mono px-2 py-1 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                              >
+                                <option value="">-</option>
+                                <option value={3}>3</option>
+                                <option value={2}>2</option>
+                                <option value={1}>1</option>
+                                <option value={0}>0</option>
+                              </select>
+                            </td>
+                          );
+                        })}
                         <td className="py-2 px-3 text-center bg-amber-50/40">
-                          {getLevelBadge(comp.overallLevel)}
+                          {hasComp && comp.overallLevel !== undefined ? getLevelBadge(comp.overallLevel) : <span className="text-slate-400 font-normal">-</span>}
                         </td>
                       </tr>
                     );

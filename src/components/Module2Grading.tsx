@@ -4771,7 +4771,12 @@ export const Module2Grading: React.FC<Module2Props> = ({
           students={students}
           subjects={subjects}
           grades={grades}
-          currentGradeLevel={selectedSubject?.gradeLevel || (user.assignedGrade as GradeLevel) || 'ป.1'}
+          currentGradeLevel={
+            (allMembers.find(m => m.id === user.id || (m.username && user.username && m.username.toLowerCase() === user.username.toLowerCase()))?.gradeLevel as GradeLevel) ||
+            (user.assignedGrade as GradeLevel) ||
+            selectedSubject?.gradeLevel ||
+            'ป.1'
+          }
           currentSemester={currentSemester}
           currentAcademicYear={currentAcademicYear}
           isLocked={isMemberLockedReadOnly}

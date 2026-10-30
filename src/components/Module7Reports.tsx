@@ -430,10 +430,25 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return counts;
   }, [effectiveStudents]);
 
-  // Filter students for selected grade in main roster view
+  const sortStudentsByRoll = (list: Student[]): Student[] => {
+    return [...list].sort((a, b) => {
+      const rollA = Number(a.rollNumber);
+      const rollB = Number(b.rollNumber);
+      const hasRollA = !isNaN(rollA) && rollA > 0;
+      const hasRollB = !isNaN(rollB) && rollB > 0;
+      if (hasRollA && hasRollB && rollA !== rollB) {
+        return rollA - rollB;
+      }
+      if (hasRollA && !hasRollB) return -1;
+      if (!hasRollA && hasRollB) return 1;
+      return (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true });
+    });
+  };
+
+  // Filter students for selected grade in main roster view (sorted by rollNumber 1 -> last)
   const gradeStudents = useMemo(() => {
     return selectedGrade 
-      ? effectiveStudents.filter(s => s.gradeLevel === selectedGrade)
+      ? sortStudentsByRoll(effectiveStudents.filter(s => s.gradeLevel === selectedGrade))
       : [];
   }, [effectiveStudents, selectedGrade]);
 
@@ -443,10 +458,10 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return effectivePersonnel.find(p => p.advisorGrade === selectedGrade) || null;
   }, [effectivePersonnel, selectedGrade]);
 
-  // Filter students for popup grade
+  // Filter students for popup grade (เช็กชื่อ - sorted by rollNumber 1 -> last)
   const popupGradeStudents = useMemo(() => {
     return attendancePopupGrade
-      ? effectiveStudents.filter(s => s.gradeLevel === attendancePopupGrade)
+      ? sortStudentsByRoll(effectiveStudents.filter(s => s.gradeLevel === attendancePopupGrade))
       : [];
   }, [effectiveStudents, attendancePopupGrade]);
 
@@ -456,12 +471,10 @@ export const Module7Reports: React.FC<Module7Props> = ({
     return effectivePersonnel.find(p => p.advisorGrade === attendancePopupGrade) || null;
   }, [effectivePersonnel, attendancePopupGrade]);
 
-  // Filter students for assessment popup grade (sorted by rollNumber)
+  // Filter students for assessment popup grade (sorted by rollNumber 1 -> last)
   const assessmentGradeStudents = useMemo(() => {
     return assessmentPopupGrade
-      ? effectiveStudents
-          .filter(s => s.gradeLevel === assessmentPopupGrade)
-          .sort((a, b) => (a.rollNumber || 999) - (b.rollNumber || 999))
+      ? sortStudentsByRoll(effectiveStudents.filter(s => s.gradeLevel === assessmentPopupGrade))
       : [];
   }, [effectiveStudents, assessmentPopupGrade]);
 
@@ -933,7 +946,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
             box-shadow: none !important;
             border: 1px solid #94a3b8 !important;
             border-radius: 0 !important;
-            padding: 5mm 5mm !important;
+            padding: 5mm 10mm 5mm 20mm !important;
             margin: 0 auto 0 auto !important;
             width: 100% !important;
             max-width: 210mm !important;
@@ -1639,14 +1652,16 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   return (
                     <div 
                       key={group.monthKey}
-                      className={`bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all ${
+                      className={`bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all ${
                         reportOrientation === 'landscape' 
                           ? 'a4-landscape-paper min-h-[210mm]' 
                           : 'a4-portrait-paper min-h-[297mm]'
                       }`}
                       style={{ 
                         width: reportOrientation === 'landscape' ? '297mm' : '210mm',
-                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm'
+                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        paddingLeft: '20mm',
+                        paddingRight: '8mm'
                       }}
                     >
                       {/* A4 Sheet Header */}
@@ -1681,14 +1696,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       </div>
 
                       {/* Compact A4 Portrait Matrix Table showing ALL calendar days */}
-                      <div className="overflow-x-auto border border-slate-300 rounded-sm">
-                        <table className="w-full text-left text-[10px] border-collapse min-w-[700px]">
+                      <div className="border border-slate-300">
+                        <table className="w-full text-left text-[10px] border-collapse">
                           <thead>
-                            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                              <th className="py-1 px-0.5 border-r border-slate-300 text-center w-5 shrink-0 font-mono text-[9px]">
+                            <tr className="text-slate-800 font-bold leading-normal">
+                              <th className="py-1 px-0.5 bg-slate-100 border-r border-b border-slate-300 text-center w-5 shrink-0 font-mono text-[9px] align-middle">
                                 ที่
                               </th>
-                              <th className="py-1 px-1 border-r border-slate-300 w-28 shrink-0 truncate text-[10px]">
+                              <th className="py-1 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-24 shrink-0 text-[10px] align-middle">
                                 ชื่อ - นามสกุล
                               </th>
 
@@ -1698,7 +1713,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                 return (
                                   <th 
                                     key={dayItem.date} 
-                                    className={`py-0.5 px-0 border-r border-slate-300 text-center font-mono w-[17px] text-[9px] ${
+                                    className={`py-0.5 px-0 border-r border-b border-slate-300 text-center font-mono w-[17px] text-[9px] align-middle ${
                                       isRedDay ? 'bg-rose-100/90 text-rose-800' : 'bg-slate-100 text-slate-800'
                                     }`}
                                     title={`${dayItem.dayOfWeekName} ที่ ${dayItem.dayNum} ${group.monthName}${dayItem.holidayLabel ? ` (${dayItem.holidayLabel})` : ''}`}
@@ -1714,24 +1729,24 @@ export const Module7Reports: React.FC<Module7Props> = ({
                               })}
 
                               {/* Monthly Summary Columns */}
-                              <th className="py-1 px-0.5 border-r border-slate-300 text-center w-5 bg-emerald-50 text-emerald-800 font-mono text-[9px]">
+                              <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-5 bg-emerald-50 text-emerald-800 font-mono text-[9px] align-middle">
                                 มา
                               </th>
-                              <th className="py-1 px-0.5 border-r border-slate-300 text-center w-5 bg-rose-50 text-rose-800 font-mono text-[9px]">
+                              <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-5 bg-rose-50 text-rose-800 font-mono text-[9px] align-middle">
                                 ขาด
                               </th>
-                              <th className="py-1 px-0.5 border-r border-slate-300 text-center w-5 bg-amber-50 text-amber-800 font-mono text-[9px]">
+                              <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-5 bg-amber-50 text-amber-800 font-mono text-[9px] align-middle">
                                 ลา
                               </th>
-                              <th className="py-1 px-0.5 border-r border-slate-300 text-center w-5 bg-blue-50 text-blue-800 font-mono text-[9px]">
+                              <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-5 bg-blue-50 text-blue-800 font-mono text-[9px] align-middle">
                                 ป่วย
                               </th>
-                              <th className="py-1 px-1 text-center w-8 bg-slate-100 text-slate-800 font-mono text-[9px]" title="รวมวันทำการ">
+                              <th className="py-1 px-1 border-b border-slate-300 text-center w-8 bg-slate-100 text-slate-800 font-mono text-[9px] align-middle" title="รวมวันทำการ">
                                 รวม
                               </th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-200 text-slate-800">
+                          <tbody className="text-slate-800">
                             {popupGradeStudents.map((s, sIdx) => {
                               let presentCount = 0;
                               let absentCount = 0;
@@ -1742,11 +1757,11 @@ export const Module7Reports: React.FC<Module7Props> = ({
                               const rowSpanCount = popupGradeStudents.length;
 
                               return (
-                                <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                                <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                                  <td className="py-1 px-0.5 border-r border-b border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
                                     {s.rollNumber || sIdx + 1}
                                   </td>
-                                  <td className="py-1 px-1 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[120px] text-[10px]">
+                                  <td className="py-1 px-1 border-r border-b border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                                     {s.prefix}{s.firstName} {s.lastName}
                                   </td>
 
@@ -1760,11 +1775,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                           <td 
                                             key={dayItem.date} 
                                             rowSpan={rowSpanCount}
-                                            className="bg-rose-50/90 border-r border-slate-200 text-center p-0 align-middle"
+                                            className="bg-rose-50/90 border-r border-b border-slate-200 text-center p-0 align-middle"
                                             title={`${dayItem.dayNum} ${group.monthName}: ${dayItem.holidayLabel}`}
                                           >
-                                            <div className="flex items-center justify-center h-full min-h-[40px]">
-                                              <span className="[writing-mode:vertical-lr] rotate-180 text-[9px] font-bold text-rose-700 tracking-wider whitespace-nowrap select-none">
+                                            <div className="flex items-center justify-center h-full min-h-[40px] w-[16px] mx-auto overflow-visible">
+                                              <span
+                                                data-vertical-label={dayItem.holidayLabel}
+                                                className="inline-block shrink-0 -rotate-90 text-[9px] font-bold text-rose-700 tracking-wider whitespace-nowrap select-none"
+                                              >
                                                 {dayItem.holidayLabel}
                                               </span>
                                             </div>
@@ -1801,7 +1819,7 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                     return (
                                       <td 
                                         key={dayItem.date} 
-                                        className={`py-0.5 px-0 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums ${cellClass}`}
+                                        className={`py-0.5 px-0 border-r border-b border-slate-200 text-center font-mono text-[9px] tabular-nums align-middle ${cellClass}`}
                                       >
                                         {symbol}
                                       </td>
@@ -1809,19 +1827,19 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                   })}
 
                                   {/* Student totals for month */}
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-bold font-mono text-emerald-800 bg-emerald-50/40 text-[9px]">
+                                  <td className="py-1 px-0.5 border-r border-b border-slate-200 text-center font-bold font-mono text-emerald-800 bg-emerald-50/40 text-[9px] align-middle">
                                     {presentCount}
                                   </td>
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-bold font-mono text-rose-800 bg-rose-50/40 text-[9px]">
+                                  <td className="py-1 px-0.5 border-r border-b border-slate-200 text-center font-bold font-mono text-rose-800 bg-rose-50/40 text-[9px] align-middle">
                                     {absentCount}
                                   </td>
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-bold font-mono text-amber-800 bg-amber-50/40 text-[9px]">
+                                  <td className="py-1 px-0.5 border-r border-b border-slate-200 text-center font-bold font-mono text-amber-800 bg-amber-50/40 text-[9px] align-middle">
                                     {leaveCount}
                                   </td>
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-bold font-mono text-blue-800 bg-blue-50/40 text-[9px]">
+                                  <td className="py-1 px-0.5 border-r border-b border-slate-200 text-center font-bold font-mono text-blue-800 bg-blue-50/40 text-[9px] align-middle">
                                     {sickCount}
                                   </td>
-                                  <td className="py-1 px-0.5 text-center font-bold font-mono text-slate-700 bg-slate-50/70 text-[9px]">
+                                  <td className="py-1 px-0.5 border-b border-slate-200 text-center font-bold font-mono text-slate-700 bg-slate-50/70 text-[9px] align-middle">
                                     {group.schoolDaysCount}
                                   </td>
                                 </tr>
@@ -1831,14 +1849,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
                           {/* Footer totals row */}
                           <tfoot>
-                            <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-800">
-                              <td colSpan={2} className="py-1 px-1 border-r border-slate-300 text-right text-[9px]">
+                            <tr className="font-bold border-t-2 border-slate-300 text-slate-800">
+                              <td colSpan={2} className="py-1 px-1 bg-slate-100 border-r border-slate-300 text-center text-[9px] align-middle">
                                 รวมมาเรียน (คน):
                               </td>
                               {group.days.map((dayItem) => {
                                 if (dayItem.isHoliday) {
                                   return (
-                                    <td key={dayItem.date} className="py-0.5 px-0 border-r border-slate-300 bg-rose-100/50 text-center text-rose-700 text-[8px]">
+                                    <td key={dayItem.date} className="py-0.5 px-0 border-r border-slate-300 bg-rose-100/50 text-center text-rose-700 text-[8px] align-middle">
                                       -
                                     </td>
                                   );
@@ -1850,12 +1868,12 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                   }
                                 });
                                 return (
-                                  <td key={dayItem.date} className="py-0.5 px-0 border-r border-slate-300 text-center font-mono text-[9px] text-emerald-800">
+                                  <td key={dayItem.date} className="py-0.5 px-0 bg-slate-100 border-r border-slate-300 text-center font-mono text-[9px] text-emerald-800 align-middle">
                                     {dayPresent}
                                   </td>
                                 );
                               })}
-                              <td colSpan={5} className="py-1 px-1 text-center text-[9px] text-slate-600">
+                              <td colSpan={5} className="py-1 px-1 bg-slate-100 text-center text-[9px] text-slate-600 align-middle">
                                 รวม {popupGradeStudents.length} คน
                               </td>
                             </tr>
@@ -2135,10 +2153,12 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     reportOrientation === 'landscape'
                       ? 'a4-landscape-paper min-h-[210mm]'
                       : 'a4-portrait-paper min-h-[297mm]'
-                  } bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+                  } bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
                   style={{
                     width: reportOrientation === 'landscape' ? '297mm' : '210mm',
                     maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                    paddingLeft: '20mm',
+                    paddingRight: '10mm',
                   }}
                 >
                   {/* A4 Sheet Header */}
@@ -2168,28 +2188,28 @@ export const Module7Reports: React.FC<Module7Props> = ({
                   </div>
 
                   {/* All Subjects Table */}
-                  <div className="overflow-x-auto border border-slate-300 rounded-sm">
-                    <table className="w-full text-left text-[10px] border-collapse min-w-[680px]">
+                  <div className="border border-slate-300">
+                    <table className="w-full text-left text-[10px] border-collapse">
                       <thead>
-                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center">
-                          <th className="py-2 px-1 border-r border-slate-300 w-8 shrink-0 font-mono text-[9px]">
+                        <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center leading-normal">
+                          <th className="py-2 px-1 border-r border-slate-300 w-8 shrink-0 font-mono text-[9px] align-middle">
                             ที่
                           </th>
-                          <th className="py-2 px-1 border-r border-slate-300 w-20 shrink-0 font-mono text-[9px]">
+                          <th className="py-2 px-1 border-r border-slate-300 w-20 shrink-0 font-mono text-[9px] align-middle">
                             รหัสประจำตัว
                           </th>
-                          <th className="py-2 px-2 border-r border-slate-300 w-36 shrink-0 text-left text-[10px]">
+                          <th className="py-2 px-2 border-r border-slate-300 w-36 shrink-0 text-left text-[10px] align-middle">
                             ชื่อ - นามสกุล
                           </th>
                           {assessmentGradeSubjects.map((subj) => (
                             <th 
                               key={subj.id}
-                              className="py-1.5 px-1 border-r border-slate-300 text-center bg-indigo-50/70 text-slate-900 font-semibold"
+                              className="py-1.5 px-1 border-r border-slate-300 text-center bg-indigo-50/70 text-slate-900 font-semibold align-middle"
                             >
-                              <div className="font-bold text-[9px] truncate max-w-[85px] mx-auto text-indigo-950">
+                              <div className="font-bold text-[9px] leading-snug mx-auto text-indigo-950">
                                 {subj.code || subj.name}
                               </div>
-                              <div className="text-[7.5px] font-mono text-indigo-700 font-normal">
+                              <div className="text-[7.5px] font-mono text-indigo-700 font-normal leading-snug">
                                 {subj.name !== subj.code ? subj.name.slice(0, 8) : ''}
                               </div>
                             </th>
@@ -2225,9 +2245,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
                             return (
                               <td 
                                 key={subj.id}
-                                className="py-1 px-1 border-r border-slate-200 text-center font-bold text-[9.5px]"
+                                className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-[9.5px] align-middle"
                               >
-                                <span className={`inline-block px-1.5 py-0.2 rounded font-mono ${
+                                <span className={`inline-block px-1.5 py-0.5 rounded font-mono leading-normal ${
                                   gradeStr === '4' ? 'bg-emerald-100 text-emerald-800 font-black' :
                                   gradeStr === '3.5' || gradeStr === '3' ? 'bg-blue-100 text-blue-800 font-bold' :
                                   gradeStr === '2.5' || gradeStr === '2' ? 'bg-amber-100 text-amber-800 font-semibold' :
@@ -2244,14 +2264,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           const gpa = totalCredits > 0 ? (totalPoints / totalCredits).toFixed(2) : '-';
 
                           return (
-                            <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                              <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                            <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                              <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
                                 {s.rollNumber || sIdx + 1}
                               </td>
-                              <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
                                 {s.studentCode || '-'}
                               </td>
-                              <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[140px] text-[10px]">
+                              <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                                 {s.prefix}{s.firstName} {s.lastName}
                               </td>
                               {subjGradeCols}
@@ -2337,10 +2357,12 @@ export const Module7Reports: React.FC<Module7Props> = ({
                         reportOrientation === 'landscape'
                           ? 'a4-landscape-paper min-h-[210mm]'
                           : 'a4-portrait-paper min-h-[297mm]'
-                      } bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
+                      } bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
                       style={{
                         width: reportOrientation === 'landscape' ? '297mm' : '210mm',
                         maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        paddingLeft: '20mm',
+                        paddingRight: '10mm',
                       }}
                     >
                       {/* A4 Sheet Header */}
@@ -2375,18 +2397,18 @@ export const Module7Reports: React.FC<Module7Props> = ({
                       </div>
 
                       {/* Compact A4 Portrait Matrix Table showing 5 Subjects per Sheet */}
-                      <div className="overflow-x-auto border border-slate-300 rounded-sm">
-                        <table className="w-full text-left text-[10px] border-collapse min-w-[680px]">
+                      <div className="border border-slate-300">
+                        <table className="w-full text-left text-[10px] border-collapse">
                           <thead>
                             {/* Row 1: Fixed Headers and 5 Subject Group Headers */}
-                            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-6 shrink-0 font-mono text-[9px]">
+                            <tr className="text-slate-800 font-bold leading-normal">
+                              <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-6 shrink-0 font-mono text-[9px] align-middle">
                                 ที่
                               </th>
-                              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9px]">
+                              <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-16 shrink-0 font-mono text-[9px] align-middle">
                                 รหัสประจำตัว
                               </th>
-                              <th rowSpan={2} className="py-1 px-2 border-r border-slate-300 w-36 shrink-0 truncate text-[10px]">
+                              <th rowSpan={2} className="py-1.5 px-2 bg-slate-100 border-r border-b border-slate-300 w-36 shrink-0 text-[10px] align-middle">
                                 ชื่อ - นามสกุล
                               </th>
 
@@ -2395,29 +2417,26 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                 <th 
                                   key={subj.id} 
                                   colSpan={3} 
-                                  className="py-1 px-1 border-r border-slate-300 text-center bg-indigo-50/70 text-slate-900"
+                                  className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-indigo-50/70 text-slate-900 align-middle"
                                 >
-                                  <div className="font-bold text-[9.5px] truncate max-w-[110px] mx-auto text-indigo-950">
+                                  <div className="font-bold text-[9.5px] leading-snug mx-auto text-indigo-950">
                                     {subj.code ? `${subj.code} ` : ''}{subj.name}
-                                  </div>
-                                  <div className="text-[8px] font-mono text-indigo-700 font-normal mt-0.5">
-                                    อัตราส่วน ({subj.courseworkScore || 70}:{subj.examScore || 30})
                                   </div>
                                 </th>
                               ))}
                             </tr>
 
                             {/* Row 2: Sub-columns for each subject (ระหว่างภาค, สอบ, รวม) */}
-                            <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-[8.5px]">
+                            <tr className="text-slate-700 font-bold text-[8.5px] leading-normal">
                               {chunk.map((subj) => (
                                 <React.Fragment key={subj.id}>
-                                  <th className="py-1 px-0.5 border-r border-slate-300 text-center w-11 bg-slate-50 text-slate-700 font-medium">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-11 bg-slate-50 text-slate-700 font-medium align-middle">
                                     ระหว่างภาค
                                   </th>
-                                  <th className="py-1 px-0.5 border-r border-slate-300 text-center w-9 bg-slate-50 text-slate-700 font-medium">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-9 bg-slate-50 text-slate-700 font-medium align-middle">
                                     สอบ
                                   </th>
-                                  <th className="py-1 px-0.5 border-r border-slate-300 text-center w-9 bg-indigo-100/70 text-indigo-900 font-bold">
+                                  <th className="py-1 px-0.5 border-r border-b border-slate-300 text-center w-9 bg-indigo-100/70 text-indigo-900 font-bold align-middle">
                                     รวม
                                   </th>
                                 </React.Fragment>
@@ -2428,14 +2447,14 @@ export const Module7Reports: React.FC<Module7Props> = ({
                           <tbody className="divide-y divide-slate-200 text-slate-800">
                             {assessmentGradeStudents.map((s, sIdx) => {
                               return (
-                                <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                                <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
                                     {s.rollNumber || sIdx + 1}
                                   </td>
-                                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px] align-middle">
                                     {s.studentCode || '-'}
                                   </td>
-                                  <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[130px] text-[10px]">
+                                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                                     {s.prefix}{s.firstName} {s.lastName}
                                   </td>
 
@@ -2444,13 +2463,13 @@ export const Module7Reports: React.FC<Module7Props> = ({
                                     const scores = getStudentScores(s.id, subj);
                                     return (
                                       <React.Fragment key={subj.id}>
-                                        <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700 align-middle">
                                           {scores.coursework}
                                         </td>
-                                        <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums text-slate-700 align-middle">
                                           {scores.exam}
                                         </td>
-                                        <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-bold bg-indigo-50/40 text-indigo-950">
+                                        <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-bold bg-indigo-50/40 text-indigo-950 align-middle">
                                           {scores.total}
                                         </td>
                                       </React.Fragment>
@@ -2595,8 +2614,8 @@ export const Module7Reports: React.FC<Module7Props> = ({
           grade={threeReportsPopupGrade}
           selectedYear={selectedYear}
           selectedSemester={selectedSemester}
-          students={students}
-          personnel={personnel}
+          students={effectiveStudents}
+          personnel={effectivePersonnel}
           schoolInfo={schoolInfo}
           grades={effectiveGrades}
           subjects={effectiveSubjects}
@@ -2624,12 +2643,9 @@ export const Module7Reports: React.FC<Module7Props> = ({
         const targetGrade = milkTeethModal.grade;
         const reportType = milkTeethModal.type;
 
-        const targetStudents = students
-          .filter(s => s.gradeLevel === targetGrade)
-          .sort((a, b) => {
-            if (a.rollNumber !== undefined && b.rollNumber !== undefined) return a.rollNumber - b.rollNumber;
-            return (a.studentCode || '').localeCompare(b.studentCode || '');
-          });
+        const targetStudents = sortStudentsByRoll(
+          effectiveStudents.filter(s => s.gradeLevel === targetGrade)
+        );
 
         const advisor = selectedAdvisor || personnel.find(p => p.advisorGrade === targetGrade);
         const advisorDisplayName = advisor ? `${advisor.prefix || ''}${advisor.firstName || ''} ${advisor.lastName || ''}`.trim() : '...........................................................';
@@ -2759,14 +2775,16 @@ export const Module7Reports: React.FC<Module7Props> = ({
                     <div 
                       key={group.monthKey}
                       id={`milk-teeth-pdf-sheet-${group.monthKey}`} 
-                      className={`bg-white border border-slate-300 shadow-xl rounded-sm p-6 sm:p-8 mx-auto text-slate-900 relative transition-all ${
+                      className={`bg-white border border-slate-300 shadow-xl rounded-sm py-5 sm:py-6 mx-auto text-slate-900 relative transition-all ${
                         reportOrientation === 'landscape'
                           ? 'a4-landscape-paper min-h-[210mm]'
                           : 'a4-portrait-paper min-h-[297mm]'
                       }`}
                       style={{ 
                         width: reportOrientation === 'landscape' ? '297mm' : '210mm',
-                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm'
+                        maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm',
+                        paddingLeft: '20mm',
+                        paddingRight: '10mm'
                       }}
                     >
                       {/* Header */}
@@ -2802,20 +2820,20 @@ export const Module7Reports: React.FC<Module7Props> = ({
 
                       {/* Matrix Table */}
                       <div className="overflow-x-auto mt-4">
-                        <table className="w-full text-left text-[11px] border-collapse border border-slate-400">
+                        <table className="w-full text-left text-[10.5px] border-collapse border border-slate-400">
                           <thead>
                             <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400">
-                              <th className="py-2 px-1.5 text-center border-r border-slate-400 w-9">เลขที่</th>
-                              <th className="py-2 px-2 border-r border-slate-400 min-w-[130px]">ชื่อ - นามสกุล</th>
+                              <th className="py-1.5 px-1 text-center border-r border-slate-400 w-7">เลขที่</th>
+                              <th className="py-1.5 px-1.5 border-r border-slate-400 w-28 truncate">ชื่อ - นามสกุล</th>
                               {monthDays.map((dayItem) => {
                                 const dateNum = dayItem.date.split('-')[2] || '';
                                 return (
-                                  <th key={dayItem.date} className="py-2 px-1 text-center border-r border-slate-400 font-mono text-[10px] min-w-[22px]" title={dayItem.label}>
+                                  <th key={dayItem.date} className="py-1.5 px-0.5 text-center border-r border-slate-400 font-mono text-[9.5px]" title={dayItem.label}>
                                     {dateNum}
                                   </th>
                                 );
                               })}
-                              <th className="py-2 px-1.5 text-center w-12 font-bold">สรุป</th>
+                              <th className="py-1.5 px-1 text-center w-9 font-bold">สรุป</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-300">

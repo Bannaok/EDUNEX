@@ -2821,6 +2821,13 @@ export const StorageService = {
 
   setAttendanceConfig(config: AttendanceDayConfig): void {
     setLocal(KEYS.ATTENDANCE_CONFIG, config);
+    if (config && config.semester && config.academicYear) {
+      const termKey = `${config.semester}_${config.academicYear}`;
+      const all = { ...this.getAttendanceConfigsByTerm() };
+      all[termKey] = config;
+      localStorage.removeItem(`ams_cleared_${termKey}`);
+      setLocal(KEYS.ATTENDANCE_CONFIGS_BY_TERM, all);
+    }
   },
 
   getAttendanceConfigsByTerm(): Record<string, AttendanceDayConfig> {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Student, 
   Personnel, 
@@ -27,6 +27,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { exportSheetsToPdf } from '../utils/pdfExport';
+import { StorageService } from '../services/storage';
 
 interface ThreeReportsModalProps {
   isOpen: boolean;
@@ -147,13 +148,19 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   const [charSubView, setCharSubView] = useState<'overview' | 'individual'>('overview');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('all');
 
-  // Filter students for this grade
+  // Filter students for this grade (sorted by rollNumber 1 -> last)
   const classStudents = useMemo(() => {
     return [...students.filter(s => s.gradeLevel === grade)].sort((a, b) => {
-      if (a.rollNumber !== undefined && b.rollNumber !== undefined) {
-        return a.rollNumber - b.rollNumber;
+      const rollA = Number(a.rollNumber);
+      const rollB = Number(b.rollNumber);
+      const hasRollA = !isNaN(rollA) && rollA > 0;
+      const hasRollB = !isNaN(rollB) && rollB > 0;
+      if (hasRollA && hasRollB && rollA !== rollB) {
+        return rollA - rollB;
       }
-      return (a.studentCode || '').localeCompare(b.studentCode || '');
+      if (hasRollA && !hasRollB) return -1;
+      if (!hasRollA && hasRollB) return 1;
+      return (a.studentCode || '').localeCompare(b.studentCode || '', undefined, { numeric: true });
     });
   }, [students, grade]);
 
@@ -164,6 +171,20 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     }
   }, [classStudents, selectedStudentId]);
 
+  // Subscribe to live storage updates so changes in "ประเมิน 3 เล่ม" reflect immediately
+  const [storageVersion, setStorageVersion] = useState(0);
+  useEffect(() => {
+    const unsubscribe = StorageService.subscribe(() => {
+      setStorageVersion(v => v + 1);
+    });
+    const handleStorage = () => setStorageVersion(v => v + 1);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   // Load Reading/Writing Structure Configuration
   const rwConfig = useMemo<ReadingWritingStructureConfig>(() => {
     try {
@@ -173,9 +194,9 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       console.error(e);
     }
     return DEFAULT_RW_CONFIG;
-  }, [isOpen]);
+  }, [isOpen, storageVersion]);
 
-  // Load Assessment 3 Booklets data from storage
+  // Load Assessment 3 Booklets data strictly from "ประเมิน 3 เล่ม" storage
   const assessmentData = useMemo<Record<string, StudentAssessmentRecord>>(() => {
     try {
       const saved = localStorage.getItem('ams_assessment_3_booklets_v2');
@@ -184,7 +205,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       console.error(e);
     }
     return {};
-  }, [isOpen, grade, selectedYear, selectedSemester]);
+  }, [isOpen, grade, selectedYear, selectedSemester, storageVersion]);
 
   // Homeroom advisors for the selected grade
   const currentGradeAdvisors = useMemo(() => {
@@ -213,7 +234,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       thinking: { excellent: 24, good: 21, passing: 18, maxScore: 40 },
       writing: { excellent: 32, good: 28, passing: 24, maxScore: 40 }
     };
-  }, [isOpen]);
+  }, [isOpen, storageVersion]);
 
   // Helper calculating level for reading/thinking/writing
   const getTableScoreLevel = (score: number, type: 'reading' | 'thinking' | 'writing'): number => {
@@ -224,41 +245,24 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     return 0;
   };
 
-  // Helper getting student assessment record
+  // Helper getting student assessment record strictly from "ประเมิน 3 เล่ม" of this grade
   const getStudentAssessment = (student: Student): StudentAssessmentRecord => {
     // 1. Try exact key: studentId_grade_semester_academicYear
     const key = `${student.id}_${grade}_${selectedSemester}_${selectedYear}`;
     let existing = assessmentData[key];
 
-    // 2. Fallback: match by studentId and grade in assessmentData
+    // 2. Fallback: match by studentId, grade, and semester in assessmentData (in case academicYear label differed)
     if (!existing) {
       const foundEntry = Object.entries(assessmentData).find(([k, v]) => 
-        (k.startsWith(`${student.id}_${grade}_`) || (v.studentId === student.id && v.gradeLevel === grade)) &&
-        (v.semester === selectedSemester || !v.semester) &&
-        (v.academicYear === selectedYear || !v.academicYear)
-      );
-      if (foundEntry) existing = foundEntry[1];
-    }
-    if (!existing) {
-      const foundEntry = Object.entries(assessmentData).find(([k, v]) => 
-        k.startsWith(`${student.id}_${grade}`) || (v.studentId === student.id && v.gradeLevel === grade)
+        (k.startsWith(`${student.id}_${grade}_${selectedSemester}_`) || 
+         (v.studentId === student.id && v.gradeLevel === grade && (v.semester === selectedSemester || !v.semester)))
       );
       if (foundEntry) existing = foundEntry[1];
     }
 
     if (existing) return existing;
 
-    // Fallback: Check if score exists in grades recorded by member
-    const gRec = grades.find(g => 
-      g.studentId === student.id && 
-      (g.semester === selectedSemester || !g.semester) &&
-      (g.academicYear === selectedYear || !g.academicYear)
-    );
-
-    const rwScore = gRec?.readingWritingScore;
-    const charLevel = gRec?.desiredCharacteristicsScore !== undefined ? gRec.desiredCharacteristicsScore : 0;
-    const compLevel = gRec?.competencyScore !== undefined ? gRec.competencyScore : 0;
-
+    // Never fabricate or copy scores from subject grades when the homeroom teacher hasn't filled "ประเมิน 3 เล่ม"
     return {
       studentId: student.id,
       studentName: `${student.prefix}${student.firstName} ${student.lastName}`,
@@ -266,47 +270,50 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       gradeLevel: grade,
       semester: selectedSemester as '1' | '2',
       academicYear: selectedYear,
-      indicatorScores: rwScore !== undefined ? {
-        r1: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
-        r2: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
-        r3: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
-        t1: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
-        t2: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
-        t3: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
-        w1: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
-        w2: rwScore >= 3 ? 15 : (rwScore === 2 ? 12 : 9),
-        w3: rwScore >= 3 ? 10 : (rwScore === 2 ? 8 : 6),
-      } : {},
+      indicatorScores: {},
       characteristics: {
-        item1: charLevel,
-        item2: charLevel,
-        item3: charLevel,
-        item4: charLevel,
-        item5: charLevel,
-        item6: charLevel,
-        item7: charLevel,
-        item8: charLevel,
-        overallLevel: charLevel,
-        subScores: {
-          '1.1': charLevel, '1.2': charLevel, '1.3': charLevel, '1.4': charLevel, '1.5': charLevel,
-          '2.1': charLevel, '2.2': charLevel, '2.3': charLevel,
-          '3.1': charLevel, '3.2': charLevel, '3.3': charLevel,
-          '4.1': charLevel, '4.2': charLevel, '4.3': charLevel, '4.4': charLevel,
-          '5.1': charLevel, '5.2': charLevel, '5.3': charLevel,
-          '6.1': charLevel, '6.2': charLevel,
-          '7.1': charLevel, '7.2': charLevel,
-          '8.1': charLevel, '8.2': charLevel, '8.3': charLevel, '8.4': charLevel
-        }
+        evaluated: false,
+        subScores: {}
       },
       competency: {
-        comp1: compLevel,
-        comp2: compLevel,
-        comp3: compLevel,
-        comp4: compLevel,
-        comp5: compLevel,
-        overallLevel: compLevel
+        evaluated: false
       }
     };
+  };
+
+  // Check if a specific indicator has an actual entered score
+  const hasIndicatorScore = (rec: StudentAssessmentRecord, indId: string): boolean => {
+    const val = rec?.indicatorScores?.[indId];
+    return val !== undefined && val !== null && (val as any) !== '';
+  };
+
+  // Check if a student has any entered score in a specific table
+  const hasStudentTableScore = (rec: StudentAssessmentRecord, table: AssessmentTableConfig): boolean => {
+    if (!rec || !rec.indicatorScores) return false;
+    return table.indicators.some(ind => hasIndicatorScore(rec, ind.id));
+  };
+
+  // Check if a student has any entered score in Booklet 2 (คุณลักษณะอันพึงประสงค์ 8 ประการ)
+  const hasStudentCharacteristicsScore = (rec: StudentAssessmentRecord): boolean => {
+    if (!rec || !rec.characteristics) return false;
+    const c = rec.characteristics;
+    if (c.evaluated === true) return true;
+    if (c.subScores && Object.keys(c.subScores).some(k => c.subScores![k] !== undefined && c.subScores![k] !== null)) {
+      return true;
+    }
+    return [c.item1, c.item2, c.item3, c.item4, c.item5, c.item6, c.item7, c.item8].some(
+      v => v !== undefined && v !== null
+    );
+  };
+
+  // Check if a student has any entered score in Booklet 3 (สมรรถนะสำคัญ 5 ด้าน)
+  const hasStudentCompetencyScore = (rec: StudentAssessmentRecord): boolean => {
+    if (!rec || !rec.competency) return false;
+    const cp = rec.competency;
+    if (cp.evaluated === true) return true;
+    return [cp.comp1, cp.comp2, cp.comp3, cp.comp4, cp.comp5].some(
+      v => v !== undefined && v !== null
+    );
   };
 
   // Helper calculating student's score for a specific table
@@ -453,41 +460,41 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
     return (
       <div 
         key={table.id}
-        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
-        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
+        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
       >
         {renderA4Header(`แบบประเมินการอ่าน คิดวิเคราะห์ และเขียน (ตารางที่ ${tableIndex}: ${table.title})`)}
 
-        <div className="overflow-x-auto border border-slate-300 rounded-sm">
-          <table className="w-full text-left text-[10px] border-collapse min-w-[650px]">
+        <div className="border border-slate-300">
+          <table className="w-full text-left text-[10px] border-collapse">
             <thead>
-              <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-6 shrink-0 font-mono text-[9px]">
+              <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 leading-normal">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle">
                   ที่
                 </th>
-                <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9px]">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle">
                   รหัสประจำตัว
                 </th>
-                <th rowSpan={2} className="py-1 px-2 border-r border-slate-300 w-40 shrink-0 truncate text-[10px]">
+                <th className="py-1.5 px-2 border-r border-slate-300 w-40 shrink-0 text-[10px] align-middle">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Indicator Columns */}
                 {table.indicators.map((ind) => (
-                  <th key={ind.id} className="py-1 px-1 border-r border-slate-300 text-center bg-teal-50/70 text-slate-900">
-                    <div className="font-bold text-[9.5px] truncate max-w-[120px] mx-auto text-teal-950">
+                  <th key={ind.id} className="py-1.5 px-1 border-r border-slate-300 text-center bg-teal-50/70 text-slate-900 align-middle">
+                    <div className="font-bold text-[9.5px] leading-snug mx-auto text-teal-950">
                       {ind.name}
                     </div>
-                    <div className="text-[8px] font-mono text-teal-700 font-normal mt-0.5">
+                    <div className="text-[8.5px] font-mono text-teal-700 font-normal mt-0.5 leading-snug">
                       (เต็ม {ind.maxScore})
                     </div>
                   </th>
                 ))}
 
-                <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-12 bg-teal-100/70 text-teal-950 font-bold">
+                <th className="py-1.5 px-1 border-r border-slate-300 text-center w-13 bg-teal-100/70 text-teal-950 font-bold align-middle">
                   รวม ({maxScore})
                 </th>
-                <th rowSpan={2} className="py-1 px-1 text-center w-16 bg-slate-100 text-slate-800 font-bold">
+                <th className="py-1.5 px-1 text-center w-16 bg-slate-100 text-slate-800 font-bold align-middle">
                   ระดับคุณภาพ
                 </th>
               </tr>
@@ -496,43 +503,47 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             <tbody className="divide-y divide-slate-200 text-slate-800">
               {classStudents.map((s, idx) => {
                 const rec = getStudentAssessment(s);
-                const tableScore = getStudentTableScore(rec, table);
-                const level = getTableScoreLevel(tableScore, tableType);
+                const hasTable = hasStudentTableScore(rec, table);
+                const tableScore = hasTable ? getStudentTableScore(rec, table) : null;
+                const level = hasTable && tableScore !== null ? getTableScoreLevel(tableScore, tableType) : null;
 
                 return (
-                  <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                  <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                       {s.rollNumber || idx + 1}
                     </td>
-                    <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                       {s.studentCode || '-'}
                     </td>
-                    <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[140px] text-[10px]">
+                    <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                       {s.prefix}{s.firstName} {s.lastName}
                     </td>
 
                     {/* Indicator Scores */}
                     {table.indicators.map((ind) => {
+                      const hasInd = hasIndicatorScore(rec, ind.id);
                       const sc = rec.indicatorScores?.[ind.id];
                       return (
-                        <td key={ind.id} className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums text-slate-700">
-                          {sc !== undefined && sc !== null ? sc : '-'}
+                        <td key={ind.id} className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums text-slate-700 align-middle">
+                          {hasInd ? sc : ''}
                         </td>
                       );
                     })}
 
-                    <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-bold bg-teal-50/40 text-teal-950">
-                      {tableScore}
+                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-bold bg-teal-50/40 text-teal-950 align-middle">
+                      {hasTable && tableScore !== null ? tableScore : ''}
                     </td>
-                    <td className="py-1 px-1 text-center text-[9px] font-bold">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
-                        level === 3 ? 'bg-emerald-100 text-emerald-800' :
-                        level === 2 ? 'bg-sky-100 text-sky-800' :
-                        level === 1 ? 'bg-amber-100 text-amber-800' :
-                        'bg-rose-100 text-rose-800'
-                      }`}>
-                        {getLevelBadgeText(level)}
-                      </span>
+                    <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle">
+                      {hasTable && level !== null ? (
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal ${
+                          level === 3 ? 'bg-emerald-100 text-emerald-800' :
+                          level === 2 ? 'bg-sky-100 text-sky-800' :
+                          level === 1 ? 'bg-amber-100 text-amber-800' :
+                          'bg-rose-100 text-rose-800'
+                        }`}>
+                          {getLevelBadgeText(level)}
+                        </span>
+                      ) : ''}
                     </td>
                   </tr>
                 );
@@ -540,33 +551,39 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             </tbody>
 
             <tfoot>
-              <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-800 text-[9px]">
-                <td colSpan={3} className="py-1 px-2 border-r border-slate-300 text-right font-bold">
+              <tr className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-800 text-[9.5px] leading-normal">
+                <td colSpan={3} className="py-1.5 px-2 border-r border-slate-300 text-right font-bold align-middle">
                   คะแนนเฉลี่ย:
                 </td>
                 {table.indicators.map((ind) => {
                   let total = 0, count = 0;
                   classStudents.forEach(s => {
-                    const sc = getStudentAssessment(s).indicatorScores?.[ind.id];
-                    if (sc !== undefined && sc !== null) { total += Number(sc); count++; }
+                    const rec = getStudentAssessment(s);
+                    if (hasIndicatorScore(rec, ind.id)) {
+                      total += Number(rec.indicatorScores![ind.id]);
+                      count++;
+                    }
                   });
                   return (
-                    <td key={ind.id} className="py-1 px-1 border-r border-slate-300 text-center font-mono font-medium text-slate-700">
-                      {count > 0 ? (total / count).toFixed(1) : '-'}
+                    <td key={ind.id} className="py-1.5 px-1 border-r border-slate-300 text-center font-mono font-medium text-slate-700 align-middle">
+                      {count > 0 ? (total / count).toFixed(1) : ''}
                     </td>
                   );
                 })}
-                <td className="py-1 px-1 border-r border-slate-300 text-center font-mono font-bold bg-teal-100/60 text-teal-950">
+                <td className="py-1.5 px-1 border-r border-slate-300 text-center font-mono font-bold bg-teal-100/60 text-teal-950 align-middle">
                   {(() => {
                     let total = 0, count = 0;
                     classStudents.forEach(s => {
-                      total += getStudentTableScore(getStudentAssessment(s), table);
-                      count++;
+                      const rec = getStudentAssessment(s);
+                      if (hasStudentTableScore(rec, table)) {
+                        total += getStudentTableScore(rec, table);
+                        count++;
+                      }
                     });
-                    return count > 0 ? (total / count).toFixed(1) : '-';
+                    return count > 0 ? (total / count).toFixed(1) : '';
                   })()}
                 </td>
-                <td className="py-1 px-1 text-center text-[9px] text-slate-600">
+                <td className="py-1.5 px-1 text-center text-[9px] text-slate-600 align-middle">
                   รวม {classStudents.length} คน
                 </td>
               </tr>
@@ -593,116 +610,127 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
     return (
       <div 
-        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
-        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+        className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
+        style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
       >
         {renderA4Header('แบบสรุปผลการประเมินการอ่าน คิดวิเคราะห์ และเขียน', 'สรุปผลเชิงปริมาณและคุณภาพ')}
 
-        <div className="overflow-x-auto border border-slate-300 rounded-sm">
-          <table className="w-full text-left text-[10px] border-collapse min-w-[650px]">
+        <div className="border border-slate-300">
+          <table className="w-full text-left text-[10px] border-collapse">
             <thead>
-              <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-                <th rowSpan={2} className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9px]">
+              <tr className="text-slate-800 font-bold leading-normal">
+                <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle">
                   ที่
                 </th>
-                <th rowSpan={2} className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9px]">
+                <th rowSpan={2} className="py-1.5 px-1 bg-slate-100 border-r border-b border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle">
                   รหัสประจำตัว
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 border-r border-slate-300 w-40 shrink-0 truncate text-[10px]">
+                <th rowSpan={2} className="py-1.5 px-2 bg-slate-100 border-r border-b border-slate-300 w-40 shrink-0 text-[10px] align-middle">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Column การอ่าน */}
-                <th colSpan={2} className="py-1 px-1 border-r border-slate-300 text-center bg-teal-50/80 text-teal-950 font-bold">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-teal-50/80 text-teal-950 font-bold align-middle">
                   การอ่าน ({rMax})
                 </th>
 
                 {/* Column คิดวิเคราะห์ */}
-                <th colSpan={2} className="py-1 px-1 border-r border-slate-300 text-center bg-sky-50/80 text-sky-950 font-bold">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-sky-50/80 text-sky-950 font-bold align-middle">
                   คิดวิเคราะห์ ({tMax})
                 </th>
 
                 {/* Column การเขียน */}
-                <th colSpan={2} className="py-1 px-1 border-r border-slate-300 text-center bg-indigo-50/80 text-indigo-950 font-bold">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-indigo-50/80 text-indigo-950 font-bold align-middle">
                   การเขียน ({wMax})
                 </th>
 
                 {/* Column รวม */}
-                <th colSpan={2} className="py-1 px-1 border-r border-slate-300 text-center bg-emerald-50/80 text-emerald-950 font-bold">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-300 text-center bg-emerald-50/80 text-emerald-950 font-bold align-middle">
                   รวม ({totalMax})
                 </th>
 
-                <th rowSpan={2} className="py-1.5 px-1 text-center w-16 bg-slate-100 text-slate-900 font-bold">
+                <th rowSpan={2} className="py-1.5 px-1 border-b border-slate-300 text-center w-16 bg-slate-100 text-slate-900 font-bold align-middle">
                   สรุปผล
                 </th>
               </tr>
 
-              <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-300 text-[8.5px]">
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-12">ปริมาณ</th>
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-14">คุณภาพ</th>
+              <tr className="text-slate-700 font-bold text-[8.5px] leading-normal">
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle">คุณภาพ</th>
 
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-12">ปริมาณ</th>
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-14">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle">คุณภาพ</th>
 
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-12">ปริมาณ</th>
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-14">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-12 align-middle">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-slate-50 border-r border-b border-slate-300 text-center w-14 align-middle">คุณภาพ</th>
 
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-12 bg-emerald-50/50">ปริมาณ</th>
-                <th className="py-1 px-0.5 border-r border-slate-300 text-center w-14 bg-emerald-50/50">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-300 text-center w-12 bg-emerald-50/50 align-middle">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-300 text-center w-14 bg-emerald-50/50 align-middle">คุณภาพ</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-200 text-slate-800">
               {classStudents.map((s, idx) => {
                 const rec = getStudentAssessment(s);
-                const rScore = getStudentTableScore(rec, readingTable);
-                const tScore = getStudentTableScore(rec, thinkingTable);
-                const wScore = getStudentTableScore(rec, writingTable);
-                const sumScore = rScore + tScore + wScore;
+                const hasR = hasStudentTableScore(rec, readingTable);
+                const hasT = hasStudentTableScore(rec, thinkingTable);
+                const hasW = hasStudentTableScore(rec, writingTable);
+                const hasAny = hasR || hasT || hasW;
 
-                const lR = getTableScoreLevel(rScore, 'reading');
-                const lT = getTableScoreLevel(tScore, 'thinking');
-                const lW = getTableScoreLevel(wScore, 'writing');
-                const overallLevel = Math.min(3, Math.max(0, Math.round((lR + lT + lW) / 3)));
+                const rScore = hasR ? getStudentTableScore(rec, readingTable) : null;
+                const tScore = hasT ? getStudentTableScore(rec, thinkingTable) : null;
+                const wScore = hasW ? getStudentTableScore(rec, writingTable) : null;
+                const sumScore = hasAny ? (rScore || 0) + (tScore || 0) + (wScore || 0) : null;
+
+                const lR = hasR && rScore !== null ? getTableScoreLevel(rScore, 'reading') : null;
+                const lT = hasT && tScore !== null ? getTableScoreLevel(tScore, 'thinking') : null;
+                const lW = hasW && wScore !== null ? getTableScoreLevel(wScore, 'writing') : null;
+
+                const gradedLevels = [lR, lT, lW].filter((l): l is number => l !== null);
+                const overallLevel = gradedLevels.length > 0
+                  ? Math.min(3, Math.max(0, Math.round(gradedLevels.reduce((a, b) => a + b, 0) / gradedLevels.length)))
+                  : null;
 
                 return (
-                  <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                  <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                       {s.rollNumber || idx + 1}
                     </td>
-                    <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                    <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                       {s.studentCode || '-'}
                     </td>
-                    <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[140px] text-[10px]">
+                    <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                       {s.prefix}{s.firstName} {s.lastName}
                     </td>
 
                     {/* การอ่าน */}
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums">{rScore}</td>
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center text-[8.5px] font-bold">{getLevelBadgeText(lR)}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle">{hasR && rScore !== null ? rScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle">{hasR && lR !== null ? getLevelBadgeText(lR) : ''}</td>
 
                     {/* คิดวิเคราะห์ */}
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums">{tScore}</td>
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center text-[8.5px] font-bold">{getLevelBadgeText(lT)}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle">{hasT && tScore !== null ? tScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle">{hasT && lT !== null ? getLevelBadgeText(lT) : ''}</td>
 
                     {/* การเขียน */}
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums">{wScore}</td>
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center text-[8.5px] font-bold">{getLevelBadgeText(lW)}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums align-middle">{hasW && wScore !== null ? wScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold align-middle">{hasW && lW !== null ? getLevelBadgeText(lW) : ''}</td>
 
                     {/* รวม */}
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-bold bg-emerald-50/40">{sumScore}</td>
-                    <td className="py-1 px-0.5 border-r border-slate-200 text-center text-[8.5px] font-bold bg-emerald-50/40">{getLevelBadgeText(overallLevel)}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-bold bg-emerald-50/40 align-middle">{hasAny && sumScore !== null ? sumScore : ''}</td>
+                    <td className="py-1.5 px-0.5 border-r border-slate-200 text-center text-[9px] font-bold bg-emerald-50/40 align-middle">{hasAny && overallLevel !== null ? getLevelBadgeText(overallLevel) : ''}</td>
 
                     {/* Overall Badge */}
-                    <td className="py-1 px-1 text-center font-bold text-[9px]">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
-                        overallLevel === 3 ? 'bg-emerald-100 text-emerald-800' :
-                        overallLevel === 2 ? 'bg-sky-100 text-sky-800' :
-                        overallLevel === 1 ? 'bg-amber-100 text-amber-800' :
-                        'bg-rose-100 text-rose-800'
-                      }`}>
-                        {getLevelBadgeText(overallLevel)}
-                      </span>
+                    <td className="py-1.5 px-1 text-center font-bold text-[9px] align-middle">
+                      {hasAny && overallLevel !== null ? (
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal ${
+                          overallLevel === 3 ? 'bg-emerald-100 text-emerald-800' :
+                          overallLevel === 2 ? 'bg-sky-100 text-sky-800' :
+                          overallLevel === 1 ? 'bg-amber-100 text-amber-800' :
+                          'bg-rose-100 text-rose-800'
+                        }`}>
+                          {getLevelBadgeText(overallLevel)}
+                        </span>
+                      ) : ''}
                     </td>
                   </tr>
                 );
@@ -724,36 +752,36 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 2: Characteristics Overview Sheet (สรุปข้อหลักทั้ง 8 ข้อ)
   const renderCharacteristicsOverviewSheet = () => (
     <div 
-      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
-      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
+      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
     >
       {renderA4Header('แบบสรุปผลการประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
-      <div className="overflow-x-auto border border-slate-300 rounded-sm">
-        <table className="w-full text-left text-[10px] border-collapse min-w-[680px]">
+      <div className="border border-slate-300">
+        <table className="w-full text-left text-[10px] border-collapse">
           <thead>
-            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-6 shrink-0 font-mono text-[9px]">
+            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle">
                 ที่
               </th>
-              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9px]">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle">
                 รหัสประจำตัว
               </th>
-              <th rowSpan={2} className="py-1 px-2 border-r border-slate-300 w-36 shrink-0 truncate text-[10px]">
+              <th className="py-1.5 px-2 border-r border-slate-300 w-36 shrink-0 text-[10px] align-middle">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 8 Core Characteristics - Equal Width & Wrapping Full Titles */}
               {CHARACTERISTICS_GROUPS.map((grp) => (
-                <th key={grp.id} className="py-1 px-0.5 border-r border-slate-300 text-center w-[9%] bg-amber-50/70 text-amber-950 font-bold" title={grp.title}>
-                  <div className="text-[9px] font-bold border-b border-amber-200 pb-0.5 mb-0.5 text-amber-900">ข้อ {grp.number}</div>
-                  <div className="text-[8px] font-semibold leading-tight whitespace-normal break-words text-amber-950">
+                <th key={grp.id} className="py-1.5 px-0.5 border-r border-slate-300 text-center w-[9%] bg-amber-50/70 text-amber-950 font-bold align-middle" title={grp.title}>
+                  <div className="text-[9px] font-bold border-b border-amber-200 pb-0.5 mb-0.5 text-amber-900 leading-snug">ข้อ {grp.number}</div>
+                  <div className="text-[8px] font-semibold leading-snug whitespace-normal break-words text-amber-950">
                     {grp.title.replace(/^\d+\)\s*/, '')}
                   </div>
                 </th>
               ))}
 
-              <th rowSpan={2} className="py-1 px-1 text-center w-16 bg-amber-100/70 text-amber-950 font-bold">
+              <th className="py-1.5 px-1 text-center w-16 bg-amber-100/70 text-amber-950 font-bold align-middle">
                 สรุปผล
               </th>
             </tr>
@@ -762,47 +790,54 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
           <tbody className="divide-y divide-slate-200 text-slate-800">
             {classStudents.map((s, idx) => {
               const rec = getStudentAssessment(s);
+              const hasChar = hasStudentCharacteristicsScore(rec);
               const char = rec.characteristics || ({} as any);
 
-              // Calculate overall level as average or min of the 8 items
-              const itemScores = [
-                char.item1 || 0, char.item2 || 0, char.item3 || 0, char.item4 || 0,
-                char.item5 || 0, char.item6 || 0, char.item7 || 0, char.item8 || 0
-              ];
-              const avgChar = Math.round(itemScores.reduce((a, b) => a + b, 0) / 8);
-              const overall = char.overallLevel !== undefined ? char.overallLevel : avgChar;
+              const validItemScores = [
+                char.item1, char.item2, char.item3, char.item4,
+                char.item5, char.item6, char.item7, char.item8
+              ].filter((v): v is number => typeof v === 'number');
+              const avgChar = validItemScores.length > 0
+                ? Math.round(validItemScores.reduce((a, b) => a + b, 0) / validItemScores.length)
+                : null;
+              const overall = hasChar
+                ? (char.overallLevel !== undefined ? char.overallLevel : avgChar)
+                : null;
 
               return (
-                <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                     {s.rollNumber || idx + 1}
                   </td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                     {s.studentCode || '-'}
                   </td>
-                  <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[130px] text-[10px]">
+                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                     {s.prefix}{s.firstName} {s.lastName}
                   </td>
 
                   {/* 8 Items */}
                   {CHARACTERISTICS_GROUPS.map((grp) => {
-                    const score = (char as any)[grp.itemKey] !== undefined ? (char as any)[grp.itemKey] : 3;
+                    const rawScore = (char as any)[grp.itemKey];
+                    const hasScore = hasChar && rawScore !== undefined && rawScore !== null;
                     return (
-                      <td key={grp.id} className="py-1 px-0.5 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">
-                        {score}
+                      <td key={grp.id} className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">
+                        {hasScore ? rawScore : ''}
                       </td>
                     );
                   })}
 
-                  <td className="py-1 px-1 text-center text-[9px] font-bold">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
-                      overall === 3 ? 'bg-emerald-100 text-emerald-800' :
-                      overall === 2 ? 'bg-sky-100 text-sky-800' :
-                      overall === 1 ? 'bg-amber-100 text-amber-800' :
-                      'bg-rose-100 text-rose-800'
-                    }`}>
-                      {getLevelBadgeText(overall)}
-                    </span>
+                  <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle">
+                    {hasChar && overall !== null ? (
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal ${
+                        overall === 3 ? 'bg-emerald-100 text-emerald-800' :
+                        overall === 2 ? 'bg-sky-100 text-sky-800' :
+                        overall === 1 ? 'bg-amber-100 text-amber-800' :
+                        'bg-rose-100 text-rose-800'
+                      }`}>
+                        {getLevelBadgeText(overall)}
+                      </span>
+                    ) : ''}
                   </td>
                 </tr>
               );
@@ -841,33 +876,25 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       <div className="space-y-8">
         {studentsToRender.map((st) => {
           const rec = getStudentAssessment(st);
+          const hasChar = hasStudentCharacteristicsScore(rec);
           const subScores = rec.characteristics?.subScores || {};
-
-          // Calculate overall level for this student
-          const char = rec.characteristics || ({} as any);
-          const itemScores = [
-            char.item1 || 0, char.item2 || 0, char.item3 || 0, char.item4 || 0,
-            char.item5 || 0, char.item6 || 0, char.item7 || 0, char.item8 || 0
-          ];
-          const avgChar = Math.round(itemScores.reduce((a, b) => a + b, 0) / 8);
-          const overallLevel = char.overallLevel !== undefined ? char.overallLevel : avgChar;
 
           return (
             <div key={st.id} className="space-y-8 print:space-y-0">
               {/* PAGE 1: Items 1 - 4 */}
               <div 
-                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-5 sm:p-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
-                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', pageBreakAfter: 'always', breakAfter: 'page' }}
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-5 sm:py-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
+                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm', pageBreakAfter: 'always', breakAfter: 'page' }}
               >
-                {renderA4Header('แบบประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ (รายบุคคล)', 'หน้า 1/2 (ข้อ 1 - 4)')}
+                {renderA4Header('แบบประเมินคุณลักษณะอันพึงประสงค์ 8 ประการ (รายบุคคล)')}
 
                 {/* Student Info Bar */}
-                <div className="mb-3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded text-xs flex items-center justify-between gap-2">
+                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between gap-2 leading-normal">
                   <span className="shrink-0">
                     <span className="text-slate-600 font-medium">รหัสประจำตัว: </span>
                     <strong className="text-slate-900 font-mono font-bold">{st.studentCode || '-'}</strong>
                   </span>
-                  <span className="truncate px-2">
+                  <span className="px-2">
                     <span className="text-slate-600 font-medium">ชื่อ-นามสกุล: </span>
                     <strong className="text-slate-900 font-bold text-sm">{st.prefix}{st.firstName} {st.lastName}</strong>
                   </span>
@@ -878,61 +905,63 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 </div>
 
                 {/* Groups 1 to 4 Table */}
-                <div className="overflow-x-auto border border-slate-300 rounded-sm mb-4">
-                  <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+                <div className="border border-slate-300 mb-4">
+                  <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs">
-                        <th className="py-2.5 px-3 border-r border-slate-300 text-left">
+                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs leading-normal">
+                        <th className="py-2.5 px-3 border-r border-slate-300 text-left align-middle">
                           คุณลักษณะและตัวชี้วัด (ข้อ 1 - 4)
                         </th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดีเยี่ยม (3)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดี (2)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ผ่าน (1)</th>
-                        <th className="py-2.5 px-1 text-center w-16">ไม่ผ่าน (0)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 text-center w-16 align-middle">ไม่ผ่าน (0)</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-200 text-slate-800">
                       {group1_4.map((grp) => {
-                        const itemScore = (rec.characteristics as any)?.[grp.itemKey] !== undefined ? (rec.characteristics as any)?.[grp.itemKey] : 3;
+                        const itemScore = hasChar ? (rec.characteristics as any)?.[grp.itemKey] : undefined;
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs">
-                              <td className="py-1.5 px-3 border-r border-slate-200">
+                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs leading-normal">
+                              <td className="py-1.5 px-3 border-r border-slate-200 align-middle">
                                 {grp.title}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 3 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 2 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 1 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 0 ? '✓' : ''}
                               </td>
                             </tr>
 
                             {grp.indicators.map((ind) => {
-                              const subSc = subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore;
+                              const subSc = hasChar
+                                ? (subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore)
+                                : undefined;
                               return (
-                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-snug">
-                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7">
+                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-normal">
+                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7 align-middle">
                                     {ind.text}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700 align-middle">
                                     {subSc === 3 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700 align-middle">
                                     {subSc === 2 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700 align-middle">
                                     {subSc === 1 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700">
+                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700 align-middle">
                                     {subSc === 0 ? '✓' : ''}
                                   </td>
                                 </tr>
@@ -953,16 +982,16 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
 
               {/* PAGE 2: Items 5 - 8 + Signatures */}
               <div 
-                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-5 sm:p-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
-                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', pageBreakAfter: 'always', breakAfter: 'page' }}
+                className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm pb-5 sm:pb-6 mx-auto text-slate-900 relative transition-all print:shadow-none print:m-0 print:border-none`}
+                style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingTop: '19mm', paddingLeft: '20mm', paddingRight: '10mm', pageBreakAfter: 'always', breakAfter: 'page' }}
               >
                 {/* Student Info Bar */}
-                <div className="mb-3 px-3.5 py-2 bg-slate-50 border border-slate-300 rounded text-xs flex items-center justify-between gap-2">
+                <div className="mb-3 px-3.5 py-2 bg-white border border-slate-300 rounded text-xs flex items-center justify-between gap-2 leading-normal">
                   <span className="shrink-0">
                     <span className="text-slate-600 font-medium">รหัสประจำตัว: </span>
                     <strong className="text-slate-900 font-mono font-bold">{st.studentCode || '-'}</strong>
                   </span>
-                  <span className="truncate px-2">
+                  <span className="px-2">
                     <span className="text-slate-600 font-medium">ชื่อ-นามสกุล: </span>
                     <strong className="text-slate-900 font-bold text-sm">{st.prefix}{st.firstName} {st.lastName}</strong>
                   </span>
@@ -973,61 +1002,63 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 </div>
 
                 {/* Groups 5 to 8 Table */}
-                <div className="overflow-x-auto border border-slate-300 rounded-sm mb-6">
-                  <table className="w-full text-left text-xs border-collapse min-w-[650px]">
+                <div className="border border-slate-300 mb-6">
+                  <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs">
-                        <th className="py-2.5 px-3 border-r border-slate-300 text-left">
+                      <tr className="bg-amber-100/80 text-amber-950 font-bold border-b border-slate-300 text-xs leading-normal">
+                        <th className="py-2.5 px-3 border-r border-slate-300 text-left align-middle">
                           คุณลักษณะและตัวชี้วัด (ข้อ 5 - 8)
                         </th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดีเยี่ยม (3)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ดี (2)</th>
-                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16">ผ่าน (1)</th>
-                        <th className="py-2.5 px-1 text-center w-16">ไม่ผ่าน (0)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ดีเยี่ยม (3)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ดี (2)</th>
+                        <th className="py-2.5 px-1 border-r border-slate-300 text-center w-16 align-middle">ผ่าน (1)</th>
+                        <th className="py-2.5 px-1 text-center w-16 align-middle">ไม่ผ่าน (0)</th>
                       </tr>
                     </thead>
 
                     <tbody className="divide-y divide-slate-200 text-slate-800">
                       {group5_8.map((grp) => {
-                        const itemScore = (rec.characteristics as any)?.[grp.itemKey] !== undefined ? (rec.characteristics as any)?.[grp.itemKey] : 3;
+                        const itemScore = hasChar ? (rec.characteristics as any)?.[grp.itemKey] : undefined;
 
                         return (
                           <React.Fragment key={grp.id}>
-                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs">
-                              <td className="py-1.5 px-3 border-r border-slate-200">
+                            <tr className="bg-amber-50 font-bold text-amber-950 text-xs leading-normal">
+                              <td className="py-1.5 px-3 border-r border-slate-200 align-middle">
                                 {grp.title}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 3 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 2 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 1 ? '✓' : ''}
                               </td>
-                              <td className="py-1.5 px-1 text-center font-bold text-amber-900">
+                              <td className="py-1.5 px-1 text-center font-bold text-amber-900 align-middle">
                                 {itemScore === 0 ? '✓' : ''}
                               </td>
                             </tr>
 
                             {grp.indicators.map((ind) => {
-                              const subSc = subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore;
+                              const subSc = hasChar
+                                ? (subScores[ind.id] !== undefined ? subScores[ind.id] : itemScore)
+                                : undefined;
                               return (
-                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-snug">
-                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7">
+                                <tr key={ind.id} className="hover:bg-slate-50 text-[11px] text-slate-700 leading-normal">
+                                  <td className="py-1.5 px-3 border-r border-slate-200 pl-7 align-middle">
                                     {ind.text}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-emerald-700 align-middle">
                                     {subSc === 3 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-sky-700 align-middle">
                                     {subSc === 2 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700">
+                                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-bold text-amber-700 align-middle">
                                     {subSc === 1 ? '✓' : ''}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700">
+                                  <td className="py-1.5 px-1 text-center font-bold text-rose-700 align-middle">
                                     {subSc === 0 ? '✓' : ''}
                                   </td>
                                 </tr>
@@ -1057,43 +1088,43 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
   // Render Tab 3: Competencies Sheet (สมรรถนะสำคัญ 5 ด้าน ตามตารางปกติ)
   const renderCompetenciesSheet = () => (
     <div 
-      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm p-4 sm:p-5 mx-auto text-slate-900 relative transition-all`}
-      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm' }}
+      className={`${reportOrientation === 'landscape' ? 'a4-landscape-paper min-h-[210mm]' : 'a4-portrait-paper min-h-[297mm]'} bg-white border border-slate-300 shadow-xl rounded-sm py-4 sm:py-5 mx-auto text-slate-900 relative transition-all`}
+      style={{ width: reportOrientation === 'landscape' ? '297mm' : '210mm', maxWidth: reportOrientation === 'landscape' ? '297mm' : '210mm', paddingLeft: '20mm', paddingRight: '10mm' }}
     >
       {renderA4Header('แบบรายงานการประเมินสมรรถนะสำคัญของผู้เรียน 5 ด้าน', 'สรุปผลรายบุคคลทั้งห้องเรียน')}
 
-      <div className="overflow-x-auto border border-slate-300 rounded-sm">
-        <table className="w-full text-left text-[10px] border-collapse min-w-[680px]">
+      <div className="border border-slate-300">
+        <table className="w-full text-left text-[10px] border-collapse">
           <thead>
-            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300">
-              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-6 shrink-0 font-mono text-[9px]">
+            <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle">
                 ที่
               </th>
-              <th rowSpan={2} className="py-1 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9px]">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle">
                 รหัสประจำตัว
               </th>
-              <th rowSpan={2} className="py-1 px-2 border-r border-slate-300 w-36 shrink-0 truncate text-[10px]">
+              <th className="py-1.5 px-2 border-r border-slate-300 w-36 shrink-0 text-[10px] align-middle">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 5 Competencies */}
-              <th className="py-1 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold align-middle">
                 1. การสื่อสาร
               </th>
-              <th className="py-1 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold align-middle">
                 2. การคิด
               </th>
-              <th className="py-1 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold align-middle">
                 3. แก้ปัญหา
               </th>
-              <th className="py-1 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold align-middle">
                 4. ทักษะชีวิต
               </th>
-              <th className="py-1 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 border-r border-slate-300 text-center w-16 bg-blue-50/70 text-blue-950 font-bold align-middle">
                 5. เทคโนโลยี
               </th>
 
-              <th rowSpan={2} className="py-1 px-1 text-center w-16 bg-blue-100/70 text-blue-950 font-bold">
+              <th className="py-1.5 px-1 text-center w-16 bg-blue-100/70 text-blue-950 font-bold align-middle">
                 สรุปผล
               </th>
             </tr>
@@ -1102,43 +1133,52 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
           <tbody className="divide-y divide-slate-200 text-slate-800">
             {classStudents.map((s, idx) => {
               const rec = getStudentAssessment(s);
+              const hasComp = hasStudentCompetencyScore(rec);
               const comp = rec.competency || ({} as any);
 
-              const c1 = comp.comp1 !== undefined ? comp.comp1 : 3;
-              const c2 = comp.comp2 !== undefined ? comp.comp2 : 3;
-              const c3 = comp.comp3 !== undefined ? comp.comp3 : 3;
-              const c4 = comp.comp4 !== undefined ? comp.comp4 : 3;
-              const c5 = comp.comp5 !== undefined ? comp.comp5 : 3;
-              const avg = Math.round((c1 + c2 + c3 + c4 + c5) / 5);
-              const overall = comp.overallLevel !== undefined ? comp.overallLevel : avg;
+              const c1 = hasComp && comp.comp1 !== undefined ? comp.comp1 : null;
+              const c2 = hasComp && comp.comp2 !== undefined ? comp.comp2 : null;
+              const c3 = hasComp && comp.comp3 !== undefined ? comp.comp3 : null;
+              const c4 = hasComp && comp.comp4 !== undefined ? comp.comp4 : null;
+              const c5 = hasComp && comp.comp5 !== undefined ? comp.comp5 : null;
+
+              const validComps = [c1, c2, c3, c4, c5].filter((v): v is number => v !== null);
+              const avg = validComps.length > 0
+                ? Math.round(validComps.reduce((a, b) => a + b, 0) / validComps.length)
+                : null;
+              const overall = hasComp
+                ? (comp.overallLevel !== undefined ? comp.overallLevel : avg)
+                : null;
 
               return (
-                <tr key={s.id} className="hover:bg-slate-50 leading-tight">
-                  <td className="py-1 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                <tr key={s.id} className="hover:bg-slate-50 leading-normal">
+                  <td className="py-1.5 px-0.5 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                     {s.rollNumber || idx + 1}
                   </td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9px]">
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono tabular-nums text-slate-600 text-[9.5px] align-middle">
                     {s.studentCode || '-'}
                   </td>
-                  <td className="py-1 px-2 border-r border-slate-200 font-medium text-slate-900 truncate max-w-[130px] text-[10px]">
+                  <td className="py-1.5 px-2 border-r border-slate-200 font-medium text-slate-900 whitespace-nowrap text-[10px] align-middle">
                     {s.prefix}{s.firstName} {s.lastName}
                   </td>
 
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">{c1}</td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">{c2}</td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">{c3}</td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">{c4}</td>
-                  <td className="py-1 px-1 border-r border-slate-200 text-center font-mono text-[9px] tabular-nums font-semibold">{c5}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">{c1 !== null ? c1 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">{c2 !== null ? c2 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">{c3 !== null ? c3 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">{c4 !== null ? c4 : ''}</td>
+                  <td className="py-1.5 px-1 border-r border-slate-200 text-center font-mono text-[9.5px] tabular-nums font-semibold align-middle">{c5 !== null ? c5 : ''}</td>
 
-                  <td className="py-1 px-1 text-center text-[9px] font-bold">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold ${
-                      overall === 3 ? 'bg-emerald-100 text-emerald-800' :
-                      overall === 2 ? 'bg-sky-100 text-sky-800' :
-                      overall === 1 ? 'bg-amber-100 text-amber-800' :
-                      'bg-rose-100 text-rose-800'
-                    }`}>
-                      {getLevelBadgeText(overall)}
-                    </span>
+                  <td className="py-1.5 px-1 text-center text-[9px] font-bold align-middle">
+                    {hasComp && overall !== null ? (
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[8.5px] font-bold leading-normal ${
+                        overall === 3 ? 'bg-emerald-100 text-emerald-800' :
+                        overall === 2 ? 'bg-sky-100 text-sky-800' :
+                        overall === 1 ? 'bg-amber-100 text-amber-800' :
+                        'bg-rose-100 text-rose-800'
+                      }`}>
+                        {getLevelBadgeText(overall)}
+                      </span>
+                    ) : ''}
                   </td>
                 </tr>
               );
@@ -1180,7 +1220,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             box-shadow: none !important;
             border: 1px solid #94a3b8 !important;
             border-radius: 0 !important;
-            padding: 5mm !important;
+            padding: 5mm 10mm 5mm 20mm !important;
             margin: 0 auto !important;
             width: 100% !important;
             max-width: ${reportOrientation === 'landscape' ? '297mm' : '210mm'} !important;

@@ -1,14 +1,56 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
 @layer base {
   body {
     font-family: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    font-feature-settings: "zero" 0;
   }
   
-  /* Numeric alignment */
-  .tabular-nums {
+  /* Numeric alignment with clean open "0" (no slash or dot inside zero) */
+  .tabular-nums,
+  .font-mono {
+    font-family: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "zero" 0 !important;
   }
+}
+
+/* Strict 2cm (20mm) left margin and clean readable numerals for all A4 preview & print sheets */
+.a4-portrait-paper,
+.a4-landscape-paper,
+.a4-pp6-page {
+  box-sizing: border-box !important;
+  padding-left: 20mm !important;
+  font-family: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 0 !important;
+}
+
+.a4-portrait-paper *,
+.a4-landscape-paper *,
+.a4-pp6-page * {
+  font-family: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+  font-feature-settings: "tnum" 1, "zero" 0 !important;
+}
+
+/* Fix html2canvas FontMetrics baseline calculation (override Tailwind's img { display: block }) */
+div[style*="visibility: hidden"],
+div[style*="visibility:hidden"] {
+  line-height: normal !important;
+}
+div[style*="visibility: hidden"] > img,
+div[style*="visibility:hidden"] > img,
+body > div > span + img,
+img[width="1"][height="1"] {
+  display: inline !important;
+  vertical-align: baseline !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 @media print {
@@ -44,7 +86,7 @@
     max-width: 210mm !important;
     box-sizing: border-box !important;
     margin: 0 auto !important;
-    padding: 12mm 15mm !important;
+    padding: 12mm 15mm 12mm 20mm !important;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;

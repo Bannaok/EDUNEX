@@ -323,7 +323,75 @@ const deletedDocIdsServer = new Set<string>();
 const deletedTaskIdsServer = new Set<string>();
 const deletedLeaveIdsServer = new Set<string>();
 const deletedDutyLogIdsServer = new Set<string>();
+const deletedSubjectIdsServer = new Set<string>();
 const recentServerMutationTs = new Map<string, number>();
+
+function isSubjectKeyName(key: string): boolean {
+  return key === 'ams_subjects' || key.startsWith('ams_subjects__');
+}
+
+function addSubjectTombstoneServer(rawId: any): void {
+  const strId = String(rawId || '').trim();
+  if (strId && !strId.startsWith('subkey:') && !strId.startsWith('subcode:')) {
+    deletedSubjectIdsServer.add(strId);
+  }
+}
+
+function isSubjectDeletedServer(s: any): boolean {
+  if (!s || !s.id) return true;
+  return deletedSubjectIdsServer.has(String(s.id));
+}
+
+function filterSubjectListServer(list: any): any[] {
+  if (!Array.isArray(list)) return [];
+  return list.filter(s => !isSubjectDeletedServer(s));
+}
+
+function mergeSubjectListsServer(existingList: any, incomingList: any): any[] {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(existingList)
+      ? existingList.filter(s => !isSubjectDeletedServer(s))
+      : [];
+  }
+  if (!Array.isArray(existingList) || existingList.length === 0) {
+    return incomingList.filter(s => !isSubjectDeletedServer(s));
+  }
+
+  const existingMap = new Map<string, any>();
+  for (const s of existingList) {
+    if (!isSubjectDeletedServer(s)) {
+      existingMap.set(String(s.id), s);
+    }
+  }
+
+  const result: any[] = [];
+  const handledIds = new Set<string>();
+
+  for (const inc of incomingList) {
+    if (isSubjectDeletedServer(inc)) continue;
+    const sId = String(inc.id);
+    if (handledIds.has(sId)) continue;
+    handledIds.add(sId);
+    const ex = existingMap.get(sId);
+    if (ex) {
+      result.push({ ...ex, ...inc });
+    } else {
+      result.push(inc);
+    }
+  }
+
+  // Preserve any subject that exists in existingList but has not reached incomingList yet (prevents disappearing newly created subjects)
+  for (const ex of existingList) {
+    if (isSubjectDeletedServer(ex)) continue;
+    const sId = String(ex.id);
+    if (!handledIds.has(sId)) {
+      handledIds.add(sId);
+      result.unshift(ex);
+    }
+  }
+
+  return result;
+}
 
 function isLeaveKeyName(key: string): boolean {
   return key === 'ams_leave_requests_v1' || key.startsWith('ams_leave_requests_v1__');
@@ -464,6 +532,11 @@ if (fs.existsSync(STORE_FILE)) {
       if (Array.isArray(state.store['ams_deleted_duty_log_ids'])) {
         for (const id of state.store['ams_deleted_duty_log_ids']) {
           if (id) deletedDutyLogIdsServer.add(String(id));
+        }
+      }
+      if (Array.isArray(state.store['ams_deleted_subject_ids'])) {
+        for (const id of state.store['ams_deleted_subject_ids']) {
+          addSubjectTombstoneServer(id);
         }
       }
     }
@@ -636,6 +709,10 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
         for (const id of item.value) {
           if (id) deletedDutyLogIdsServer.add(String(id));
         }
+      } else if (item.key === 'ams_deleted_subject_ids' && Array.isArray(item.value)) {
+        for (const id of item.value) {
+          addSubjectTombstoneServer(id);
+        }
       }
 
       if (pendingCloudPushKeys.has(item.key) || inFlightCloudPushKeys.has(item.key)) continue;
@@ -650,6 +727,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
       const isDoc = isDocumentKeyName(item.key);
       const isLeave = isLeaveKeyName(item.key);
       const isDutyLog = isDutyLogKeyName(item.key);
+      const isSub = isSubjectKeyName(item.key);
       const nextValue =
         isTask && item.key in state.store
           ? item.updatedAt >= localTs
@@ -667,12 +745,18 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
           ? item.updatedAt >= localTs
             ? mergeDutyLogListsServer(state.store[item.key], item.value)
             : mergeDutyLogListsServer(item.value, state.store[item.key])
+          : isSub && item.key in state.store
+          ? item.updatedAt >= localTs
+            ? mergeSubjectListsServer(state.store[item.key], item.value)
+            : mergeSubjectListsServer(item.value, state.store[item.key])
+          : isSub
+          ? filterSubjectListServer(item.value)
           : item.value;
       const localSerialized = item.key in state.store ? JSON.stringify(state.store[item.key]) : undefined;
       const remoteSerialized = JSON.stringify(item.value);
       const nextSerialized = JSON.stringify(nextValue);
 
-      if (!(item.key in state.store) || item.updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog) && nextSerialized !== localSerialized)) {
+      if (!(item.key in state.store) || item.updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog || isSub) && nextSerialized !== localSerialized)) {
         const effTs = Math.max(localTs, item.updatedAt || Date.now());
         state.store[item.key] = nextValue;
         state.timestamps[item.key] = effTs;
@@ -682,7 +766,7 @@ async function syncWithFirestoreServer(seedMissingLocalToFirestore = false): Pro
           appliedCount++;
         }
       }
-      if ((isTask || isDoc || isLeave || isDutyLog) && nextSerialized !== remoteSerialized) {
+      if ((isTask || isDoc || isLeave || isDutyLog || isSub) && nextSerialized !== remoteSerialized) {
         keysToPushBack.push(item.key);
       }
     }
@@ -754,6 +838,10 @@ function startServerFirestoreListener() {
               for (const id of resolved.value) {
                 if (id) deletedDutyLogIdsServer.add(String(id));
               }
+            } else if (resolved.key === 'ams_deleted_subject_ids' && Array.isArray(resolved.value)) {
+              for (const id of resolved.value) {
+                addSubjectTombstoneServer(id);
+              }
             }
 
             if (pendingCloudPushKeys.has(resolved.key) || inFlightCloudPushKeys.has(resolved.key)) continue;
@@ -768,6 +856,7 @@ function startServerFirestoreListener() {
             const isDoc = isDocumentKeyName(resolved.key);
             const isLeave = isLeaveKeyName(resolved.key);
             const isDutyLog = isDutyLogKeyName(resolved.key);
+            const isSub = isSubjectKeyName(resolved.key);
             const nextValue =
               isTask && resolved.key in state.store
                 ? resolved.updatedAt >= localTs
@@ -785,12 +874,18 @@ function startServerFirestoreListener() {
                 ? resolved.updatedAt >= localTs
                   ? mergeDutyLogListsServer(state.store[resolved.key], resolved.value)
                   : mergeDutyLogListsServer(resolved.value, state.store[resolved.key])
+                : isSub && resolved.key in state.store
+                ? resolved.updatedAt >= localTs
+                  ? mergeSubjectListsServer(state.store[resolved.key], resolved.value)
+                  : mergeSubjectListsServer(resolved.value, state.store[resolved.key])
+                : isSub
+                ? filterSubjectListServer(resolved.value)
                 : resolved.value;
             const prevSerialized =
               resolved.key in state.store ? JSON.stringify(state.store[resolved.key]) : undefined;
             const nextSerialized = JSON.stringify(nextValue);
 
-            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog) && prevSerialized !== nextSerialized)) {
+            if (!(resolved.key in state.store) || resolved.updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog || isSub) && prevSerialized !== nextSerialized)) {
               const effTs = Math.max(localTs, resolved.updatedAt || Date.now());
               state.store[resolved.key] = nextValue;
               state.timestamps[resolved.key] = effTs;
@@ -1437,6 +1532,10 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         for (const id of value) {
           if (id) deletedDutyLogIdsServer.add(String(id));
         }
+      } else if (key === 'ams_deleted_subject_ids' && Array.isArray(value)) {
+        for (const id of value) {
+          addSubjectTombstoneServer(id);
+        }
       }
 
       if (pendingCloudPushKeys.has(key) || inFlightCloudPushKeys.has(key)) continue;
@@ -1452,6 +1551,7 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
       const isDoc = isDocumentKeyName(key);
       const isLeave = isLeaveKeyName(key);
       const isDutyLog = isDutyLogKeyName(key);
+      const isSub = isSubjectKeyName(key);
       const nextValue = isTask
         ? updatedAt >= localTs
           ? mergeTaskListsServer(state.store[key], value)
@@ -1468,12 +1568,18 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         ? updatedAt >= localTs
           ? mergeDutyLogListsServer(state.store[key], value)
           : mergeDutyLogListsServer(value, state.store[key])
+        : isSub && key in state.store
+        ? updatedAt >= localTs
+          ? mergeSubjectListsServer(state.store[key], value)
+          : mergeSubjectListsServer(value, state.store[key])
+        : isSub
+        ? filterSubjectListServer(value)
         : value;
       const localSerialized = key in state.store ? JSON.stringify(state.store[key]) : undefined;
       const remoteSerialized = JSON.stringify(value);
       const cloudSerialized = JSON.stringify(nextValue);
 
-      if (!(key in state.store) || updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog) && localSerialized !== cloudSerialized)) {
+      if (!(key in state.store) || updatedAt > localTs || ((isTask || isDoc || isLeave || isDutyLog || isSub) && localSerialized !== cloudSerialized)) {
         const effTs = Math.max(localTs, updatedAt || Date.now());
         state.store[key] = nextValue;
         state.timestamps[key] = effTs;
@@ -1484,7 +1590,7 @@ async function pullFromCloudKV(seedMissingToCloud = false): Promise<number> {
         }
       }
 
-      if ((isTask || isDoc || isLeave || isDutyLog) && cloudSerialized !== remoteSerialized) {
+      if ((isTask || isDoc || isLeave || isDutyLog || isSub) && cloudSerialized !== remoteSerialized) {
         keysToPushBack.push(key);
       }
     }
@@ -2559,6 +2665,30 @@ async function startServer() {
               if (isDutyLogKeyName(k) && Array.isArray(state.store[k])) {
                 state.store[k] = state.store[k].filter((d: any) => d && d.id && !deletedDutyLogIdsServer.has(String(d.id)));
               }
+            }
+          } else if (key === 'ams_deleted_subject_ids' && Array.isArray(value)) {
+            for (const sId of value) {
+              addSubjectTombstoneServer(sId);
+            }
+            finalValue = Array.from(deletedSubjectIdsServer);
+            // Purge deleted subjects from all loaded stores immediately
+            for (const k of Object.keys(state.store)) {
+              if (isSubjectKeyName(k) && Array.isArray(state.store[k])) {
+                const filtered = filterSubjectListServer(state.store[k]);
+                if (filtered.length !== state.store[k].length) {
+                  state.store[k] = filtered;
+                  state.timestamps[k] = effectiveTs;
+                  recentServerMutationTs.set(k, effectiveTs);
+                  appliedUpdates[k] = filtered;
+                  appliedTimestamps[k] = effectiveTs;
+                }
+              }
+            }
+          } else if (isSubjectKeyName(key) && Array.isArray(value)) {
+            if (key in state.store) {
+              finalValue = mergeSubjectListsServer(state.store[key], value);
+            } else {
+              finalValue = filterSubjectListServer(value);
             }
           } else if (isLeaveKeyName(key)) {
             if (key in state.store) {

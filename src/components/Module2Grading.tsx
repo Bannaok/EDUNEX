@@ -385,7 +385,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
       }
     } else {
       setEditingSubject(null);
-      setModalGradeLevel('ป.1');
+      const defaultGradeFromFilter: GradeLevel =
+        selectedGradeFilter === 'อนุบาล'
+          ? 'อ.1'
+          : selectedGradeFilter === 'มัธยม'
+          ? 'ม.1'
+          : ['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].includes(selectedGradeFilter)
+          ? (selectedGradeFilter as GradeLevel)
+          : 'ป.1';
+      setModalGradeLevel(defaultGradeFromFilter);
       setKindergartenSubtopics(['']);
       setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
       setKindergartenRubricCount(3);
@@ -2448,11 +2456,26 @@ export const Module2Grading: React.FC<Module2Props> = ({
       initialAssignments = existing;
     }
 
+    const codeVal = String(formData.get('code') || '').trim();
+    const nameVal = String(formData.get('name') || '').trim();
+
+    // Ensure grade filter shows the newly created/edited subject's grade level
+    if (selectedGradeFilter !== 'all') {
+      const matchesFilter =
+        (selectedGradeFilter === 'มัธยม' && gradeLevel.startsWith('ม.')) ||
+        (selectedGradeFilter === 'อนุบาล' && gradeLevel.startsWith('อ.')) ||
+        selectedGradeFilter === gradeLevel;
+      if (!matchesFilter) {
+        setSelectedGradeFilter('all');
+      }
+    }
+
     if (semChoice === 'both' && !editingSubject) {
+      const baseTs = Date.now();
       const sub1: Subject = {
-        id: `sub-${Date.now()}-sem1`,
-        code: formData.get('code') as string,
-        name: formData.get('name') as string,
+        id: `sub-${baseTs}-sem1`,
+        code: codeVal,
+        name: nameVal,
         gradeLevel: gradeLevel,
         hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
         semester: '1',
@@ -2470,9 +2493,9 @@ export const Module2Grading: React.FC<Module2Props> = ({
         rubricMaxLevel: isKindergarten ? rubricMax : undefined
       };
       const sub2: Subject = {
-        id: `sub-${Date.now()}-sem2`,
-        code: formData.get('code') as string,
-        name: formData.get('name') as string,
+        id: `sub-${baseTs}-sem2`,
+        code: codeVal,
+        name: nameVal,
         gradeLevel: gradeLevel,
         hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
         semester: '2',
@@ -2495,7 +2518,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
         onSaveSubject(sub1);
         onSaveSubject(sub2);
       }
-      setSelectedSubjectId(sub1.id);
+      setSelectedSubjectId(currentSemester === '2' ? sub2.id : sub1.id);
       setIsSubjectModalOpen(false);
       setEditingSubject(null);
       setSubjectUnitCountInput('');
@@ -2503,15 +2526,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
       setKindergartenSubtopics(['']);
       setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
       setKindergartenRubricCount(3);
-      onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${sub1.code} ${sub1.name} (ทั้งเทอม 1 และเทอม 2) เรียบร้อยแล้ว`);
+      onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${sub1.code ? sub1.code + ' ' : ''}${sub1.name} (ทั้งเทอม 1 และเทอม 2) เรียบร้อยแล้ว`);
       return;
     }
 
     const sem = (semChoice as '1' | '2') || currentSemester;
     const newSub: Subject = {
       id: editingSubject ? editingSubject.id : 'sub-' + Date.now(),
-      code: formData.get('code') as string,
-      name: formData.get('name') as string,
+      code: codeVal,
+      name: nameVal,
       gradeLevel: gradeLevel,
       hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
       semester: sem,
@@ -2541,7 +2564,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
     setKindergartenSubtopics(['']);
     setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
     setKindergartenRubricCount(3);
-    onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${newSub.code} ${newSub.name} (ภาคเรียนที่ ${sem}) เรียบร้อยแล้ว`);
+    onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${newSub.code ? newSub.code + ' ' : ''}${newSub.name} (ภาคเรียนที่ ${sem}) เรียบร้อยแล้ว`);
   };
 
   return (
@@ -6031,18 +6054,19 @@ export const Module2Grading: React.FC<Module2Props> = ({
                   ยืนยันการลบรายวิชา
                 </h3>
                 <p className="text-xs text-slate-500">
-                  ลบรายวิชานี้ออกจากระบบ
+                  ลบรายวิชานี้ออกจากระบบอย่างถาวร
                 </p>
               </div>
             </div>
 
             <div className="p-3.5 bg-rose-50/80 rounded-xl border border-rose-200/80 text-xs text-rose-900 space-y-2">
               <p>
-                คุณต้องการลบรายวิชา <strong>{subjectToDelete.name} ({subjectToDelete.code})</strong> ชั้น {subjectToDelete.gradeLevel} ภาคเรียนที่ {subjectToDelete.semester} ใช่หรือไม่?
+                คุณต้องการลบรายวิชา <strong>{subjectToDelete.name} {subjectToDelete.code ? `(${subjectToDelete.code})` : ''}</strong> ชั้น {subjectToDelete.gradeLevel} ภาคเรียนที่ {subjectToDelete.semester} ใช่หรือไม่?
               </p>
-              <p className="text-[11px] text-rose-700 leading-relaxed">
-                • การลบนี้จะนำรายวิชาออกจากระบบปีการศึกษา {currentAcademicYear}
-              </p>
+              <div className="text-[11px] text-rose-700 leading-relaxed space-y-1">
+                <p>• การลบนี้จะนำรายวิชาออกจากระบบปีการศึกษา {currentAcademicYear} ทันที</p>
+                <p>• หากมีสมาชิกได้ลงทะเบียนสอนวิชานี้ไว้ รายวิชานี้ในหน้าสมาชิกจะถูกลบออกด้วยทันที</p>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -6056,9 +6080,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
               <button
                 type="button"
                 onClick={() => {
-                  onDeleteSubject(subjectToDelete.id);
+                  const deletingId = subjectToDelete.id;
+                  const deletingName = subjectToDelete.name;
+                  if (selectedSubjectId === deletingId) {
+                    setSelectedSubjectId('');
+                  }
+                  onDeleteSubject(deletingId);
                   setSubjectToDelete(null);
-                  onShowToast('info', 'ลบรายวิชาแล้ว', `ลบรายวิชา ${subjectToDelete.name} เรียบร้อยแล้ว`);
+                  onShowToast('info', 'ลบรายวิชาแล้ว', `ลบรายวิชา ${deletingName} ออกจากระบบและหน้าสมาชิกที่ลงทะเบียนเรียบร้อยแล้ว`);
                 }}
                 className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
               >

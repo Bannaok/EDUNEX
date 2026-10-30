@@ -87,7 +87,8 @@ const GLOBAL_KEYS = new Set<string>([
   KEYS.ADMINS,
   KEYS.MEMBERS,
   KEYS.ACADEMIC_YEARS,
-  KEYS.DEVELOPER_ACCOUNT
+  KEYS.DEVELOPER_ACCOUNT,
+  'ams_deleted_subject_ids'
 ]);
 
 // Keys that must be strictly isolated per School (Multi-Tenant Data Isolation)
@@ -552,6 +553,7 @@ const deletedTaskIdsSet = new Set<string>();
 const deletedDocIdsSet = new Set<string>();
 const deletedLeaveIdsSet = new Set<string>();
 const deletedDutyLogIdsSet = new Set<string>();
+const deletedSubjectIdsSet = new Set<string>();
 
 if (typeof window !== 'undefined') {
   try {
@@ -606,7 +608,133 @@ if (typeof window !== 'undefined') {
   } catch {
     // ignore
   }
+  try {
+    const rawSubjects = localStorage.getItem('ams_deleted_subject_ids');
+    if (rawSubjects) {
+      const arr = JSON.parse(rawSubjects);
+      if (Array.isArray(arr)) {
+        arr.forEach(id => {
+          const strId = String(id || '').trim();
+          if (strId && !strId.startsWith('subkey:') && !strId.startsWith('subcode:')) {
+            deletedSubjectIdsSet.add(strId);
+          }
+        });
+      }
+    }
+  } catch {
+    // ignore
+  }
 }
+
+function isSubjectStorageKey(key: string): boolean {
+  return key === KEYS.SUBJECTS || key.startsWith(`${KEYS.SUBJECTS}__`);
+}
+
+function isSubjectDeletedClient(s: any): boolean {
+  if (!s || !s.id) return true;
+  return deletedSubjectIdsSet.has(String(s.id));
+}
+
+function mergeSubjectListsClient(localList: Subject[], incomingList: Subject[], preferIncoming = true): Subject[] {
+  if (!Array.isArray(incomingList)) {
+    return Array.isArray(localList)
+      ? localList.filter(s => !isSubjectDeletedClient(s))
+      : [];
+  }
+  if (!Array.isArray(localList) || localList.length === 0) {
+    return incomingList.filter(s => !isSubjectDeletedClient(s));
+  }
+
+  const localMap = new Map<string, Subject>();
+  for (const s of localList) {
+    if (!isSubjectDeletedClient(s)) {
+      localMap.set(String(s.id), s);
+    }
+  }
+
+  const incomingMap = new Map<string, Subject>();
+  for (const s of incomingList) {
+    if (!isSubjectDeletedClient(s)) {
+      incomingMap.set(String(s.id), s);
+    }
+  }
+
+  const result: Subject[] = [];
+  const handledIds = new Set<string>();
+  const primaryList = preferIncoming ? incomingList : localList;
+
+  for (const item of primaryList) {
+    if (isSubjectDeletedClient(item)) continue;
+    const sId = String(item.id);
+    if (handledIds.has(sId)) continue;
+    handledIds.add(sId);
+    const locItem = localMap.get(sId);
+    const incItem = incomingMap.get(sId);
+    if (locItem && incItem) {
+      result.push(preferIncoming ? { ...locItem, ...incItem } : { ...incItem, ...locItem });
+    } else {
+      result.push(item);
+    }
+  }
+
+  // Preserve any local subject that has not arrived in incomingList yet (prevents newly created subjects from disappearing)
+  for (const locItem of localList) {
+    if (isSubjectDeletedClient(locItem)) continue;
+    const sId = String(locItem.id);
+    if (!handledIds.has(sId)) {
+      handledIds.add(sId);
+      result.unshift(locItem);
+    }
+  }
+
+  return result;
+}
+
+const EXPANDED_INITIAL_SUBJECTS: Subject[] = (() => {
+  const normalized: Subject[] = INITIAL_SUBJECTS.map(s => ({
+    ...s,
+    academicYear: s.academicYear || '2568'
+  }));
+  const existingKeys = new Set(
+    normalized.map(s => `${s.academicYear || '2568'}_${s.semester || '1'}_${s.code}_${s.gradeLevel}`)
+  );
+  const additions: Subject[] = [];
+  normalized.forEach(s => {
+    const yr = s.academicYear || '2568';
+    const sem = s.semester || '1';
+    const otherSem: '1' | '2' = sem === '1' ? '2' : '1';
+    const otherKey = `${yr}_${otherSem}_${s.code}_${s.gradeLevel}`;
+    if (!existingKeys.has(otherKey)) {
+      existingKeys.add(otherKey);
+      additions.push({
+        ...s,
+        id: `${s.id}-sem${otherSem}`,
+        semester: otherSem,
+        academicYear: yr,
+        teacherId: '',
+        teacherName: '',
+        assignmentItems: s.assignmentItems ? [...s.assignmentItems] : []
+      });
+    }
+  });
+  const baseAll = [...normalized, ...additions];
+  const year2569Subs = baseAll.filter(s => s.academicYear === '2569');
+  if (year2569Subs.length === 0) {
+    baseAll
+      .filter(s => s.academicYear === '2568')
+      .forEach(s => {
+        additions.push({
+          ...s,
+          id: `sub-${s.code}-${s.semester}-2569`,
+          academicYear: '2569',
+          teacherId: s.teacherId || '',
+          teacherName: s.teacherName || '',
+          assignmentItems: s.assignmentItems ? [...s.assignmentItems] : []
+        });
+      });
+  }
+  return [...normalized, ...additions];
+})();
 
 function mergeTaskListsClient(localList: TaskItem[], incomingList: TaskItem[], preferIncomingOrder = true): TaskItem[] {
   if (!Array.isArray(localList)) {
@@ -1064,6 +1192,43 @@ function applyIncomingUpdates(
           // ignore
         }
       }
+    } else if (resolvedKey === 'ams_deleted_subject_ids' && Array.isArray(value)) {
+      let changedSubjectTombstones = false;
+      for (const sId of value) {
+        const strId = String(sId || '').trim();
+        if (!strId || strId.startsWith('subkey:') || strId.startsWith('subcode:')) continue;
+        if (!deletedSubjectIdsSet.has(strId)) {
+          deletedSubjectIdsSet.add(strId);
+          changedSubjectTombstones = true;
+        }
+      }
+      if (changedSubjectTombstones && typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('ams_deleted_subject_ids', JSON.stringify(Array.from(deletedSubjectIdsSet).slice(-2000)));
+        } catch {
+          // ignore
+        }
+        // Immediately purge deleted subjects from cached subject stores so Member & Admin UIs update right away
+        for (const [cacheKey, cachedVal] of Array.from(memoryCache.entries())) {
+          if (isSubjectStorageKey(cacheKey) && Array.isArray(cachedVal)) {
+            const filteredSubs = cachedVal.filter(s => !isSubjectDeletedClient(s));
+            if (filteredSubs.length !== cachedVal.length) {
+              memoryCache.set(cacheKey, filteredSubs);
+              if (nativeSetItem) {
+                try {
+                  isInternalStorageWrite = true;
+                  nativeSetItem(cacheKey, JSON.stringify(filteredSubs));
+                } catch {
+                  // ignore
+                } finally {
+                  isInternalStorageWrite = false;
+                }
+              }
+              changedKeys.push(cacheKey);
+            }
+          }
+        }
+      }
     } else if (isTaskStorageKey(resolvedKey) && Array.isArray(value)) {
       // Protect recent local task saves from stale background polls unless incomingTs is strictly newer
       if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
@@ -1119,6 +1284,20 @@ function applyIncomingUpdates(
           value = mergeDutyLogListsClient(currentCachedDutyLogs, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
         } else {
           value = value.filter(d => d && d.id && !deletedDutyLogIdsSet.has(String(d.id)));
+        }
+      }
+    } else if (isSubjectStorageKey(resolvedKey) && Array.isArray(value)) {
+      if (!fromStorageEvent && now - lastLocalWrite < 12000 && incomingTs <= localTs) {
+        const currentCachedSubs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedSubs)) {
+          value = mergeSubjectListsClient(currentCachedSubs, value, false);
+        }
+      } else {
+        const currentCachedSubs = memoryCache.get(resolvedKey);
+        if (Array.isArray(currentCachedSubs)) {
+          value = mergeSubjectListsClient(currentCachedSubs, value, incomingTs >= localTs && localTs > 0 ? true : localTs === 0);
+        } else {
+          value = value.filter(s => !isSubjectDeletedClient(s));
         }
       }
     } else {
@@ -2406,75 +2585,54 @@ export const StorageService = {
 
   // Subjects
   getSubjects(): Subject[] {
-    const list = getLocal<Subject[]>(KEYS.SUBJECTS, INITIAL_SUBJECTS);
+    const list = getLocal<Subject[]>(KEYS.SUBJECTS, EXPANDED_INITIAL_SUBJECTS);
+    if (!Array.isArray(list)) return [];
+
     let changed = false;
+    const dedupMap = new Map<string, Subject>();
 
-    // 1. Ensure all subjects have an academicYear (default to '2568' if none)
-    const normalized: Subject[] = list.map(s => {
-      if (!s.academicYear) {
+    for (const rawSub of list) {
+      if (!rawSub || !rawSub.id) {
         changed = true;
-        return { ...s, academicYear: '2568' };
+        continue;
       }
-      return s;
-    });
-
-    // 2. Ensure both semester 1 and semester 2 exist for each subject in each academic year
-    const existingKeys = new Set(
-      normalized.map(s => `${s.academicYear || '2568'}_${s.semester || '1'}_${s.code}_${s.gradeLevel}`)
-    );
-    const additions: Subject[] = [];
-
-    normalized.forEach(s => {
-      const yr = s.academicYear || '2568';
-      const sem = s.semester || '1';
-      const otherSem: '1' | '2' = sem === '1' ? '2' : '1';
-      const otherKey = `${yr}_${otherSem}_${s.code}_${s.gradeLevel}`;
-
-      if (!existingKeys.has(otherKey)) {
+      const s: Subject = rawSub.academicYear ? rawSub : { ...rawSub, academicYear: '2568' };
+      if (!rawSub.academicYear) {
         changed = true;
-        existingKeys.add(otherKey);
-        additions.push({
-          ...s,
-          id: `${s.id}-sem${otherSem}`,
-          semester: otherSem,
-          academicYear: yr,
-          // Each semester is completely independent: teacher registers per semester
-          teacherId: '',
-          teacherName: '',
-          assignmentItems: s.assignmentItems ? [...s.assignmentItems] : []
-        });
       }
-    });
-
-    // 3. Ensure academic year 2569 has subjects if 2568 has subjects but 2569 is empty
-    const year2569Subs = normalized.filter(s => s.academicYear === '2569');
-    if (year2569Subs.length === 0) {
-      const year2568Subs = [...normalized, ...additions].filter(s => s.academicYear === '2568');
-      if (year2568Subs.length > 0) {
+      if (isSubjectDeletedClient(s)) {
         changed = true;
-        year2568Subs.forEach(s => {
-          additions.push({
-            ...s,
-            id: `sub-${s.code}-${s.semester}-2569`,
-            academicYear: '2569',
-            teacherId: s.teacherId || '',
-            teacherName: s.teacherName || '',
-            assignmentItems: s.assignmentItems ? [...s.assignmentItems] : []
-          });
-        });
+        continue;
+      }
+      const sId = String(s.id);
+      if (!dedupMap.has(sId)) {
+        dedupMap.set(sId, s);
+      } else {
+        changed = true;
       }
     }
 
-    if (changed || additions.length > 0) {
-      const finalSubs = [...normalized, ...additions];
-      memoryCache.set(resolveTenantKey(KEYS.SUBJECTS), finalSubs);
-      return finalSubs;
+    const result = Array.from(dedupMap.values());
+    if (changed) {
+      memoryCache.set(resolveTenantKey(KEYS.SUBJECTS), result);
     }
-
-    return normalized;
+    return result;
   },
 
   saveSubject(subject: Subject): Subject[] {
+    if (subject.id && deletedSubjectIdsSet.has(String(subject.id))) {
+      deletedSubjectIdsSet.delete(String(subject.id));
+      if (typeof window !== 'undefined') {
+        const tombArr = Array.from(deletedSubjectIdsSet).slice(-2000);
+        try {
+          localStorage.setItem('ams_deleted_subject_ids', JSON.stringify(tombArr));
+        } catch {
+          // ignore
+        }
+        pushToRemoteServer('ams_deleted_subject_ids', tombArr, Date.now());
+      }
+    }
+
     const list = this.getSubjects();
     const idx = list.findIndex(s => s.id === subject.id);
     let updated: Subject[];
@@ -2490,17 +2648,98 @@ export const StorageService = {
   },
 
   deleteSubject(id: string): Subject[] {
-    const updated = this.getSubjects().filter(s => s.id !== id);
+    const rawList = getLocal<Subject[]>(KEYS.SUBJECTS, EXPANDED_INITIAL_SUBJECTS);
+    const safeList = Array.isArray(rawList) ? rawList : [];
+    const target = safeList.find(s => s && s.id === id);
+
+    const removedSubjectIds = new Set<string>([String(id)]);
+    deletedSubjectIdsSet.add(String(id));
+
+    if (target) {
+      const targetYr = String(target.academicYear || '2568').trim();
+      const targetSem = String(target.semester || '1').trim();
+      const targetCode = String(target.code || '').trim();
+      const targetGrade = String(target.gradeLevel || '').trim();
+      const targetName = String(target.name || '').trim();
+
+      // Also catch any duplicate or auto-generated clones of this exact subject in the same semester & year
+      for (const s of safeList) {
+        if (!s || !s.id) continue;
+        const sYr = String(s.academicYear || '2568').trim();
+        const sSem = String(s.semester || '1').trim();
+        const sCode = String(s.code || '').trim();
+        const sGrade = String(s.gradeLevel || '').trim();
+        const sName = String(s.name || '').trim();
+        const isSameSubject =
+          sYr === targetYr &&
+          sSem === targetSem &&
+          sGrade === targetGrade &&
+          sName === targetName &&
+          sCode === targetCode;
+        if (isSameSubject) {
+          removedSubjectIds.add(String(s.id));
+          deletedSubjectIdsSet.add(String(s.id));
+        }
+      }
+    }
+
+    const tombArr = Array.from(deletedSubjectIdsSet).slice(-2000);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('ams_deleted_subject_ids', JSON.stringify(tombArr));
+      } catch {
+        // ignore
+      }
+    }
+    pushToRemoteServer('ams_deleted_subject_ids', tombArr, Date.now());
+
+    const updated = safeList
+      .map(s => (s && !s.academicYear ? { ...s, academicYear: '2568' } : s))
+      .filter(s => s && s.id && !removedSubjectIds.has(String(s.id)) && !isSubjectDeletedClient(s));
+
     setLocal(KEYS.SUBJECTS, updated);
     this.syncPostToGoogle('deleteSubject', { id });
+
+    // Cascade delete any student grades/scores recorded under the deleted subject
+    const currentGrades = this.getGrades();
+    const updatedGrades = currentGrades.filter(g => {
+      if (!g) return false;
+      if (removedSubjectIds.has(String(g.subjectId))) return false;
+      return true;
+    });
+    if (updatedGrades.length !== currentGrades.length) {
+      setLocal(KEYS.GRADES, updatedGrades);
+    }
+
     return updated;
   },
 
   saveBulkSubjects(newSubs: Subject[]): Subject[] {
+    let tombstonesChanged = false;
+    for (const sub of newSubs) {
+      if (sub.id && deletedSubjectIdsSet.has(String(sub.id))) {
+        deletedSubjectIdsSet.delete(String(sub.id));
+        tombstonesChanged = true;
+      }
+    }
+    if (tombstonesChanged && typeof window !== 'undefined') {
+      const tombArr = Array.from(deletedSubjectIdsSet).slice(-2000);
+      try {
+        localStorage.setItem('ams_deleted_subject_ids', JSON.stringify(tombArr));
+      } catch {
+        // ignore
+      }
+      pushToRemoteServer('ams_deleted_subject_ids', tombArr, Date.now());
+    }
+
     const list = this.getSubjects();
     const map = new Map<string, Subject>();
-    list.forEach(s => map.set(s.id, s));
     newSubs.forEach(s => map.set(s.id, s));
+    list.forEach(s => {
+      if (!map.has(s.id)) {
+        map.set(s.id, s);
+      }
+    });
     const updated = Array.from(map.values());
     setLocal(KEYS.SUBJECTS, updated);
     return updated;

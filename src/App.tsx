@@ -355,6 +355,7 @@ export default function App() {
     if (!verifyCanEdit()) return;
     const updated = StorageService.deleteSubject(id);
     setSubjects(updated);
+    setGrades(StorageService.getGrades());
   };
 
   const handleSaveBulkSubjects = (newSubs: Subject[]) => {

@@ -1739,89 +1739,81 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <div className="space-y-6">
                 {renderPP6Header()}
 
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
                   <div>
-                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                    <span className="font-bold text-black">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">เลขที่: </span>
-                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                    <span className="font-bold text-black">เลขที่: </span>
+                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
                   </div>
                 </div>
 
-                {/* Subject Score Table */}
-                <div className="border border-slate-300 rounded-lg overflow-hidden mb-5">
-                  <table className="w-full text-left text-[11px] border-collapse">
+                {/* Subject Score Table (แสดงเป็นสีขาวทั้งหมดเพื่อความเป็นทางการ) */}
+                <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
+                  <table className="w-full text-left text-[11px] border-collapse bg-white">
                     <thead>
-                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-300 text-center">
-                        <th className="py-2 px-2 border-r border-slate-300 w-10">ที่</th>
-                        <th className="py-2 px-2 border-r border-slate-300 w-24">รหัสวิชา</th>
-                        <th className="py-2 px-3 border-r border-slate-300 text-left">รายวิชา</th>
-                        <th className="py-2 px-2 border-r border-slate-300 w-16">ระหว่างภาค</th>
-                        <th className="py-2 px-2 border-r border-slate-300 w-16">ปลายภาค</th>
-                        <th className="py-2 px-2 border-r border-slate-300 w-16 bg-indigo-50 text-indigo-950 font-bold">รวม</th>
-                        <th className="py-2 px-2 border-r border-slate-300 w-16 bg-purple-50 text-purple-950 font-black">เกรด</th>
-                        <th className="py-2 px-3">ครูผู้สอนในรายวิชา</th>
+                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                        <th className="py-2 px-2 border-r border-slate-800 w-10 text-black">ที่</th>
+                        <th className="py-2 px-2 border-r border-slate-800 w-24 text-black">รหัสวิชา</th>
+                        <th className="py-2 px-3 border-r border-slate-800 text-left text-black">รายวิชา</th>
+                        <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ระหว่างภาค</th>
+                        <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ปลายภาค</th>
+                        <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
+                        <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
+                        <th className="py-2 px-3 text-black">ครูผู้สอนในรายวิชา</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200">
+                    <tbody className="divide-y divide-slate-800 bg-white">
                       {academicResults.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="py-8 text-center text-slate-400">
+                          <td colSpan={8} className="py-8 text-center text-slate-500 bg-white">
                             ยังไม่มีข้อมูลรายวิชาในระบบ
                           </td>
                         </tr>
                       ) : (
                         academicResults.rows.map((item, idx) => (
-                          <tr key={item.subject.id} className="hover:bg-slate-50">
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-600 border-r border-slate-200">
+                          <tr key={item.subject.id} className="bg-white">
+                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
                               {idx + 1}
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-semibold text-slate-700 border-r border-slate-200">
+                            <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
                               {item.subject.code || '-'}
                             </td>
-                            <td className="py-1.5 px-3 font-medium text-slate-900 border-r border-slate-200">
+                            <td className="py-1.5 px-3 font-medium text-black border-r border-slate-800">
                               {item.subject.name}
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
+                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
                               {item.coursework}
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-700 border-r border-slate-200">
+                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
                               {item.exam}
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold text-indigo-950 bg-indigo-50/40 border-r border-slate-200">
+                            <td className="py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800">
                               {item.total}
                             </td>
-                            <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-200 bg-purple-50/50">
-                              <span className={`inline-block px-2 py-0.5 rounded ${
-                                item.grade === '4' ? 'bg-emerald-600 text-white font-black' :
-                                item.grade === '3.5' || item.grade === '3' ? 'bg-blue-600 text-white' :
-                                item.grade === '2.5' || item.grade === '2' ? 'bg-amber-600 text-white' :
-                                item.grade === '1.5' || item.grade === '1' ? 'bg-orange-600 text-white' :
-                                'text-slate-600'
-                              }`}>
-                                {item.grade}
-                              </span>
+                            <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
+                              {item.grade}
                             </td>
-                            <td className="py-1.5 px-3 text-slate-700 font-medium">
+                            <td className="py-1.5 px-3 text-black font-medium">
                               {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
                             </td>
                           </tr>
                         ))
                       )}
                     </tbody>
-                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900 text-xs">
+                    <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
                       <tr>
-                        <td colSpan={6} className="py-2 px-3 text-right border-r border-slate-300">
+                        <td colSpan={6} className="py-2 px-3 text-right border-r border-slate-800 text-black">
                           ผลการเรียนเฉลี่ยรวม (GPA):
                         </td>
-                        <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-purple-900 bg-purple-100">
+                        <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black bg-white">
                           {academicResults.gpa}
                         </td>
                       </tr>
@@ -1860,58 +1852,58 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <div className="space-y-6">
                 {renderPP6Header(undefined, 'เวลาเรียนนักเรียน')}
 
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
                   <div>
-                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                    <span className="font-bold text-black">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">เลขที่: </span>
-                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                    <span className="font-bold text-black">เลขที่: </span>
+                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
                   </div>
                 </div>
 
-                {/* Monthly breakdown table */}
-                <div className="border border-slate-300 rounded-lg overflow-hidden">
-                  <table className="w-full text-left text-xs border-collapse">
+                {/* Monthly breakdown table (แสดงเป็นสีขาวและฟอนต์ดำทั้งหมดเพื่อความเป็นทางการ) */}
+                <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                  <table className="w-full text-left text-xs border-collapse bg-white">
                     <thead>
-                      <tr className="bg-slate-100 text-slate-900 font-bold text-center border-b border-slate-300">
-                        <th className="py-2.5 px-3 text-left border-r border-slate-300">เดือน</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-300">วันเรียน</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-emerald-800 bg-emerald-50/50">มา</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-rose-800 bg-rose-50/50">ขาด</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-amber-800 bg-amber-50/50">ลา</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-300 text-blue-800 bg-blue-50/50">ป่วย</th>
-                        <th className="py-2.5 px-2 w-28">% มาเรียน</th>
+                      <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
+                        <th className="py-2.5 px-3 text-left border-r border-slate-800 text-black">เดือน</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
+                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
+                        <th className="py-2.5 px-2 w-28 bg-white text-black">% มาเรียน</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 text-center">
+                    <tbody className="divide-y divide-slate-800 bg-white text-center">
                       {attendanceMonthlyRecords.rows.map((r, i) => (
-                        <tr key={i}>
-                          <td className="py-2 px-3 text-left font-medium border-r border-slate-200">{r.month}</td>
-                          <td className="py-2 px-2 font-mono border-r border-slate-200">{r.schoolDays}</td>
-                          <td className="py-2 px-2 font-mono font-bold text-emerald-700 border-r border-slate-200">{r.present}</td>
-                          <td className="py-2 px-2 font-mono text-rose-700 border-r border-slate-200">{r.absent > 0 ? r.absent : '-'}</td>
-                          <td className="py-2 px-2 font-mono text-amber-700 border-r border-slate-200">{r.leave > 0 ? r.leave : '-'}</td>
-                          <td className="py-2 px-2 font-mono text-blue-700 border-r border-slate-200">{r.sick > 0 ? r.sick : '-'}</td>
-                          <td className="py-2 px-2 font-mono font-bold text-indigo-900">{r.percent}</td>
+                        <tr key={i} className="bg-white">
+                          <td className="py-2 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
+                          <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
+                          <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
+                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                          <td className="py-2 px-2 font-mono font-bold text-black">{r.percent}</td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300 text-center">
+                    <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
                       <tr>
-                        <td className="py-2 px-3 text-left border-r border-slate-300">รวมตลอดภาคเรียน</td>
-                        <td className="py-2 px-2 font-mono border-r border-slate-300">{attendanceMonthlyRecords.totals.schoolDays}</td>
-                        <td className="py-2 px-2 font-mono text-emerald-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.present}</td>
-                        <td className="py-2 px-2 font-mono text-rose-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
-                        <td className="py-2 px-2 font-mono text-amber-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.leave > 0 ? attendanceMonthlyRecords.totals.leave : '-'}</td>
-                        <td className="py-2 px-2 font-mono text-blue-700 border-r border-slate-300">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
-                        <td className="py-2 px-2 font-mono font-black text-indigo-900">{attendanceMonthlyRecords.totals.percent}</td>
+                        <td className="py-2 px-3 text-left border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
+                        <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{attendanceMonthlyRecords.totals.schoolDays}</td>
+                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.present}</td>
+                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
+                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.leave > 0 ? attendanceMonthlyRecords.totals.leave : '-'}</td>
+                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
+                        <td className="py-2 px-2 font-mono font-black text-black">{attendanceMonthlyRecords.totals.percent}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1920,11 +1912,11 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               </div>
 
               {/* Bottom Signature: Class Advisor (Centered, 2.5-3 inches from bottom margin) */}
-              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in]">
-                <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
-                <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
-                <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in] text-black">
+                <p className="text-black">ลงชื่อ ..............................................................</p>
+                <p className="font-bold text-black">({advisorName || '......................................................'})</p>
+                <p className="font-semibold text-[11px] text-black">ครูประจำชั้น</p>
+                <p className="text-[10px] text-black">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
 
             </div>
@@ -1940,59 +1932,51 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <div className="space-y-6">
                 {renderPP6Header(undefined, 'บันทึกข้อมูลสุขภาพ')}
 
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4 mb-5">
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
                   <div>
-                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                    <span className="font-bold text-black">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">เลขที่: </span>
-                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                    <span className="font-bold text-black">เลขที่: </span>
+                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
                   </div>
                 </div>
 
-                <div className="space-y-6 text-xs">
+                <div className="space-y-6 text-xs text-black">
                   
                   {/* 1. Growth: Weight & Height Table */}
                   <div className="space-y-2">
-                    <div className="font-bold text-slate-900 text-xs">
+                    <div className="font-bold text-black text-xs">
                       <span>1) น้ำหนัก - ส่วนสูง และภาวะโภชนาการ</span>
                     </div>
-                    <div className="border border-slate-300 rounded-lg overflow-hidden">
-                      <table className="w-full text-left text-xs border-collapse">
+                    <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                      <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
-                            <th className="py-2 px-2 border-r border-slate-300 w-14">ครั้งที่</th>
-                            <th className="py-2 px-3 border-r border-slate-300 text-left">วันที่</th>
-                            <th className="py-2 px-2 border-r border-slate-300 w-28">น้ำหนัก (กก.)</th>
-                            <th className="py-2 px-2 border-r border-slate-300 w-28">ส่วนสูง (ซม.)</th>
-                            <th className="py-2 px-2 border-r border-slate-300 w-20">BMI</th>
-                            <th className="py-2 px-3 w-32">ผลการประเมิน</th>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                            <th className="py-2 px-2 border-r border-slate-800 w-14 text-black">ครั้งที่</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">วันที่</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">น้ำหนัก (กก.)</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">ส่วนสูง (ซม.)</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-20 text-black">BMI</th>
+                            <th className="py-2 px-3 w-32 text-black">ผลการประเมิน</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-200 text-center">
+                        <tbody className="divide-y divide-slate-800 text-center bg-white">
                           {weightHeightRecords.map((item) => (
-                            <tr key={item.no} className="hover:bg-slate-50">
-                              <td className="py-2 px-2 font-mono font-bold text-slate-800 border-r border-slate-200">{item.no}</td>
-                              <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">{item.date}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-slate-900 border-r border-slate-200">{item.weight}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-slate-900 border-r border-slate-200">{item.height}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-indigo-900 border-r border-slate-200">{item.bmi}</td>
-                              <td className="py-2 px-3 font-semibold">
-                                <span className={`inline-block px-2 py-0.5 rounded font-bold text-[11px] ${
-                                  item.bmiStatus === 'สมส่วน' ? 'bg-emerald-100 text-emerald-800' :
-                                  item.bmiStatus === 'ท้วม' ? 'bg-amber-100 text-amber-800' :
-                                  item.bmiStatus === 'เริ่มอ้วน' ? 'bg-orange-100 text-orange-800' :
-                                  item.bmiStatus === 'อ้วน' ? 'bg-rose-100 text-rose-800' :
-                                  'bg-sky-100 text-sky-800'
-                                }`}>
-                                  {item.bmiStatus}
-                                </span>
+                            <tr key={item.no} className="bg-white">
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.no}</td>
+                              <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">{item.date}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.weight}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.height}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.bmi}</td>
+                              <td className="py-2 px-3 font-bold text-black">
+                                {item.bmiStatus}
                               </td>
                             </tr>
                           ))}
@@ -2003,27 +1987,27 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
                   {/* 2. Milk Drinking Table */}
                   <div className="space-y-2">
-                    <div className="font-bold text-slate-900 text-xs">
+                    <div className="font-bold text-black text-xs">
                       <span>2) บันทึกดื่มนมโรงเรียน</span>
                     </div>
-                    <div className="border border-slate-300 rounded-lg overflow-hidden">
-                      <table className="w-full text-left text-xs border-collapse">
+                    <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                      <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
-                            <th className="py-2 px-3 border-r border-slate-300 w-12">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-300 text-left">รายการบันทึก</th>
-                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันทั้งหมด</th>
-                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันที่ดื่ม</th>
-                            <th className="py-2 px-3 w-32">ร้อยละ (%)</th>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                            <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่ดื่ม</th>
+                            <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-200 text-center">
-                          <tr>
-                            <td className="py-2 px-3 font-mono border-r border-slate-200">1</td>
-                            <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">ดื่มนม</td>
-                            <td className="py-2 px-3 font-mono font-bold text-slate-800 border-r border-slate-200">{healthStats.milkTotal}</td>
-                            <td className="py-2 px-3 font-mono font-bold text-amber-900 border-r border-slate-200">{healthStats.milkFull}</td>
-                            <td className="py-2 px-3 font-mono font-black text-amber-700">{healthStats.milkRate}%</td>
+                        <tbody className="divide-y divide-slate-800 text-center bg-white">
+                          <tr className="bg-white">
+                            <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
+                            <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">ดื่มนม</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.milkTotal}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.milkFull}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black">{healthStats.milkRate}%</td>
                           </tr>
                         </tbody>
                       </table>
@@ -2032,27 +2016,27 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
                   {/* 3. Toothbrushing Table */}
                   <div className="space-y-2">
-                    <div className="font-bold text-slate-900 text-xs">
+                    <div className="font-bold text-black text-xs">
                       <span>3) บันทึกแปรงฟันหลังอาหารกลางวัน</span>
                     </div>
-                    <div className="border border-slate-300 rounded-lg overflow-hidden">
-                      <table className="w-full text-left text-xs border-collapse">
+                    <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                      <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-300 text-center">
-                            <th className="py-2 px-3 border-r border-slate-300 w-12">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-300 text-left">รายการบันทึก</th>
-                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันทั้งหมด</th>
-                            <th className="py-2 px-3 border-r border-slate-300 w-28">วันที่ดื่ม</th>
-                            <th className="py-2 px-3 w-32">ร้อยละ (%)</th>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                            <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่แปรง</th>
+                            <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-200 text-center">
-                          <tr>
-                            <td className="py-2 px-3 font-mono border-r border-slate-200">1</td>
-                            <td className="py-2 px-3 text-left font-medium text-slate-900 border-r border-slate-200">แปรงฟัน</td>
-                            <td className="py-2 px-3 font-mono font-bold text-slate-800 border-r border-slate-200">{healthStats.teethTotal}</td>
-                            <td className="py-2 px-3 font-mono font-bold text-sky-900 border-r border-slate-200">{healthStats.teethClean}</td>
-                            <td className="py-2 px-3 font-mono font-black text-sky-700">{healthStats.teethRate}%</td>
+                        <tbody className="divide-y divide-slate-800 text-center bg-white">
+                          <tr className="bg-white">
+                            <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
+                            <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">แปรงฟัน</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.teethTotal}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.teethClean}</td>
+                            <td className="py-2 px-3 font-mono font-bold text-black">{healthStats.teethRate}%</td>
                           </tr>
                         </tbody>
                       </table>
@@ -2083,19 +2067,19 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <div className="space-y-4">
                 {renderPP6Header()}
 
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 print:bg-transparent print:p-1 print:border-b print:border-slate-300 print:rounded-none gap-4">
+                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
                   <div>
-                    <span className="font-bold text-slate-700">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-slate-900 font-mono">{student.studentCode || '-'}</span>
+                    <span className="font-bold text-black">รหัสประจำตัว: </span>
+                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</span>
+                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
                   </div>
                   <div>
-                    <span className="font-bold text-slate-700">เลขที่: </span>
-                    <span className="font-semibold text-slate-900">{student.rollNumber || '-'}</span>
+                    <span className="font-bold text-black">เลขที่: </span>
+                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
                   </div>
                 </div>
 
@@ -2103,43 +2087,42 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse border border-slate-800 text-xs">
                     <thead>
-                      <tr className="bg-slate-100 text-slate-900 font-bold text-center border-b border-slate-800">
-                        <th className="border border-slate-800 p-2 w-12 text-center">
+                      <tr className="bg-slate-100 text-black font-bold text-center border-b border-slate-800">
+                        <th className="border border-slate-800 p-2 w-12 text-center text-black">
                           เลขที่
                         </th>
-                        <th className="border border-slate-800 p-2 text-left min-w-[160px]">
-                          ชื่อ-นามสกุล
+                        <th className="border border-slate-800 p-2 text-left min-w-[200px] text-black">
+                          ประเมินพฤติกรรม
                         </th>
-                        <th className="border border-slate-800 p-2 w-[38%] text-center bg-indigo-50/70 print:bg-transparent">
-                          การลงคะแนนของครูประจำชั้น 8 ด้าน<br/>
-                          <span className="text-[10px] font-normal text-indigo-800 print:text-slate-600">(ดึงจากระบบธุรการ)</span>
+                        <th className="border border-slate-800 p-2 w-[35%] text-center bg-white text-black">
+                          การลงคะแนนของครูประจำชั้น 8 ด้าน
                         </th>
-                        <th className="border border-slate-800 p-2 w-[38%] text-center bg-purple-50/70 print:bg-transparent">
-                          การลงคะแนนของผู้ปกครอง 8 ด้าน<br/>
-                          <span className="text-[10px] font-normal text-purple-800 print:text-slate-600">(Paper ให้ปริ้นแล้วผู้ปกครองติ๊ก/เขียนด้วยปากกา)</span>
+                        <th className="border border-slate-800 p-2 w-[35%] text-center bg-white text-black">
+                          การลงคะแนนของผู้ปกครอง 8 ด้าน
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="bg-white">
                       {EVALUATION_CRITERIA_ITEMS.map((item) => {
                         const tScore = teacherScores[item.id as keyof BehaviorScores] || 3;
                         const pScore = parentScores[item.id as keyof BehaviorScores] || 0;
 
                         return (
-                          <tr key={item.id} className="border-b border-slate-800">
+                          <tr key={item.id} className="border-b border-slate-800 bg-white">
                             {/* column1: เลขที่ */}
-                            <td className="border border-slate-800 p-2 text-center font-bold text-slate-800 align-middle">
+                            <td className="border border-slate-800 p-2 text-center font-bold text-black align-middle">
                               {item.number}
                             </td>
 
-                            {/* column2: ชื่อ-นามสกุล & รายการประเมิน */}
-                            <td className="border border-slate-800 p-2 align-middle">
-                              <div className="font-bold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</div>
-                              <div className="text-[11px] font-semibold text-indigo-900 mt-0.5">{item.number}. {item.title}</div>
+                            {/* column2: ประเมินพฤติกรรม (ขยายข้อความ 9 ข้อให้ชัดเจน ฟอนต์สีดำ เอาชื่อนักเรียนออก) */}
+                            <td className="border border-slate-800 p-2.5 align-middle">
+                              <div className="text-xs sm:text-sm font-bold text-black leading-snug">
+                                {item.number}. {item.title}
+                              </div>
                             </td>
 
                             {/* column3: การลงคะแนนของครู 8 ด้าน (Circles 3, 2, 1 with checkmark) */}
-                            <td className="border border-slate-800 p-2 text-center align-middle bg-indigo-50/30 print:bg-transparent">
+                            <td className="border border-slate-800 p-2 text-center align-middle bg-white">
                               <div className="flex items-center justify-center gap-5 py-1">
                                 {[3, 2, 1].map((lvl) => {
                                   const isSelected = tScore === lvl;
@@ -2153,8 +2136,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                     >
                                       <div className={`w-6 h-6 rounded-full border border-slate-800 flex items-center justify-center text-[11px] font-bold transition-all ${
                                         isSelected 
-                                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs' 
-                                          : 'bg-white text-slate-900 group-hover:border-indigo-600'
+                                          ? 'bg-black text-white border-black shadow-2xs' 
+                                          : 'bg-white text-black group-hover:border-black'
                                       }`}>
                                         {isSelected ? '✓' : lvl}
                                       </div>
@@ -2165,7 +2148,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                             </td>
 
                             {/* column4: การลงคะแนนของผู้ปกครอง 8 ด้าน (Circles 3, 2, 1 for paper ticking) */}
-                            <td className="border border-slate-800 p-2 text-center align-middle bg-purple-50/30 print:bg-transparent">
+                            <td className="border border-slate-800 p-2 text-center align-middle bg-white">
                               <div className="flex items-center justify-center gap-5 py-1">
                                 {[3, 2, 1].map((lvl) => {
                                   const isSelected = pScore === lvl;
@@ -2179,8 +2162,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                     >
                                       <div className={`w-6 h-6 rounded-full border border-slate-800 flex items-center justify-center text-[11px] font-bold transition-all ${
                                         isSelected 
-                                          ? 'bg-purple-600 text-white border-purple-600 shadow-2xs' 
-                                          : 'bg-white text-slate-900 group-hover:border-purple-600'
+                                          ? 'bg-black text-white border-black shadow-2xs' 
+                                          : 'bg-white text-black group-hover:border-black'
                                       }`}>
                                         {isSelected ? '✓' : lvl}
                                       </div>
@@ -2194,51 +2177,44 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                       })}
 
                       {/* Row 9 / Last Row: ความคิดเห็น */}
-                      <tr className="border-b border-slate-800">
+                      <tr className="border-b border-slate-800 bg-white">
                         {/* column1: เลขที่ */}
-                        <td className="border border-slate-800 p-2 text-center font-bold text-slate-800 align-top pt-3">
+                        <td className="border border-slate-800 p-2 text-center font-bold text-black align-top pt-3">
                           9
                         </td>
 
-                        {/* column2: ชื่อ-นามสกุล / ความคิดเห็น */}
-                        <td className="border border-slate-800 p-2 align-top pt-3">
-                          <div className="font-bold text-slate-900">{student.prefix}{student.firstName} {student.lastName}</div>
-                          <div className="text-[11px] font-semibold text-purple-900 mt-0.5">ความคิดเห็น</div>
+                        {/* column2: ประเมินพฤติกรรม / ความคิดเห็น */}
+                        <td className="border border-slate-800 p-2.5 align-top pt-3">
+                          <div className="text-xs sm:text-sm font-bold text-black">9. ความคิดเห็น</div>
                         </td>
 
-                        {/* column3: รวมแถวสุดท้ายคือความคิดเห็นของครู */}
-                        <td className="border border-slate-800 p-2 align-top bg-indigo-50/30 print:bg-transparent">
+                        {/* column3: ความคิดเห็นของครู (ไม่มีกรอบกล่องซ้อนในตาราง) */}
+                        <td className="border border-slate-800 p-2 align-top bg-white">
                           <textarea
                             value={teacherComment}
                             onChange={(e) => setTeacherComment(e.target.value)}
                             rows={4}
-                            className="w-full bg-white p-2 rounded border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-relaxed print:hidden resize-none"
+                            className="w-full bg-transparent p-1 text-xs text-black font-medium focus:outline-none border-none shadow-none leading-relaxed print:hidden resize-none"
                             placeholder="พิมพ์ความคิดเห็นของครูประจำชั้น..."
                           />
-                          <div className="hidden print:block text-xs leading-relaxed text-slate-900 min-h-[60px] whitespace-pre-line">
-                            {teacherComment || '....................................................................................................................................'}
+                          <div className="hidden print:block text-xs leading-relaxed text-black font-medium min-h-[60px] whitespace-pre-line">
+                            {teacherComment || ''}
                           </div>
                         </td>
 
-                        {/* column4: รวมแถวสุดท้ายคือความคิดเห็นของผู้ปกครอง */}
-                        <td className="border border-slate-800 p-2 align-top bg-purple-50/30 print:bg-transparent">
+                        {/* column4: ความคิดเห็นของผู้ปกครอง (ห้ามมีข้อความใดๆ แสดงทั้งสิ้นเมื่อว่าง) */}
+                        <td className="border border-slate-800 p-2 align-top bg-white">
                           <textarea
                             value={parentComment}
                             onChange={(e) => setParentComment(e.target.value)}
                             rows={4}
-                            className="w-full bg-white p-2 rounded border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500 leading-relaxed print:hidden resize-none"
-                            placeholder="ระบุความคิดเห็นผู้ปกครอง (หรือเว้นว่างเพื่อให้ผู้ปกครองเขียนด้วยปากกา)..."
+                            className="w-full bg-transparent p-1 text-xs text-black font-medium focus:outline-none border-none shadow-none leading-relaxed print:hidden resize-none"
+                            placeholder=""
                           />
-                          <div className="hidden print:block text-xs leading-relaxed text-slate-900 min-h-[60px]">
+                          <div className="hidden print:block text-xs leading-relaxed text-black font-medium min-h-[60px]">
                             {parentComment ? (
                               <div className="whitespace-pre-line">{parentComment}</div>
-                            ) : (
-                              <div className="space-y-2 pt-1 text-slate-400">
-                                <p>...................................................................................................................</p>
-                                <p>...................................................................................................................</p>
-                                <p>...................................................................................................................</p>
-                              </div>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -2246,8 +2222,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                   </table>
                 </div>
 
-                {/* Legend / Explanation for 3, 2, 1 */}
-                <div className="text-[11px] text-slate-800 font-bold bg-slate-50 p-2 rounded border border-slate-200 text-center">
+                {/* Legend / Explanation for 3, 2, 1 (พื้นสีขาว ไม่มีกรอบกล่อง) */}
+                <div className="text-[11px] text-black font-bold bg-white text-center py-1">
                   เกณฑ์การประเมิน: 3 = ดี, 2 = พอใช้, 1 = ปรับปรุง
                 </div>
 

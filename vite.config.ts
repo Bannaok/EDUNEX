@@ -30,7 +30,9 @@ export default defineConfig(() => {
       react(), 
       tailwindcss(),
       VitePWA({
+        selfDestroying: true,
         registerType: 'autoUpdate',
+        injectRegister: false,
         includeAssets: ['favicon.png', 'apple-touch-icon.png', 'icon.svg', 'nexus-logo.png', 'nexus-logo.jpg'],
         manifest: {
           id: '/',
@@ -64,13 +66,8 @@ export default defineConfig(() => {
             }
           ]
         },
-        workbox: {
-          maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,jpeg,woff,woff2}']
-        },
         devOptions: {
-          enabled: false,
-          type: 'module'
+          enabled: false
         }
       })
     ],

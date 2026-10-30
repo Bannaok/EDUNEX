@@ -3240,7 +3240,33 @@ async function startServer() {
 
   // 5. Vite middleware in development, static files in production
   const distPath = path.join(__dirname, 'dist');
+  // Always serve self-destructing service worker at /sw.js and /registerSW.js so any browser with a cached PWA ServiceWorker immediately clears its cache
+  app.get(['/sw.js', '/registerSW.js'], (_req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.send(`
+self.addEventListener('install', () => { self.skipWaiting(); });
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((names) => Promise.all(names.map((n) => caches.delete(n))))
+      .then(() => self.registration.unregister())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => {
+        for (const c of clients) {
+          if (c.url && 'navigate' in c) c.navigate(c.url).catch(() => {});
+        }
+      })
+  );
+});
+`);
+  });
+
   if (process.env.NODE_ENV !== 'production' || !fs.existsSync(distPath)) {
+    // Also serve built /assets from dist if a stale cached index.html requests /assets/index-*.js before SW unregisters
+    if (fs.existsSync(path.join(distPath, 'assets'))) {
+      app.use('/assets', express.static(path.join(distPath, 'assets')));
+    }
     const vite = await createViteServer({
       server: {
         middlewareMode: true,

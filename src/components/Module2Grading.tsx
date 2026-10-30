@@ -21,6 +21,7 @@ import {
   Save, 
   Trash2, 
   Edit, 
+  Pencil,
   UserCheck, 
   CheckCircle, 
   Sliders, 
@@ -301,6 +302,9 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
   const [gradingViewMode, setGradingViewMode] = useState<'score' | 'grade'>('score');
 
+  // สถานะปลดล็อกช่องตารางคะแนนระหว่างภาค (หากไม่กดปุ่มตารางช่องระหว่างภาค จะพิมพ์-กรอกคะแนนในช่องไม่ได้)
+  const [isCourseworkInputUnlocked, setIsCourseworkInputUnlocked] = useState<boolean>(false);
+
   // Function to change rubric level count (2 - 5 levels, default 3)
   const handleRubricCountChange = (count: number) => {
     const clamped = Math.min(5, Math.max(2, count));
@@ -507,10 +511,11 @@ export const Module2Grading: React.FC<Module2Props> = ({
     }
   }, [subjects, user.id, user.role, currentSemester, currentAcademicYear]);
 
-  // Reset selectedUnit when subject changes
+  // Reset selectedUnit and lock coursework when subject changes
   React.useEffect(() => {
     setSelectedUnit(null);
-  }, [selectedSubjectId]);
+    setIsCourseworkInputUnlocked(false);
+  }, [selectedSubjectId, currentSemester]);
 
   const selectedSubject = subjects.find(s => s.id === selectedSubjectId);
   const assignmentItems: AssignmentItem[] = selectedSubject?.assignmentItems || [];
@@ -518,10 +523,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
   const isSecondaryGradeLevel = selectedSubject?.gradeLevel ? (selectedSubject.gradeLevel.startsWith('ม.') || ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].includes(selectedSubject.gradeLevel)) : false;
   const showGradeButton = isSecondaryGradeLevel || (isPrimaryGradeLevel && currentSemester === '2');
 
-  // Units for current subject (respects learningUnits if defined, defaults to [1, 2, 3] if undefined)
-  const currentSubjectUnits: number[] = selectedSubject?.learningUnits !== undefined
+  // Units for current subject (respects learningUnits if defined, defaults to [1] if undefined: เริ่มต้นแสดงแค่ 1 หน่วยทุกวิชา)
+  const currentSubjectUnits: number[] = selectedSubject?.learningUnits !== undefined && selectedSubject.learningUnits.length > 0
     ? selectedSubject.learningUnits
-    : [1, 2, 3];
+    : [1];
 
   const isSelectedSubjectKindergarten = isKindergartenGrade(selectedSubject?.gradeLevel);
 
@@ -1420,7 +1425,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
     const units = subjectObj?.learningUnits !== undefined && subjectObj.learningUnits.length > 0
       ? subjectObj.learningUnits
-      : [1, 2, 3];
+      : [1];
     const unitDetails = subjectObj?.learningUnitDetails || [];
 
     const unitBreakdown: Record<number, { earned: number; max: number; avgRating: number; count: number }> = {};
@@ -1597,12 +1602,28 @@ export const Module2Grading: React.FC<Module2Props> = ({
     onSaveBulkGrades(recordsToSave);
   };
 
-  // Handle direct row score change (e.g. coursework / exam score)
+  // Handle direct row score change (e.g. coursework / exam score, ห้ามเกินจำนวนเต็ม)
   const handleScoreChange = (studentId: string, field: string, value: number) => {
     if (isMemberLockedReadOnly) {
       onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ`);
       return;
     }
+    const maxCw = selectedSubject?.courseworkScore || 70;
+    const maxEx = selectedSubject?.examScore || 30;
+    let safeValue = isNaN(value) ? 0 : Math.max(0, value);
+
+    if (field === 'coursework') {
+      if (safeValue > maxCw) {
+        safeValue = maxCw;
+        onShowToast('warning', 'ห้ามเกินจำนวนเต็ม ⚠️', `คะแนนระหว่างภาคห้ามเกินจำนวนเต็ม ${maxCw} คะแนน`);
+      }
+    } else if (field === 'exam') {
+      if (safeValue > maxEx) {
+        safeValue = maxEx;
+        onShowToast('warning', 'ห้ามเกินจำนวนเต็ม ⚠️', `คะแนนปลายภาคห้ามเกินจำนวนเต็ม ${maxEx} คะแนน`);
+      }
+    }
+
     const currentRow = scoreRows[studentId] || {
       coursework: 0,
       exam: 0,
@@ -1615,7 +1636,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
       ...scoreRows,
       [studentId]: {
         ...currentRow,
-        [field]: value
+        [field]: safeValue
       }
     };
     setScoreRows(next);
@@ -1714,7 +1735,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
     if (!selectedSubject) return;
     const units = selectedSubject.learningUnits && selectedSubject.learningUnits.length > 0
       ? [...selectedSubject.learningUnits]
-      : [1, 2, 3];
+      : [1];
     const nextUnit = units.length > 0 ? Math.max(...units) + 1 : 1;
     setUnitModalMode('add');
     setUnitModalTargetNum(nextUnit);
@@ -1760,7 +1781,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
     const units = selectedSubject.learningUnits && selectedSubject.learningUnits.length > 0
       ? [...selectedSubject.learningUnits]
-      : [1, 2, 3];
+      : [1];
 
     let updatedUnits = [...units];
     if (!updatedUnits.includes(unitModalTargetNum)) {
@@ -1808,7 +1829,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
     const units = selectedSubject.learningUnits !== undefined && selectedSubject.learningUnits.length > 0
       ? [...selectedSubject.learningUnits]
-      : [1, 2, 3];
+      : [1];
 
     const updatedUnits = units.filter(u => u !== unitNum);
     const updatedDetails = (selectedSubject.learningUnitDetails || []).filter(d => d.unitNumber !== unitNum);
@@ -2071,10 +2092,19 @@ export const Module2Grading: React.FC<Module2Props> = ({
       onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ไม่สามารถลงทะเบียนได้เนื่องจากภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกคะแนนโดยผู้ดูแลระบบ`);
       return;
     }
+    const defaultUnits = (subject.learningUnits && subject.learningUnits.length > 0) 
+      ? subject.learningUnits 
+      : [1];
+    const defaultUnitDetails = (subject.learningUnitDetails && subject.learningUnitDetails.length > 0)
+      ? subject.learningUnitDetails
+      : [{ unitNumber: 1, name: 'หน่วยที่ 1', score: subject.courseworkScore || 70 }];
+
     const updatedSubject: Subject = {
       ...subject,
       teacherId: user.id,
-      teacherName: user.fullName
+      teacherName: user.fullName,
+      learningUnits: defaultUnits,
+      learningUnitDetails: defaultUnitDetails
     };
 
     onSaveSubject(updatedSubject);
@@ -2370,7 +2400,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
       ? cleanedSubtopics.map((_, i) => i + 1)
       : (subjectUnitDetails.length > 0
           ? subjectUnitDetails.map(u => u.unitNumber)
-          : (editingSubject?.learningUnits && editingSubject.learningUnits.length > 0 ? editingSubject.learningUnits : [1, 2, 3]));
+          : (editingSubject?.learningUnits && editingSubject.learningUnits.length > 0 ? editingSubject.learningUnits : [1]));
 
     const unitDetails = isKindergarten
       ? []
@@ -3708,9 +3738,47 @@ export const Module2Grading: React.FC<Module2Props> = ({
                             </th>
                           );
                         })()}
-                        <th className="py-2.5 px-1 text-center bg-indigo-50/50 w-[72px] shrink-0">
-                          <div className="text-[11px] font-bold text-indigo-950 whitespace-nowrap">ระหว่างภาค</div>
-                          <span className="text-[9px] font-normal text-indigo-700">({selectedSubject?.courseworkScore || 70})</span>
+                        <th className={`py-2 px-1 text-center w-[85px] shrink-0 transition-colors ${
+                          isCourseworkInputUnlocked 
+                            ? 'bg-amber-100/90 text-amber-950 border border-amber-300' 
+                            : 'bg-indigo-50/50 text-indigo-950'
+                        }`}>
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <div className="text-[10px] font-bold whitespace-nowrap">ระหว่างภาค</div>
+                            <span className="text-[8px] font-normal text-indigo-700">({selectedSubject?.courseworkScore || 70})</span>
+                            {canGradeSubject && !isAdminReadOnly && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const nextState = !isCourseworkInputUnlocked;
+                                  setIsCourseworkInputUnlocked(nextState);
+                                  if (nextState) {
+                                    onShowToast(
+                                      'info',
+                                      'เปิดโหมดกรอกคะแนนระหว่างภาค ✏️',
+                                      `สามารถพิมพ์คะแนนลงในช่องระหว่างภาคได้แล้ว (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`
+                                    );
+                                  } else {
+                                    onShowToast(
+                                      'info',
+                                      'ล็อกคะแนนระหว่างภาค 🔒',
+                                      'ปิดโหมดพิมพ์คะแนนระหว่างภาคแล้ว'
+                                    );
+                                  }
+                                }}
+                                className={`inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold shadow-xs cursor-pointer ${
+                                  isCourseworkInputUnlocked
+                                    ? 'bg-amber-600 text-white hover:bg-amber-700'
+                                    : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50'
+                                }`}
+                                title={isCourseworkInputUnlocked ? "ล็อกช่องระหว่างภาค" : "ปลดล็อกพิมพ์คะแนนระหว่างภาค"}
+                              >
+                                {isCourseworkInputUnlocked ? <Unlock className="w-2.5 h-2.5" /> : <Lock className="w-2.5 h-2.5 text-slate-400" />}
+                                <span>{isCourseworkInputUnlocked ? 'กรอกได้' : 'กดกรอก'}</span>
+                              </button>
+                            )}
+                          </div>
                         </th>
                         <th className="py-2.5 px-1 text-center bg-amber-50/50 w-[58px] shrink-0">
                           <div className="text-[11px] font-bold text-amber-950 whitespace-nowrap">ปลายภาค</div>
@@ -3775,10 +3843,44 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                 );
                               })()}
 
-                              <td className={`py-2.5 px-1 text-center font-mono font-bold text-xs tabular-nums ${
-                                row.coursework > (selectedSubject?.courseworkScore || 70) ? 'bg-rose-100 text-rose-700 font-extrabold' : 'bg-indigo-50/20 text-indigo-900'
-                              }`}>
-                                {row.coursework ?? 0}
+                              <td 
+                                onClick={(e) => {
+                                  if (isCourseworkInputUnlocked) {
+                                    e.stopPropagation();
+                                  }
+                                }}
+                                className={`py-2 px-1 text-center font-mono font-bold text-xs tabular-nums ${
+                                  row.coursework > (selectedSubject?.courseworkScore || 70) 
+                                    ? 'bg-rose-100 text-rose-700 font-extrabold' 
+                                    : isCourseworkInputUnlocked
+                                      ? 'bg-amber-50/70 text-slate-800'
+                                      : 'bg-indigo-50/20 text-indigo-900'
+                                }`}
+                              >
+                                {isCourseworkInputUnlocked && canGradeSubject && !isAdminReadOnly ? (
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={selectedSubject?.courseworkScore || 70}
+                                    value={row.coursework === 0 ? 0 : (row.coursework ?? '')}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                      handleScoreChange(student.id, 'coursework', val);
+                                    }}
+                                    className="w-12 text-center text-xs py-1 px-0.5 rounded border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-1 focus:ring-amber-500"
+                                    title={`พิมพ์คะแนนระหว่างภาค (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`}
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center">
+                                    <span>{row.coursework ?? 0}</span>
+                                    {!isCourseworkInputUnlocked && canGradeSubject && !isAdminReadOnly && (
+                                      <span className="text-[8px] text-slate-400 flex items-center gap-0.5 mt-0.5" title="กดปุ่ม 'กดกรอก' ที่หัวตารางเพื่อพิมพ์คะแนน">
+                                        <Lock className="w-2.5 h-2.5 text-slate-400" /> ล็อก
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                               <td className="py-2.5 px-1 text-center font-mono font-medium text-slate-700 text-xs tabular-nums">
                                 {row.exam ?? 0}
@@ -4189,11 +4291,57 @@ export const Module2Grading: React.FC<Module2Props> = ({
                       );
                     })()}
 
-                    <th className="py-2 px-1 text-center bg-indigo-50/40 w-16 min-w-[58px] max-w-[68px]">
-                      ระหว่างภาค
-                      <span className="block text-[9px] font-normal text-indigo-700">
-                        ({selectedSubject?.courseworkScore || 70})
-                      </span>
+                    <th className={`py-2 px-1 text-center w-20 min-w-[72px] max-w-[84px] transition-colors ${
+                      isCourseworkInputUnlocked 
+                        ? 'bg-amber-100/90 text-amber-950 border-x-2 border-amber-400 shadow-xs' 
+                        : 'bg-indigo-50/40 text-indigo-950'
+                    }`}>
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <span className="text-[11px] font-bold">ระหว่างภาค</span>
+                        <span className="text-[9px] font-normal text-indigo-700">
+                          ({selectedSubject?.courseworkScore || 70})
+                        </span>
+                        {canGradeSubject && !isAdminReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextState = !isCourseworkInputUnlocked;
+                              setIsCourseworkInputUnlocked(nextState);
+                              if (nextState) {
+                                onShowToast(
+                                  'info',
+                                  'เปิดโหมดกรอกคะแนนระหว่างภาค ✏️',
+                                  `สามารถพิมพ์คะแนนลงในช่องระหว่างภาคได้แล้ว (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`
+                                );
+                              } else {
+                                onShowToast(
+                                  'info',
+                                  'ล็อกคะแนนระหว่างภาค 🔒',
+                                  'ปิดโหมดพิมพ์คะแนนระหว่างภาคแล้ว'
+                                );
+                              }
+                            }}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-all shadow-xs cursor-pointer ${
+                              isCourseworkInputUnlocked
+                                ? 'bg-amber-600 text-white hover:bg-amber-700 ring-2 ring-amber-300'
+                                : 'bg-white text-indigo-700 border border-indigo-300 hover:bg-indigo-50 hover:text-indigo-900'
+                            }`}
+                            title={isCourseworkInputUnlocked ? "คลิกเพื่อล็อกช่องระหว่างภาค" : "คลิกเพื่อปลดล็อกให้พิมพ์กรอกคะแนนระหว่างภาค"}
+                          >
+                            {isCourseworkInputUnlocked ? (
+                              <>
+                                <Unlock className="w-3 h-3" />
+                                <span>กรอกได้</span>
+                              </>
+                            ) : (
+                              <>
+                                <Lock className="w-3 h-3 text-slate-400" />
+                                <span>กดกรอก</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </th>
 
                     <th className="py-2 px-1 text-center w-14 min-w-[52px] max-w-[62px]">
@@ -4398,36 +4546,41 @@ export const Module2Grading: React.FC<Module2Props> = ({
                             );
                           })()}
 
-                          {/* Coursework Score (Auto-averaged or direct input, แสดงสีแดงหากเกินคะแนนเต็มระหว่างภาค) */}
-                          <td className={`py-2 px-1 text-center w-16 min-w-[58px] max-w-[68px] ${
+                          {/* Coursework Score (กรอกพิมพ์ได้เมื่อกดปุ่มปลดล็อกที่หัวตาราง ห้ามเกินจำนวนเต็ม หากไม่กดปุ่มจะพิมพ์ไม่ได้) */}
+                          <td className={`py-2 px-1 text-center w-20 min-w-[72px] max-w-[84px] ${
                             row.coursework > (selectedSubject?.courseworkScore || 70) 
                               ? 'bg-rose-100 text-rose-700 font-extrabold border border-rose-400 ring-2 ring-rose-300' 
-                              : 'bg-indigo-50/20 text-indigo-900'
+                              : isCourseworkInputUnlocked
+                                ? 'bg-amber-50/70 text-slate-800 border-x border-amber-200'
+                                : 'bg-indigo-50/20 text-indigo-900'
                           }`}>
-                            {assignmentItems.length > 0 ? (
+                            {isCourseworkInputUnlocked && canGradeSubject && !isAdminReadOnly ? (
+                              <input
+                                type="number"
+                                min={0}
+                                max={selectedSubject?.courseworkScore || 70}
+                                value={row.coursework === 0 ? 0 : (row.coursework ?? '')}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                  handleScoreChange(student.id, 'coursework', val);
+                                }}
+                                className="w-14 text-center text-xs py-1 px-1 rounded-lg border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-xs"
+                                title={`พิมพ์คะแนนระหว่างภาค (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`}
+                              />
+                            ) : (
                               <div className="flex flex-col items-center justify-center">
                                 <span className={`font-mono font-bold text-xs tabular-nums ${row.coursework > (selectedSubject?.courseworkScore || 70) ? 'text-rose-700 font-black' : 'text-indigo-900'}`}>
-                                  {row.coursework}
+                                  {row.coursework ?? 0}
                                 </span>
                                 {row.coursework > (selectedSubject?.courseworkScore || 70) && (
                                   <span className="text-[8px] font-bold text-rose-600 leading-tight">เกินเต็ม!</span>
                                 )}
+                                {!isCourseworkInputUnlocked && canGradeSubject && !isAdminReadOnly && (
+                                  <span className="text-[8px] text-slate-400 flex items-center gap-0.5 mt-0.5" title="กดปุ่ม 'กดกรอก' ที่หัวตารางเพื่อพิมพ์คะแนน">
+                                    <Lock className="w-2.5 h-2.5 text-slate-400" /> ล็อก
+                                  </span>
+                                )}
                               </div>
-                            ) : (
-                              <input
-                                type="number"
-                                disabled={!canGradeSubject}
-                                min={0}
-                                max={selectedSubject?.courseworkScore || 70}
-                                value={row.coursework ?? ''}
-                                onChange={(e) => handleScoreChange(student.id, 'coursework', Number(e.target.value))}
-                                title={isAdminReadOnly ? 'ผู้ดูแลระบบ: โหมดดูคะแนนเท่านั้น' : undefined}
-                                className={`w-12 text-center text-xs py-1 px-1 rounded-lg border font-mono font-semibold tabular-nums focus:ring-1 focus:ring-amber-500 focus:outline-none ${
-                                  row.coursework > (selectedSubject?.courseworkScore || 70) 
-                                    ? 'bg-rose-100 text-rose-700 font-extrabold border-rose-400' 
-                                    : 'border-slate-200'
-                                } ${!canGradeSubject ? 'bg-slate-100 text-slate-700 cursor-not-allowed font-bold' : ''}`}
-                              />
                             )}
                           </td>
 

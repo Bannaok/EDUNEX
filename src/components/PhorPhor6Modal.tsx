@@ -413,6 +413,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   };
 
   const targetGrade = (student.gradeLevel || grade || '').trim();
+  const isPrimaryGrade = ['ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6'].includes(targetGrade) || targetGrade.startsWith('ป.');
 
   // 1. Auto-detect default advisor for this specific grade from personnel list (from "ข้อมูล/อื่นๆ" > บุคลากร)
   const autoDetectedAdvisor = useMemo(() => {
@@ -546,17 +547,22 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     const studentGrade = (student.gradeLevel || grade || '').trim();
     if (!studentGrade) return [];
 
-    // Strictly match the student's grade level and current semester
-    let matched = effectiveSubjects.filter(s => {
+    // Prefer subjects matching the current academicYear first
+    const yearMatched = effectiveSubjects.filter(s => {
       const sGrade = (s.gradeLevel || '').trim();
-      const matchesGrade = sGrade === studentGrade;
-      const matchesSemester = !s.semester || s.semester === semester;
-      return matchesGrade && matchesSemester;
+      const matchesYear = !s.academicYear || String(s.academicYear) === String(academicYear);
+      return sGrade === studentGrade && matchesYear;
     });
+    const basePool = yearMatched.length > 0
+      ? yearMatched
+      : effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
+
+    // Strictly match the student's grade level and current semester
+    let matched = basePool.filter(s => !s.semester || String(s.semester) === String(semester));
 
     // Fallback: If no subjects explicitly matched this semester, match this student's grade level only
     if (matched.length === 0) {
-      matched = effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
+      matched = basePool;
     }
 
     // Deduplicate by subject code or name to ensure each subject is shown only once
@@ -570,13 +576,13 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       }
     });
 
-      return unique.sort((a, b) => {
-        const ordA = getPrimarySubjectOrder(a);
-        const ordB = getPrimarySubjectOrder(b);
-        if (ordA !== ordB) return ordA - ordB;
-        return (a.code || '').localeCompare(b.code || '', 'th');
-      });
-    }, [effectiveSubjects, student.gradeLevel, grade, semester]);
+    return unique.sort((a, b) => {
+      const ordA = getPrimarySubjectOrder(a);
+      const ordB = getPrimarySubjectOrder(b);
+      if (ordA !== ordB) return ordA - ordB;
+      return (a.code || '').localeCompare(b.code || '', 'th');
+    });
+  }, [effectiveSubjects, student.gradeLevel, grade, semester, academicYear]);
 
   // Subject evaluation rows: pulls directly from "รายงานวัดผล" (StorageService.getGrades())
   const academicResults = useMemo(() => {
@@ -649,7 +655,12 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   // Combined 2-Semester Subject Evaluation (ภาคเรียนที่ 1 + ภาคเรียนที่ 2)
   const combinedAcademicResults = useMemo(() => {
     const studentGrade = (student.gradeLevel || grade || '').trim();
-    const allGradeSubjects = effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
+    const yearMatchedSubjects = effectiveSubjects.filter(
+      s => (s.gradeLevel || '').trim() === studentGrade && (!s.academicYear || String(s.academicYear) === String(academicYear))
+    );
+    const allGradeSubjects = yearMatchedSubjects.length > 0
+      ? yearMatchedSubjects
+      : effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
 
     // Deduplicate subjects across both semesters by code or name
     const subjectGroups = new Map<string, { primary: Subject; sem1Subj?: Subject; sem2Subj?: Subject }>();
@@ -663,8 +674,16 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           sem2Subj: String(s.semester) === '2' ? s : undefined,
         });
       } else {
-        if (String(s.semester) === '1') existing.sem1Subj = s;
-        if (String(s.semester) === '2') existing.sem2Subj = s;
+        if (String(s.semester) === '1') {
+          if (!existing.sem1Subj || s.teacherName || s.teacherId) {
+            existing.sem1Subj = s;
+          }
+        }
+        if (String(s.semester) === '2') {
+          if (!existing.sem2Subj || s.teacherName || s.teacherId) {
+            existing.sem2Subj = s;
+          }
+        }
       }
     });
 
@@ -740,6 +759,20 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       return null;
     };
 
+    const resolveSubjectTeacher = (targetSubj?: Subject): string => {
+      if (!targetSubj) return '';
+      if (targetSubj.teacherName && targetSubj.teacherName.trim()) {
+        return targetSubj.teacherName.trim();
+      }
+      if (targetSubj.teacherId) {
+        const p = personnel.find(item => item.id === targetSubj.teacherId);
+        if (p) {
+          return `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim();
+        }
+      }
+      return '';
+    };
+
     const sortedGroups = Array.from(subjectGroups.values()).sort((a, b) => {
       const ordA = getPrimarySubjectOrder(a.primary);
       const ordB = getPrimarySubjectOrder(b.primary);
@@ -763,20 +796,33 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
       let avgTotal: number | null = null;
       let combinedMax = 100;
-      if (total1 !== null && total2 !== null) {
-        if (max1 + max2 === 100) {
+      if (isPrimaryGrade) {
+        if (total1 !== null && total2 !== null) {
           avgTotal = Math.round((total1 + total2) * 100) / 100;
           combinedMax = 100;
-        } else {
-          avgTotal = Math.round(((total1 + total2) / 2) * 100) / 100;
-          combinedMax = (max1 + max2) / 2;
+        } else if (total1 !== null) {
+          avgTotal = total1;
+          combinedMax = 100;
+        } else if (total2 !== null) {
+          avgTotal = total2;
+          combinedMax = 100;
         }
-      } else if (total1 !== null) {
-        avgTotal = total1;
-        combinedMax = max1;
-      } else if (total2 !== null) {
-        avgTotal = total2;
-        combinedMax = max2;
+      } else {
+        if (total1 !== null && total2 !== null) {
+          if (max1 + max2 === 100) {
+            avgTotal = Math.round((total1 + total2) * 100) / 100;
+            combinedMax = 100;
+          } else {
+            avgTotal = Math.round(((total1 + total2) / 2) * 100) / 100;
+            combinedMax = (max1 + max2) / 2;
+          }
+        } else if (total1 !== null) {
+          avgTotal = total1;
+          combinedMax = max1;
+        } else if (total2 !== null) {
+          avgTotal = total2;
+          combinedMax = max2;
+        }
       }
 
       const combinedGrade = calculateThaiGrade(avgTotal, combinedMax);
@@ -800,14 +846,9 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         totalPointsCombined += ptsCombined * weight;
       }
 
-      let subjectTeacher = subj.teacherName || grp.sem1Subj?.teacherName || grp.sem2Subj?.teacherName;
-      const tId = subj.teacherId || grp.sem1Subj?.teacherId || grp.sem2Subj?.teacherId;
-      if (!subjectTeacher && tId) {
-        const p = personnel.find(item => item.id === tId);
-        if (p) {
-          subjectTeacher = `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim();
-        }
-      }
+      const teacher1 = resolveSubjectTeacher(grp.sem1Subj) || (!grp.sem1Subj ? resolveSubjectTeacher(subj) : '');
+      const teacher2 = resolveSubjectTeacher(grp.sem2Subj) || (!grp.sem2Subj ? resolveSubjectTeacher(subj) : '');
+      const subjectTeacher = resolveSubjectTeacher(subj) || teacher1 || teacher2;
 
       return {
         subject: subj,
@@ -818,6 +859,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         avgTotal: avgTotal !== null ? (Number.isInteger(avgTotal) ? avgTotal : avgTotal.toFixed(1)) : '-',
         combinedGrade,
         teacherDisplayName: subjectTeacher || advisorName || '-',
+        teacher1DisplayName: teacher1 || advisorName || '-',
+        teacher2DisplayName: teacher2 || advisorName || '-',
       };
     });
 
@@ -831,7 +874,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       gpa2,
       gpaCombined,
     };
-  }, [effectiveSubjects, studentSubjects, effectiveGrades, student.id, student.gradeLevel, grade, semester, academicYear, personnel, advisorName]);
+  }, [effectiveSubjects, studentSubjects, effectiveGrades, student.id, student.gradeLevel, grade, semester, academicYear, personnel, advisorName, isPrimaryGrade]);
 
   // Helper to compute monthly attendance for a specific semester ('1' or '2')
   const computeTermAttendance = useMemo(() => {
@@ -2077,14 +2120,16 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                             <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ระหว่างภาค</th>
                             <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ปลายภาค</th>
                             <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
+                            {!isPrimaryGrade && (
+                              <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
+                            )}
                             <th className="py-2 px-3 text-black">ครูผู้สอนในรายวิชา</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-800 bg-white">
                           {academicResults.rows.length === 0 ? (
                             <tr>
-                              <td colSpan={8} className="py-8 text-center text-black bg-white">
+                              <td colSpan={isPrimaryGrade ? 7 : 8} className="py-8 text-center text-black bg-white">
                                 ยังไม่มีข้อมูลรายวิชาในระบบ
                               </td>
                             </tr>
@@ -2109,9 +2154,11 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 <td className="py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800">
                                   {item.total}
                                 </td>
-                                <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
-                                  {item.grade}
-                                </td>
+                                {!isPrimaryGrade && (
+                                  <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
+                                    {item.grade}
+                                  </td>
+                                )}
                                 <td className="py-1.5 px-3 text-black font-medium">
                                   {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
                                 </td>
@@ -2119,103 +2166,170 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                             ))
                           )}
                         </tbody>
-                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                          <tr>
-                            <td colSpan={6} className="py-2 px-3 text-center border-r border-slate-800 text-black">
-                              ผลการเรียนเฉลี่ยรวม (GPA)
-                            </td>
-                            <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black bg-white">
-                              {academicResults.gpa}
-                            </td>
-                          </tr>
-                        </tfoot>
+                        {!isPrimaryGrade && (
+                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
+                            <tr>
+                              <td colSpan={6} className="py-2 px-3 text-center border-r border-slate-800 text-black">
+                                ผลการเรียนเฉลี่ยรวม (GPA)
+                              </td>
+                              <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black bg-white">
+                                {academicResults.gpa}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        )}
                       </table>
                     </div>
                   ) : (
                     /* Combined 2-Semester Subject Score Table (รวม 2 ภาคเรียน) */
                     <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
-                      <table className="w-full text-left text-[11px] border-collapse bg-white">
-                        <thead>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                            <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-8 text-black">ที่</th>
-                            <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 w-20 text-black">รหัสวิชา</th>
-                            <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-800 text-center text-black">รายวิชา</th>
-                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
-                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
-                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">รวม 2 ภาคเรียน</th>
-                            <th rowSpan={2} className="py-2 px-2.5 text-center text-black">ครูผู้สอนในรายวิชา</th>
-                          </tr>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-14 text-black">คะแนนเฉลี่ย</th>
-                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800 bg-white">
-                          {combinedAcademicResults.rows.length === 0 ? (
-                            <tr>
-                              <td colSpan={10} className="py-8 text-center text-black bg-white">
-                                ยังไม่มีข้อมูลรายวิชาในระบบ
-                              </td>
+                      {isPrimaryGrade ? (
+                        <table className="w-full text-left text-[11px] border-collapse bg-white">
+                          <thead>
+                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                              <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 w-7 text-black">ที่</th>
+                              <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-16 text-black">รหัสวิชา</th>
+                              <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                              <th className="py-1.5 px-1.5 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
+                              <th className="py-1.5 px-1.5 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
+                              <th colSpan={2} className="py-1.5 px-1.5 border-r border-b border-slate-800 text-center text-black">รวม 2 ภาคเรียน</th>
+                              <th colSpan={2} className="py-1.5 px-1.5 border-b border-slate-800 text-center text-black">ครูผู้สอนในรายวิชา</th>
                             </tr>
-                          ) : (
-                            combinedAcademicResults.rows.map((item, idx) => (
-                              <tr key={item.subject.id || idx} className="bg-white">
-                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
-                                  {idx + 1}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
-                                  {item.subject.code || '-'}
-                                </td>
-                                <td className="py-1.5 px-2.5 font-medium text-black border-r border-slate-800">
-                                  {item.subject.name}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
-                                  {item.total1}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
-                                  {item.grade1}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
-                                  {item.total2}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
-                                  {item.grade2}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
-                                  {item.avgTotal}
-                                </td>
-                                <td className="py-1.5 px-1.5 text-center font-black text-xs text-black border-r border-slate-800 bg-white">
-                                  {item.combinedGrade}
-                                </td>
-                                <td className="py-1.5 px-2.5 text-black font-medium">
-                                  {item.teacherDisplayName}
+                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
+                              <th className="py-1 px-1 border-r border-slate-800 w-14 text-black">คะแนน</th>
+                              <th className="py-1 px-1 border-r border-slate-800 w-14 text-black">คะแนน</th>
+                              <th className="py-1 px-1 border-r border-slate-800 w-14 text-black">คะแนนรวม</th>
+                              <th className="py-1 px-1 border-r border-slate-800 w-10 text-black">เกรด</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 text-black">ภาคเรียนที่ 1</th>
+                              <th className="py-1 px-1.5 text-black">ภาคเรียนที่ 2</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 bg-white">
+                            {combinedAcademicResults.rows.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="py-8 text-center text-black bg-white">
+                                  ยังไม่มีข้อมูลรายวิชาในระบบ
                                 </td>
                               </tr>
-                            ))
-                          )}
-                        </tbody>
-                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                          <tr>
-                            <td colSpan={3} className="py-2 px-3 text-center border-r border-slate-800 text-black">
-                              ผลการเรียนเฉลี่ยรวม (GPA)
-                            </td>
-                            <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
-                              {combinedAcademicResults.gpa1}
-                            </td>
-                            <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
-                              {combinedAcademicResults.gpa2}
-                            </td>
-                            <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black border-r border-slate-800 bg-white">
-                              {combinedAcademicResults.gpaCombined}
-                            </td>
-                            <td className="py-2 px-2 bg-white"></td>
-                          </tr>
-                        </tfoot>
-                      </table>
+                            ) : (
+                              combinedAcademicResults.rows.map((item, idx) => (
+                                <tr key={item.subject.id || idx} className="bg-white">
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                    {item.subject.code || '-'}
+                                  </td>
+                                  <td className="py-1.5 px-2 font-medium text-black border-r border-slate-800">
+                                    {item.subject.name}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                    {item.total1}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                    {item.total2}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
+                                    {item.avgTotal}
+                                  </td>
+                                  <td className="py-1.5 px-1 text-center font-black text-xs text-black border-r border-slate-800 bg-white">
+                                    {item.combinedGrade}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px] border-r border-slate-800">
+                                    {item.teacher1DisplayName}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px]">
+                                    {item.teacher2DisplayName}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <table className="w-full text-left text-[11px] border-collapse bg-white">
+                          <thead>
+                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                              <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-8 text-black">ที่</th>
+                              <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 w-20 text-black">รหัสวิชา</th>
+                              <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                              <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
+                              <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
+                              <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">รวม 2 ภาคเรียน</th>
+                              <th rowSpan={2} className="py-2 px-2.5 text-center text-black">ครูผู้สอนในรายวิชา</th>
+                            </tr>
+                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-14 text-black">คะแนนเฉลี่ย</th>
+                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 bg-white">
+                            {combinedAcademicResults.rows.length === 0 ? (
+                              <tr>
+                                <td colSpan={10} className="py-8 text-center text-black bg-white">
+                                  ยังไม่มีข้อมูลรายวิชาในระบบ
+                                </td>
+                              </tr>
+                            ) : (
+                              combinedAcademicResults.rows.map((item, idx) => (
+                                <tr key={item.subject.id || idx} className="bg-white">
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                    {idx + 1}
+                                  </td>
+                                  <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                    {item.subject.code || '-'}
+                                  </td>
+                                  <td className="py-1.5 px-2.5 font-medium text-black border-r border-slate-800">
+                                    {item.subject.name}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                    {item.total1}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                    {item.grade1}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                    {item.total2}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                    {item.grade2}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
+                                    {item.avgTotal}
+                                  </td>
+                                  <td className="py-1.5 px-1.5 text-center font-black text-xs text-black border-r border-slate-800 bg-white">
+                                    {item.combinedGrade}
+                                  </td>
+                                  <td className="py-1.5 px-2.5 text-black font-medium">
+                                    {item.teacherDisplayName}
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
+                            <tr>
+                              <td colSpan={3} className="py-2 px-3 text-center border-r border-slate-800 text-black">
+                                ผลการเรียนเฉลี่ยรวม (GPA)
+                              </td>
+                              <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
+                                {combinedAcademicResults.gpa1}
+                              </td>
+                              <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
+                                {combinedAcademicResults.gpa2}
+                              </td>
+                              <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black border-r border-slate-800 bg-white">
+                                {combinedAcademicResults.gpaCombined}
+                              </td>
+                              <td className="py-2 px-2 bg-white"></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      )}
                     </div>
                   )}
 

@@ -452,11 +452,13 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   const [schoolDaysTypeFilter, setSchoolDaysTypeFilter] = useState<'all' | 'working' | 'holiday'>('working');
   const [schoolDaysSearchQuery, setSchoolDaysSearchQuery] = useState<string>('');
 
-  // Delete All School Days Modal state (requires Admin Password)
+  // Delete All School Days Modal state
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [adminPasswordError, setAdminPasswordError] = useState('');
-  const [showAdminPassword, setShowAdminPassword] = useState(false);  // Editing modal state for day configuration (เวลาเรียน / วันหยุด)
+
+  // Confirm Delete Single School Day Modal state
+  const [confirmDeleteDay, setConfirmDeleteDay] = useState<SchoolDayItem | null>(null);
+
+  // Editing modal state for day configuration (เวลาเรียน / วันหยุด)
   const [editingDayItem, setEditingDayItem] = useState<SchoolDayItem | null>(null);
   const [editingDayIsHoliday, setEditingDayIsHoliday] = useState<boolean>(false);
   const [editingDayNote, setEditingDayNote] = useState<string>('');
@@ -1609,13 +1611,31 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     onShowToast('success', 'เพิ่มวันเรียบร้อย 🎉', `เพิ่มวันที่ ${formatThaiDate(newCustomDate)} (วัน${dayName}) เรียบร้อยแล้ว`);
   };
 
-  // Delete a single day from the 100-day structure
+  // Request confirmation before deleting a single day from the 100-day structure
   const handleDeleteDay = (targetDate: string) => {
+    const found = schoolDaysList.find(d => d.date === targetDate);
+    if (found) {
+      setConfirmDeleteDay(found);
+    } else {
+      setConfirmDeleteDay({
+        date: targetDate,
+        dayOfWeek: '',
+        isHoliday: false,
+        note: ''
+      });
+    }
+  };
+
+  // Execute confirmed deletion of a single day from the 100-day structure
+  const handleConfirmDeleteDay = () => {
+    if (!confirmDeleteDay) return;
+    const targetDate = confirmDeleteDay.date;
     const updated = schoolDaysList.filter(d => d.date !== targetDate);
     saveTermSchoolDaysList(updated);
     if (editingDayItem && editingDayItem.date === targetDate) {
       setEditingDayItem(null);
     }
+    setConfirmDeleteDay(null);
     onShowToast('success', 'ลบวันเรียบร้อย 🗑️', `ลบวันที่ ${formatThaiDate(targetDate)} ออกจากตารางวันเรียนแล้ว`);
   };
 
@@ -1721,60 +1741,8 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     onShowToast('success', 'บันทึกวันทำการสำเร็จ 🎉', `บันทึกโครงสร้างวันทำการทั้งหมด ${activeCount} วัน เรียบร้อยแล้ว`);
   };
 
-  // Delete All School Days handler (deletes selected term directly without asking/password)
-  const handleDirectDeleteAllForTerm = () => {
-    const termKey = `${selectedSemester}_${selectedAcademicYear}`;
-    const updatedConfigs = StorageService.deleteAttendanceConfigForTerm(termKey);
-    setConfigsByTerm(updatedConfigs);
-    setSchoolDaysList([]);
-
-    if (latestAttendanceTermKey === termKey) {
-      const remainingValidKeys = Object.keys(updatedConfigs).filter(k => updatedConfigs[k]?.schoolDays?.length);
-      const nextKey = remainingValidKeys[0] || '';
-      localStorage.setItem('ams_latest_attendance_term', nextKey);
-      setLatestAttendanceTermKey(nextKey);
-    }
-
-    if (attendanceConfig.semester === selectedSemester && attendanceConfig.academicYear === selectedAcademicYear) {
-      onSaveAttendanceConfig({
-        ...attendanceConfig,
-        startDate: '',
-        endDate: '',
-        targetDays: 0,
-        schoolDays: []
-      });
-    }
-
-    onShowToast(
-      'success',
-      'ลบรายการสำเร็จ',
-      `ลบตารางวันเรียน ภาคเรียนที่ ${selectedSemester} ปีการศึกษา ${selectedAcademicYear} เรียบร้อยแล้ว`
-    );
-  };
-
-  // Verify Admin password for deletion
-  const verifyAdminPassword = (pwd: string): boolean => {
-    const trimmed = pwd.trim();
-    if (!trimmed) return false;
-    if (trimmed === '123456' || trimmed === 'admin' || trimmed === 'admin123') return true;
-    const members = StorageService.getMembers();
-    return members.some(m => m.role === 'admin' && m.password === trimmed);
-  };
-
-  // Delete All School Days handler (requires Admin Password)
-  const handleConfirmDeleteAllSchoolDays = (e: React.FormEvent) => {
-    e.preventDefault();
-    const pwd = adminPasswordInput.trim();
-    if (!pwd) {
-      setAdminPasswordError('กรุณากรอกรหัสผ่าน Admin เพื่อยืนยัน');
-      return;
-    }
-
-    if (!verifyAdminPassword(pwd)) {
-      setAdminPasswordError('รหัสผ่าน Admin ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
-      return;
-    }
-
+  // Delete All School Days handler (always asks confirmation first)
+  const handleConfirmDeleteAllSchoolDays = () => {
     const termKey = `${selectedSemester}_${selectedAcademicYear}`;
     const updatedConfigs = StorageService.deleteAttendanceConfigForTerm(termKey);
     setConfigsByTerm(updatedConfigs);
@@ -1804,8 +1772,6 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
     );
 
     setIsDeleteAllModalOpen(false);
-    setAdminPasswordInput('');
-    setAdminPasswordError('');
   };
 
   // Confirm Delete History Record with Password
@@ -2947,12 +2913,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                 {/* 2. ปุ่ม "ลบAll" */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setAdminPasswordInput('');
-                    setAdminPasswordError('');
-                    setShowAdminPassword(false);
-                    setIsDeleteAllModalOpen(true);
-                  }}
+                  onClick={() => setIsDeleteAllModalOpen(true)}
                   className="w-full sm:w-auto py-2 sm:py-1.5 px-1 sm:px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer active:scale-95 shadow-2xs"
                   title="ลบรายการวันเรียนภาคเรียนที่เลือก"
                 >
@@ -4526,103 +4487,90 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
       )}
 
       {/* ======================================================== */}
-      {/* MODAL: DELETE ALL SCHOOL DAYS (ADMIN PASSWORD REQUIRED)  */}
+      {/* MODAL: CONFIRM DELETE SINGLE SCHOOL DAY IN 100 DAYS      */}
       {/* ======================================================== */}
-      {isDeleteAllModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center font-bold shrink-0">
-                  <Trash2 className="w-5 h-5 text-rose-600" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-800">ยืนยันลบรายการ All</h3>
-                  <p className="text-xs text-slate-500">
-                    ภาคเรียนที่ {selectedSemester} ปีการศึกษา {selectedAcademicYear}
-                  </p>
-                </div>
-              </div>
+      {confirmDeleteDay && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-center animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
+              <Trash2 className="w-6 h-6 text-rose-600" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">
+                ยืนยันการลบวันเรียน
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                คุณต้องการลบวันที่{' '}
+                <span className="font-bold text-slate-900">{formatThaiDate(confirmDeleteDay.date)}</span>
+                {confirmDeleteDay.dayOfWeek ? ` (วัน${confirmDeleteDay.dayOfWeek})` : ''}{' '}
+                ออกจากตาราง 100 วัน (ภาคเรียนที่ {selectedSemester}/{selectedAcademicYear}) ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลของวันนี้ได้
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
               <button
                 type="button"
-                onClick={() => {
-                  setIsDeleteAllModalOpen(false);
-                  setAdminPasswordInput('');
-                  setAdminPasswordError('');
-                }}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl cursor-pointer"
+                onClick={() => setConfirmDeleteDay(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteDay}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <form onSubmit={handleConfirmDeleteAllSchoolDays} className="space-y-4">
-              <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3.5 flex items-start gap-3">
-                <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
-                <div className="text-xs text-rose-900 space-y-1">
-                  <div className="font-bold">การลบข้อมูลจำเป็นต้องได้รับอนุญาต</div>
-                  <p className="text-rose-700 leading-relaxed">
-                    การกระทำนี้จะล้างตารางวันเรียน ภาคเรียนที่ {selectedSemester} ปีการศึกษา {selectedAcademicYear}
-                  </p>
-                </div>
-              </div>
-
-              {/* Admin Password Input */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  รหัสผ่านผู้ดูแลระบบ (Admin Password) <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type={showAdminPassword ? 'text' : 'password'}
-                    required
-                    value={adminPasswordInput}
-                    onChange={(e) => {
-                      setAdminPasswordInput(e.target.value);
-                      if (adminPasswordError) setAdminPasswordError('');
-                    }}
-                    placeholder="กรอกรหัสผ่าน Admin เพื่อยืนยัน"
-                    autoFocus
-                    className="w-full text-xs pl-9 pr-9 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-500 font-medium"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowAdminPassword(!showAdminPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    {showAdminPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                {adminPasswordError && (
-                  <p className="text-xs text-rose-600 font-medium flex items-center gap-1 mt-1">
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    <span>{adminPasswordError}</span>
-                  </p>
-                )}
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsDeleteAllModalOpen(false);
-                    setAdminPasswordInput('');
-                    setAdminPasswordError('');
-                  }}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>ยืนยันลบรายการ</span>
-                </button>
-              </div>
-            </form>
+      {/* ======================================================== */}
+      {/* MODAL: CONFIRM DELETE ALL SCHOOL DAYS IN 100 DAYS        */}
+      {/* ======================================================== */}
+      {isDeleteAllModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-center animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
+              <Trash2 className="w-6 h-6 text-rose-600" />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">
+                ยืนยันการลบวันเรียนทั้งหมด (ลบAll)
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                คุณต้องการลบตารางวันเรียนทั้งหมดของ{' '}
+                <span className="font-bold text-slate-900">
+                  ภาคเรียนที่ {selectedSemester} ปีการศึกษา {selectedAcademicYear}
+                </span>{' '}
+                ใช่หรือไม่?
+              </p>
+              <p className="text-[11px] text-rose-600 font-medium">
+                เมื่อลบแล้วจะไม่สามารถกู้คืนข้อมูลตารางวันเรียนของภาคเรียนนี้ได้
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsDeleteAllModalOpen(false)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAllSchoolDays}
+                className="py-2.5 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันการลบ</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

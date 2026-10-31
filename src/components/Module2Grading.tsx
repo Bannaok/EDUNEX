@@ -6901,9 +6901,9 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </button>
             </div>
 
-            {/* ตัวเลือกกรองต้นทาง: ปีการศึกษา, ภาคเรียน, ชั้น อ.1 ถึง ม.3 */}
+            {/* ตัวเลือกกรองต้นทาง: ปีการศึกษา, ภาคเรียน */}
             <div className="space-y-3 shrink-0">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* 1. เลือกปีการศึกษา */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -6935,25 +6935,6 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     <option value="1">ภาคเรียนที่ 1</option>
                     <option value="2">ภาคเรียนที่ 2</option>
                     <option value="all">ทั้ง 2 ภาคเรียน (เทอม 1 และ 2)</option>
-                  </select>
-                </div>
-
-                {/* 3. เลือกระดับชั้น (อ.1 ถึง ม.3) */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    ระดับชั้น (อ.1 - ม.3)
-                  </label>
-                  <select
-                    value={copyModalSourceGrade}
-                    onChange={(e) => setCopyModalSourceGrade(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                  >
-                    <option value="all">ทุกชั้น (อ.1 - ม.3)</option>
-                    {MODAL_ALLOWED_GRADES.map(g => (
-                      <option key={g} value={g}>
-                        ชั้น {g}
-                      </option>
-                    ))}
                   </select>
                 </div>
               </div>
@@ -7114,7 +7095,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
               )}
             </div>
 
-            {/* ปุ่มยืนยันด้านล่าง: ยกเลิก / คัดลอกที่เลือก / คัดลอกทั้งหมด */}
+            {/* ปุ่มยืนยันด้านล่าง: ยกเลิก / คัดลอก */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 shrink-0">
               <div className="text-[11px] text-slate-500">
                 * คัดลอกเฉพาะโครงสร้างวิชา (ไม่คัดลอกคะแนน และรีเซ็ตครูผู้สอน)
@@ -7133,20 +7114,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
                   type="button"
                   disabled={selectedCopySubjectIds.length === 0}
                   onClick={() => handleCopySubjectsFromSourceYear('selected')}
-                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  <CheckSquare className="w-3.5 h-3.5" />
-                  <span>คัดลอกวิชาที่เลือก ({selectedCopySubjectIds.length})</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={copyableSourceSubjects.length === 0}
-                  onClick={() => handleCopySubjectsFromSourceYear('all')}
-                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>คัดลอกทั้งหมด ({copyableSourceSubjects.length})</span>
+                  <Copy className="w-4 h-4" />
+                  <span>คัดลอก</span>
                 </button>
               </div>
             </div>

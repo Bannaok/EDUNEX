@@ -210,6 +210,7 @@ const buildSanitizedDocumentCss = (): string => {
     .a4-portrait-paper, .a4-landscape-paper, .a4-pp6-page {
       box-sizing: border-box !important;
       padding-left: 20mm !important;
+      padding-right: 10mm !important;
       font-family: 'Sarabun', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
       font-variant-numeric: tabular-nums !important;
       font-feature-settings: "tnum" 1, "zero" 0 !important;
@@ -223,6 +224,12 @@ const buildSanitizedDocumentCss = (): string => {
       font-variant-numeric: tabular-nums !important;
       font-feature-settings: "tnum" 1, "zero" 0 !important;
     }
+    .a4-portrait-paper table,
+    .a4-landscape-paper table,
+    .a4-pp6-page table {
+      border-collapse: collapse !important;
+      border-spacing: 0 !important;
+    }
     .a4-portrait-paper th,
     .a4-portrait-paper td,
     .a4-landscape-paper th,
@@ -231,6 +238,7 @@ const buildSanitizedDocumentCss = (): string => {
     .a4-pp6-page td {
       vertical-align: middle !important;
       overflow: visible !important;
+      box-sizing: border-box !important;
     }
     .a4-portrait-paper .truncate,
     .a4-landscape-paper .truncate,
@@ -281,26 +289,11 @@ const buildLoadedImageCache = (sheets: HTMLElement[]): Map<string, string> => {
 };
 
 /**
- * Encodes an HTMLCanvasElement to ultra-high-quality JPEG (quality = 0.98, 4:4:4 chroma)
- * asynchronously in the browser's native C++ background thread.
- * jsPDF embeds JPEG Uint8Arrays directly into the PDF stream (/DCTDecode) in <0.5ms
- * with zero main-thread JS pixel loops.
+ * Encodes an HTMLCanvasElement to lossless PNG data URL.
+ * Preserves 100% razor-sharp text, 1px table borders, and zero-artifact Thai vowels.
  */
-const canvasToHighResJpegBytes = async (
-  canvas: HTMLCanvasElement
-): Promise<Uint8Array | string> => {
-  try {
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.98)
-    );
-    if (blob) {
-      const buffer = await blob.arrayBuffer();
-      return new Uint8Array(buffer);
-    }
-  } catch {
-    // fallback below
-  }
-  return canvas.toDataURL('image/jpeg', 0.98);
+const canvasToLosslessPng = (canvas: HTMLCanvasElement): string => {
+  return canvas.toDataURL('image/png');
 };
 
 /**
@@ -371,6 +364,8 @@ export const exportSheetsToPdf = async ({
         !origSheet.classList.contains('a4-pp6-page') &&
         orientation === 'landscape');
 
+    const standardA4WidthPx = isLandscape ? 1123 : 794;
+    const standardA4HeightPx = isLandscape ? 794 : 1123;
     const pageW = isLandscape ? 297 : 210;
     const pageH = isLandscape ? 210 : 297;
 
@@ -379,8 +374,6 @@ export const exportSheetsToPdf = async ({
     }
 
     // Read live dimensions and textarea values WITHOUT mutating the live DOM
-    const liveRect = origSheet.getBoundingClientRect();
-    const exactWidthPx = Math.round(liveRect.width) || (isLandscape ? 1123 : 794);
     const liveTextareaValues = Array.from(origSheet.querySelectorAll('textarea')).map(
       (ta) => ({
         value: ta.value,
@@ -405,7 +398,8 @@ export const exportSheetsToPdf = async ({
       imageTimeout: 1000,
       scrollX: 0,
       scrollY: 0,
-      windowWidth: Math.max(1280, exactWidthPx + 80),
+      windowWidth: standardA4WidthPx,
+      windowHeight: standardA4HeightPx,
       ignoreElements: (el) => {
         const tag = el.tagName;
         if (tag === 'HEAD' || tag === 'STYLE') return false;
@@ -442,24 +436,23 @@ export const exportSheetsToPdf = async ({
         // 2. Mount clonedSheet directly onto clonedDoc.body at (0, 0)
         // Eliminates all modal scroll containers, max-h-[96vh] ClipEffects, and scroll offsets
         clonedDoc.documentElement.style.cssText =
-          'margin:0 !important;padding:0 !important;background:#ffffff !important;overflow:visible !important;';
+          `margin:0 !important;padding:0 !important;background:#ffffff !important;width:${standardA4WidthPx}px !important;overflow:visible !important;`;
         clonedDoc.body.style.cssText =
-          'margin:0 !important;padding:0 !important;background:#ffffff !important;overflow:visible !important;';
+          `margin:0 !important;padding:0 !important;background:#ffffff !important;width:${standardA4WidthPx}px !important;overflow:visible !important;`;
         clonedDoc.body.replaceChildren(clonedSheet);
 
-        // 3. Lock clonedSheet to the exact pixel width of the live preview sheet and 20mm (2cm) left padding
+        // 3. Lock clonedSheet to exact standard A4 width, full A4 height, and official margins (20mm left, 10mm right)
         clonedSheet.style.boxSizing = 'border-box';
         clonedSheet.style.margin = '0';
         clonedSheet.style.paddingLeft = '20mm';
+        clonedSheet.style.paddingRight = '10mm';
         clonedSheet.style.boxShadow = 'none';
         clonedSheet.style.borderRadius = '0';
         clonedSheet.style.border = 'none';
-        clonedSheet.style.width = `${exactWidthPx}px`;
-        clonedSheet.style.maxWidth = `${exactWidthPx}px`;
-        clonedSheet.style.minWidth = `${exactWidthPx}px`;
-        if (!clonedSheet.classList.contains('justify-between')) {
-          clonedSheet.style.minHeight = 'auto';
-        }
+        clonedSheet.style.width = `${standardA4WidthPx}px`;
+        clonedSheet.style.maxWidth = `${standardA4WidthPx}px`;
+        clonedSheet.style.minWidth = `${standardA4WidthPx}px`;
+        clonedSheet.style.minHeight = `${standardA4HeightPx}px`;
 
         // 4. Remove any remaining page-limit lines or no-print elements inside clonedSheet
         const ignored = Array.from(
@@ -506,6 +499,43 @@ export const exportSheetsToPdf = async ({
               }
             }
             tr.style.backgroundColor = 'transparent';
+          }
+        }
+
+        // Reconcile table borders to prevent duplicate or 2px thick lines in html2canvas
+        const allTables = Array.from(clonedSheet.querySelectorAll<HTMLTableElement>('table'));
+        for (const tbl of allTables) {
+          tbl.style.borderCollapse = 'collapse';
+          tbl.style.borderSpacing = '0';
+
+          // If table has tfoot, remove borderTop from tfoot row/cells so it doesn't double with tbody's last row borderBottom
+          const tfoot = tbl.querySelector('tfoot');
+          if (tfoot) {
+            const tfRows = Array.from(tfoot.querySelectorAll('tr'));
+            for (const r of tfRows) {
+              r.style.borderTop = 'none';
+            }
+            const tfCells = Array.from(tfoot.querySelectorAll('th, td')) as HTMLElement[];
+            for (const c of tfCells) {
+              c.style.borderTop = 'none';
+            }
+          }
+
+          // If the table wrapper has border-bottom, ensure the table's absolute last row cells don't duplicate borderBottom
+          const parent = tbl.parentElement;
+          if (parent && parent !== clonedSheet) {
+            const parentComputed = clonedDoc.defaultView?.getComputedStyle(parent);
+            if (parentComputed && parseFloat(parentComputed.borderBottomWidth || '0') > 0) {
+              const tblRows = Array.from(tbl.querySelectorAll('tr'));
+              const lastTr = tblRows[tblRows.length - 1];
+              if (lastTr) {
+                lastTr.style.borderBottom = 'none';
+                const lastTrCells = Array.from(lastTr.children) as HTMLElement[];
+                for (const c of lastTrCells) {
+                  c.style.borderBottom = 'none';
+                }
+              }
+            }
           }
         }
 
@@ -586,20 +616,39 @@ export const exportSheetsToPdf = async ({
       },
     });
 
-    const jpegData = await canvasToHighResJpegBytes(canvas);
+    const pngData = canvasToLosslessPng(canvas);
     const naturalHeightMm = (canvas.height / canvas.width) * pageW;
 
-    // Always place at x = 0 with full width = pageW so the 20mm (2cm) left margin is 100% exact
-    pdf.addImage(
-      jpegData as any,
-      'JPEG',
-      0,
-      0,
-      pageW,
-      Math.min(naturalHeightMm, pageH),
-      undefined,
-      'FAST'
-    );
+    if (naturalHeightMm > pageH + 0.5) {
+      // Content is slightly taller than A4 page height (e.g. many rows)
+      // Scale down proportionally so EVERYTHING (including signatures) fits 100% on the single A4 page without clipping!
+      const fitScale = pageH / naturalHeightMm;
+      const fitW = pageW * fitScale;
+      const fitH = pageH;
+      const xOffset = (pageW - fitW) / 2;
+      pdf.addImage(
+        pngData,
+        'PNG',
+        xOffset,
+        0,
+        fitW,
+        fitH,
+        undefined,
+        'FAST'
+      );
+    } else {
+      // Content fits naturally within standard A4 height: fills 100% of the A4 page matching the preview
+      pdf.addImage(
+        pngData,
+        'PNG',
+        0,
+        0,
+        pageW,
+        pageH,
+        undefined,
+        'FAST'
+      );
+    }
   }
 
   const cleanFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;

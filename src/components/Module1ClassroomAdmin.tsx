@@ -2295,7 +2295,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     <thead>
                       <tr className="bg-white text-black font-bold border-b border-slate-800">
                         <th className="py-2 px-1.5 text-center border-r border-slate-800 w-9 text-black bg-white">เลขที่</th>
-                        <th className="py-2 px-2 border-r border-slate-800 min-w-[130px] text-black bg-white">ชื่อ - นามสกุล</th>
+                        <th className="py-2 px-2 text-center border-r border-slate-800 min-w-[130px] text-black bg-white">ชื่อ - นามสกุล</th>
                         {monthDays.map((dayItem) => {
                           const dateNum = dayItem.date.split('-')[2] || '';
                           return (
@@ -2323,7 +2323,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                               <td className="py-1.5 px-1 text-center border-r border-slate-800 font-mono font-semibold text-black">
                                 {st.rollNumber ?? (idx + 1)}
                               </td>
-                              <td className="py-1.5 px-2 border-r border-slate-800 font-semibold whitespace-nowrap text-black">
+                              <td className="py-1.5 px-2 text-center border-r border-slate-800 font-semibold whitespace-nowrap text-black">
                                 {st.prefix}{st.firstName} {st.lastName}
                               </td>
                               {monthDays.map((dayItem) => {
@@ -2363,14 +2363,14 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                   <div className="space-y-8">
                     <div>
                       ลงชื่อ ...........................................................
-                      <div className="mt-1 font-semibold text-black">( ........................................................... )</div>
+                      <div className="mt-1 font-normal text-black">( ........................................................... )</div>
                       <div className="text-black mt-0.5">ครูผู้บันทึก</div>
                     </div>
                   </div>
                   <div className="space-y-8">
                     <div>
                       ลงชื่อ ...........................................................
-                      <div className="mt-1 font-semibold text-black">( {directorName} )</div>
+                      <div className="mt-1 font-normal text-black">( {directorName} )</div>
                       <div className="text-black mt-0.5">{directorPosition}</div>
                     </div>
                   </div>
@@ -2568,14 +2568,14 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     <div className="space-y-8">
                       <div>
                         ลงชื่อ ...........................................................
-                        <div className="mt-1 font-semibold">( ........................................................... )</div>
+                        <div className="mt-1 font-normal">( ........................................................... )</div>
                         <div className="text-slate-500 mt-0.5">ครูผู้บันทึก</div>
                       </div>
                     </div>
                     <div className="space-y-8">
                       <div>
                         ลงชื่อ ...........................................................
-                        <div className="mt-1 font-semibold">( {directorName} )</div>
+                        <div className="mt-1 font-normal">( {directorName} )</div>
                         <div className="text-slate-500 mt-0.5">{directorPosition}</div>
                       </div>
                     </div>

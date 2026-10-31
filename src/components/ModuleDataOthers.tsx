@@ -8491,13 +8491,13 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
               <div className="grid grid-cols-2 gap-8 mt-auto pt-6 pb-4 text-center text-[12px]">
                 <div className="space-y-3">
                   <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-bold">( {formatDutySignatureName(log.dutyTeacherName)} )</p>
+                  <p className="font-normal">( {formatDutySignatureName(log.dutyTeacherName)} )</p>
                   <p className="text-slate-600">ครูเวรผู้รายงาน</p>
                 </div>
 
                 <div className="space-y-4">
                   <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-bold">( {formatDutySignatureName(directorFullName)} )</p>
+                  <p className="font-normal">( {formatDutySignatureName(directorFullName)} )</p>
                   <p className="text-slate-700 font-semibold">{directorPositionTitle}</p>
                 </div>
               </div>

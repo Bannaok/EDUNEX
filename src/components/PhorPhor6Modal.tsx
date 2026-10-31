@@ -1721,7 +1721,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 <div className="pt-6 text-center text-xs text-slate-700">
                   <div className="w-64 mx-auto space-y-1">
                     <p>ลงชื่อ ..............................................................</p>
-                    <p className="font-bold">({advisorName || '......................................................'})</p>
+                    <p className="font-normal text-slate-800">({advisorName || '......................................................'})</p>
                     <p>ครูประจำชั้น</p>
                   </div>
                 </div>
@@ -1827,13 +1827,13 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               <div className="pt-6 mt-8 mb-[2in] grid grid-cols-2 gap-8 text-xs text-center print:mb-[2in]">
                 <div className="space-y-1">
                   <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                  <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                  <p className="font-normal text-slate-800">({advisorName || '......................................................'})</p>
                   <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
                   <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
                 <div className="space-y-1">
                   <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                  <p className="font-bold text-slate-900">({directorName || '......................................................'})</p>
+                  <p className="font-normal text-slate-800">({directorName || '......................................................'})</p>
                   <p className="text-slate-600 font-semibold text-[11px]">{directorPosition}</p>
                   <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
@@ -1914,7 +1914,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               {/* Bottom Signature: Class Advisor (Centered, 2.5-3 inches from bottom margin) */}
               <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in] text-black">
                 <p className="text-black">ลงชื่อ ..............................................................</p>
-                <p className="font-bold text-black">({advisorName || '......................................................'})</p>
+                <p className="font-normal text-black">({advisorName || '......................................................'})</p>
                 <p className="font-semibold text-[11px] text-black">ครูประจำชั้น</p>
                 <p className="text-[10px] text-black">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
@@ -2049,7 +2049,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               {/* Bottom Signature: Class Advisor (Centered, 3 inches from bottom margin) */}
               <div className="pt-6 mb-[3in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[3in]">
                 <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                <p className="font-normal text-slate-900">({advisorName || '......................................................'})</p>
                 <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
                 <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
@@ -2235,7 +2235,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 {/* ฝั่งซ้าย: ครูประจำชั้น */}
                 <div className="space-y-1">
                   <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                  <p className="font-bold text-slate-900">({advisorName || '......................................................'})</p>
+                  <p className="font-normal text-slate-900">({advisorName || '......................................................'})</p>
                   <p className="text-slate-600 font-semibold text-[11px]">ครูประจำชั้น</p>
                   <p className="text-slate-500 text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
@@ -2243,7 +2243,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 {/* ฝั่งขวา: ผู้ปกครอง */}
                 <div className="space-y-1">
                   <p className="text-slate-700">ลงชื่อ ..............................................................</p>
-                  <p className="font-bold text-slate-900">
+                  <p className="font-normal text-slate-900">
                     ({student.guardianName || student.fatherName || student.motherName || '......................................................'})
                   </p>
                   <p className="text-slate-600 font-semibold text-[11px]">ผู้ปกครองนักเรียน</p>

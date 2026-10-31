@@ -215,6 +215,23 @@ const buildSanitizedDocumentCss = (): string => {
       font-variant-numeric: tabular-nums !important;
       font-feature-settings: "tnum" 1, "zero" 0 !important;
     }
+    .duty-a4-sheet {
+      box-sizing: border-box !important;
+      padding: 10mm 12mm !important;
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      font-weight: 400 !important;
+      font-family: 'Sarabun', 'TH Sarabun New', system-ui, -apple-system, sans-serif !important;
+      font-variant-numeric: tabular-nums !important;
+      font-feature-settings: "tnum" 1, "zero" 0 !important;
+    }
+    .duty-a4-sheet * {
+      color: #000000 !important;
+      font-weight: 400 !important;
+      font-family: 'Sarabun', 'TH Sarabun New', system-ui, -apple-system, sans-serif !important;
+      font-variant-numeric: tabular-nums !important;
+      font-feature-settings: "tnum" 1, "zero" 0 !important;
+    }
     .a4-portrait-paper *,
     .a4-landscape-paper *,
     .a4-pp6-page *,
@@ -226,7 +243,8 @@ const buildSanitizedDocumentCss = (): string => {
     }
     .a4-portrait-paper table,
     .a4-landscape-paper table,
-    .a4-pp6-page table {
+    .a4-pp6-page table,
+    .duty-a4-sheet table {
       border-collapse: collapse !important;
       border-spacing: 0 !important;
     }
@@ -235,14 +253,24 @@ const buildSanitizedDocumentCss = (): string => {
     .a4-landscape-paper th,
     .a4-landscape-paper td,
     .a4-pp6-page th,
-    .a4-pp6-page td {
+    .a4-pp6-page td,
+    .duty-a4-sheet th,
+    .duty-a4-sheet td {
       vertical-align: middle !important;
       overflow: visible !important;
       box-sizing: border-box !important;
     }
+    .duty-a4-sheet th,
+    .duty-a4-sheet td {
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      border: 1px solid #000000 !important;
+      font-weight: 400 !important;
+    }
     .a4-portrait-paper .truncate,
     .a4-landscape-paper .truncate,
-    .a4-pp6-page .truncate {
+    .a4-pp6-page .truncate,
+    .duty-a4-sheet .truncate {
       overflow: visible !important;
       text-overflow: clip !important;
     }
@@ -313,9 +341,18 @@ export const exportSheetsToPdf = async ({
 
   const sheets = Array.from(
     container.querySelectorAll<HTMLElement>(
-      '.a4-portrait-paper, .a4-landscape-paper, .a4-pp6-page'
+      '.a4-portrait-paper, .a4-landscape-paper, .a4-pp6-page, .duty-a4-sheet'
     )
   );
+  if (
+    sheets.length === 0 &&
+    (container.classList.contains('a4-portrait-paper') ||
+      container.classList.contains('a4-landscape-paper') ||
+      container.classList.contains('a4-pp6-page') ||
+      container.classList.contains('duty-a4-sheet'))
+  ) {
+    sheets.push(container);
+  }
 
   if (sheets.length === 0) return false;
 
@@ -362,6 +399,7 @@ export const exportSheetsToPdf = async ({
       origSheet.classList.contains('a4-landscape-paper') ||
       (!origSheet.classList.contains('a4-portrait-paper') &&
         !origSheet.classList.contains('a4-pp6-page') &&
+        !origSheet.classList.contains('duty-a4-sheet') &&
         orientation === 'landscape');
 
     const standardA4WidthPx = isLandscape ? 1123 : 794;
@@ -441,11 +479,19 @@ export const exportSheetsToPdf = async ({
           `margin:0 !important;padding:0 !important;background:#ffffff !important;width:${standardA4WidthPx}px !important;overflow:visible !important;`;
         clonedDoc.body.replaceChildren(clonedSheet);
 
-        // 3. Lock clonedSheet to exact standard A4 width, full A4 height, and official margins (20mm left, 10mm right)
+        // 3. Lock clonedSheet to exact standard A4 width, full A4 height, and official margins
+        const isDutySheet = clonedSheet.classList.contains('duty-a4-sheet');
         clonedSheet.style.boxSizing = 'border-box';
         clonedSheet.style.margin = '0';
-        clonedSheet.style.paddingLeft = '20mm';
-        clonedSheet.style.paddingRight = '10mm';
+        if (isDutySheet) {
+          clonedSheet.style.padding = '10mm 12mm';
+          clonedSheet.style.backgroundColor = '#ffffff';
+          clonedSheet.style.color = '#000000';
+          clonedSheet.style.fontWeight = '400';
+        } else {
+          clonedSheet.style.paddingLeft = '20mm';
+          clonedSheet.style.paddingRight = '10mm';
+        }
         clonedSheet.style.boxShadow = 'none';
         clonedSheet.style.borderRadius = '0';
         clonedSheet.style.border = 'none';

@@ -369,7 +369,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       : 'สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน';
 
     return (
-      <div className="border-b-2 border-black pb-3 mb-4 text-center space-y-1 text-black" style={{ color: '#000000' }}>
+      <div className="pb-3 mb-4 text-center space-y-1 text-black" style={{ color: '#000000' }}>
         {/* Line 1: School Logo centered at top (Enlarged) */}
         <div className="flex justify-center mb-2">
           {schoolInfo.logoUrl ? (
@@ -404,7 +404,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
         {/* Optional Section Title */}
         {sectionTitle && (
-          <p className="text-xs font-bold text-black pt-1 border-t border-black mt-1" style={{ color: '#000000' }}>
+          <p className="text-xs font-bold text-black pt-1 mt-1" style={{ color: '#000000' }}>
             {sectionTitle}
           </p>
         )}

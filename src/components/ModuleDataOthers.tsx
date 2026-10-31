@@ -8235,11 +8235,25 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           const dateParts = parseThaiDateParts(log.date);
           const stats = calculateDutyStudentStats(log.date);
 
-          // ฟอนต์ตัวเลขสะอาดตา ไม่ใช้ขีดทับในเลข 0 (No slashed zero) และจัดหลักตัวเลขให้ตรงกันอย่างสวยงาม
+          // ฟอนต์ตัวเลขสะอาดตา ไม่ใช้ขีดทับในเลข 0 (No slashed zero) และจัดหลักตัวเลขให้ตรงกันอย่างสวยงาม (ขาว-ดำ ตัวอักษรสีดำชัดเจน ห้ามตัวหนาเด็ดขาด)
           const cleanNumberStyle: React.CSSProperties = {
             fontFamily: "'Sarabun', 'TH Sarabun New', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
             fontVariantNumeric: 'tabular-nums',
-            fontFeatureSettings: '"zero" 0'
+            fontFeatureSettings: '"zero" 0',
+            color: '#000000',
+            fontWeight: 400
+          };
+
+          const lightGrayRowStyle: React.CSSProperties = {
+            backgroundColor: '#f5f5f5',
+            color: '#000000',
+            fontWeight: 400
+          };
+
+          const whiteRowStyle: React.CSSProperties = {
+            backgroundColor: '#ffffff',
+            color: '#000000',
+            fontWeight: 400
           };
 
           const rawSchoolName = (schoolInfo.schoolName || 'บ้านไสโป๊ะ').trim();
@@ -8269,10 +8283,10 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
           }
 
           return (
-            <div className="space-y-3 flex flex-col justify-between flex-1" style={cleanNumberStyle}>
-              <div className="space-y-3">
+            <div className="space-y-3 flex flex-col justify-between flex-1 text-black font-normal" style={cleanNumberStyle}>
+              <div className="space-y-3 text-black font-normal">
                 {/* Header */}
-                <div className="text-center space-y-1">
+                <div className="text-center space-y-1 text-black font-normal">
                   {/* Line 1: School Logo centered top (same size as ปพ.6) */}
                   <div className="text-center mx-auto mb-1">
                     {schoolInfo.logoUrl ? (
@@ -8282,83 +8296,83 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         className="w-20 h-20 sm:w-24 sm:h-24 object-contain mx-auto"
                       />
                     ) : (
-                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-3xl mx-auto">
+                      <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white border border-black flex items-center justify-center text-3xl mx-auto text-black font-normal">
                         🏫
                       </div>
                     )}
                   </div>
 
                   {/* Line 2: Header Title */}
-                  <h1 className="font-bold text-base sm:text-lg text-black tracking-wide">
+                  <h1 className="font-normal text-base sm:text-lg text-black tracking-wide" style={{ fontWeight: 400, color: '#000000' }}>
                     รายงานการปฏิบัติหน้าที่ครูเวรประจำวัน
                   </h1>
 
                   {/* Line 3: School Name & Affiliation */}
-                  <h2 className="font-semibold text-xs sm:text-sm text-slate-800">
+                  <h2 className="font-normal text-xs sm:text-sm text-black" style={{ fontWeight: 400, color: '#000000' }}>
                     {formattedSchoolName} {schoolInfo.affiliation || 'สำนักงานเขตพื้นที่การศึกษาประถมศึกษา'}
                   </h2>
 
                   {/* Line 4: Date, Month, Year */}
-                  <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-slate-700 font-bold pt-0.5">
-                    <span>ประจำวันที่ {dateParts.day} เดือน {dateParts.month} พ.ศ. {dateParts.year}</span>
+                  <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-black font-normal pt-0.5" style={{ fontWeight: 400, color: '#000000' }}>
+                    <span className="font-normal text-black">ประจำวันที่ {dateParts.day} เดือน {dateParts.month} พ.ศ. {dateParts.year}</span>
                   </div>
                 </div>
 
                 {/* Student Statistics Table (3 Topics: 1. นักเรียนทั้งหมด, 2. นักเรียนที่มา, 3. นักเรียนที่ขาด) */}
                 <div>
-                  <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px]" style={cleanNumberStyle}>
+                  <table className="w-full text-center border-collapse border border-black text-[11px] sm:text-[12px] text-black font-normal bg-white" style={cleanNumberStyle}>
                     <thead>
-                      <tr className="bg-slate-100 border-b border-black">
-                        <th rowSpan={2} className="border-r border-black p-1 font-bold align-middle">ระดับชั้น</th>
-                        <th colSpan={3} className="border-r border-black p-1 font-bold">1. นักเรียนทั้งหมด</th>
-                        <th colSpan={3} className="border-r border-black p-1 font-bold">2. นักเรียนที่มา</th>
-                        <th colSpan={3} className="p-1 font-bold">3. นักเรียนที่ขาด</th>
+                      <tr className="bg-[#f5f5f5] border-b border-black text-black font-normal" style={lightGrayRowStyle}>
+                        <th rowSpan={2} className="border-r border-black p-1 font-normal text-black align-middle bg-[#f5f5f5]" style={lightGrayRowStyle}>ระดับชั้น</th>
+                        <th colSpan={3} className="border-r border-black p-1 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>1. นักเรียนทั้งหมด</th>
+                        <th colSpan={3} className="border-r border-black p-1 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>2. นักเรียนที่มา</th>
+                        <th colSpan={3} className="p-1 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>3. นักเรียนที่ขาด</th>
                       </tr>
-                      <tr className="border-b border-black text-[10px]">
-                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                        <th className="border-r border-black p-0.5 font-bold">รวม</th>
-                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                        <th className="border-r border-black p-0.5 font-bold">รวม</th>
-                        <th className="border-r border-black p-0.5 font-bold">ชาย</th>
-                        <th className="border-r border-black p-0.5 font-bold">หญิง</th>
-                        <th className="p-0.5 font-bold">รวม</th>
+                      <tr className="bg-white border-b border-black text-[10px] text-black font-normal" style={whiteRowStyle}>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>ชาย</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>หญิง</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>รวม</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>ชาย</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>หญิง</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>รวม</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>ชาย</th>
+                        <th className="border-r border-black p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>หญิง</th>
+                        <th className="p-0.5 font-normal text-black bg-white" style={whiteRowStyle}>รวม</th>
                       </tr>
                     </thead>
-                    <tbody className="tabular-nums">
+                    <tbody className="tabular-nums text-black font-normal">
                       {/* 1. ระดับอนุบาล (อ.1 - อ.3) */}
                       {stats.kindergartenOptions.map(opt => {
                         const st = stats.statsByGrade.get(opt.grade);
                         if (!st) return null;
                         return (
-                          <tr key={opt.grade} className="border-b border-black">
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
-                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          <tr key={opt.grade} className="border-b border-black bg-white text-black font-normal" style={whiteRowStyle}>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-normal text-black pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.absentTotal}</td>
                           </tr>
                         );
                       })}
                       {/* แถวสรุปรวมอนุบาล (ถ้ามีระดับชั้นอนุบาลที่เลือก) */}
                       {stats.kindergartenOptions.length > 0 && (
-                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมอนุบาล</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.maleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femaleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.total}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.malePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femalePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.presentTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.maleAbsent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.femaleAbsent}</td>
-                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsKindergarten.absentTotal}</td>
+                        <tr className="border-b border-black bg-[#f5f5f5] text-black font-normal" style={lightGrayRowStyle}>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>รวมอนุบาล</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsKindergarten.absentTotal}</td>
                         </tr>
                       )}
 
@@ -8367,33 +8381,33 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         const st = stats.statsByGrade.get(opt.grade);
                         if (!st) return null;
                         return (
-                          <tr key={opt.grade} className="border-b border-black">
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
-                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          <tr key={opt.grade} className="border-b border-black bg-white text-black font-normal" style={whiteRowStyle}>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-normal text-black pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.absentTotal}</td>
                           </tr>
                         );
                       })}
                       {/* แถวสรุปรวมประถม (ถ้ามีระดับชั้นประถมที่เลือก) */}
                       {stats.primaryOptions.length > 0 && (
-                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมประถม</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.maleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femaleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.total}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.malePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femalePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.presentTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.maleAbsent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.femaleAbsent}</td>
-                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsPrimary.absentTotal}</td>
+                        <tr className="border-b border-black bg-[#f5f5f5] text-black font-normal" style={lightGrayRowStyle}>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>รวมประถม</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsPrimary.absentTotal}</td>
                         </tr>
                       )}
 
@@ -8402,48 +8416,48 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         const st = stats.statsByGrade.get(opt.grade);
                         if (!st) return null;
                         return (
-                          <tr key={opt.grade} className="border-b border-black">
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-medium pl-2">{opt.label}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleTotal : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.total}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.malePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femalePresent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.presentTotal}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.maleAbsent : 0}</td>
-                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{st.total > 0 ? st.femaleAbsent : 0}</td>
-                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-bold">{st.absentTotal}</td>
+                          <tr key={opt.grade} className="border-b border-black bg-white text-black font-normal" style={whiteRowStyle}>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left font-normal text-black pl-2">{opt.label}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleTotal : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.malePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femalePresent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.presentTotal}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.maleAbsent : 0}</td>
+                            <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.total > 0 ? st.femaleAbsent : 0}</td>
+                            <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{st.absentTotal}</td>
                           </tr>
                         );
                       })}
                       {/* แถวสรุปรวมมัธยม (ถ้ามีระดับชั้นมัธยมที่เลือก) */}
                       {stats.secondaryOptions.length > 0 && (
-                        <tr className="border-b-2 border-black bg-slate-50 font-bold">
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2">รวมมัธยม</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.maleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femaleTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.total}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.malePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femalePresent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.presentTotal}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.maleAbsent}</td>
-                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.femaleAbsent}</td>
-                          <td className="py-0.5 px-1 sm:p-1 tabular-nums">{stats.statsSecondary.absentTotal}</td>
+                        <tr className="border-b border-black bg-white text-black font-normal" style={whiteRowStyle}>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 text-left pl-2 font-normal text-black">รวมมัธยม</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.maleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.femaleTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.total}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.malePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.femalePresent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.presentTotal}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.maleAbsent}</td>
+                          <td className="border-r border-black py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.femaleAbsent}</td>
+                          <td className="py-0.5 px-1 sm:p-1 tabular-nums font-normal text-black">{stats.statsSecondary.absentTotal}</td>
                         </tr>
                       )}
 
                       {/* รวมทั้งหมด (Grand Total) */}
-                      <tr className="border-b-2 border-black bg-slate-100 font-extrabold">
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 text-left pl-2">รวมทั้งหมด</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.maleTotal}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femaleTotal}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.total}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.malePresent}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femalePresent}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.presentTotal}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.maleAbsent}</td>
-                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.femaleAbsent}</td>
-                        <td className="py-1 px-1 sm:p-1.5 tabular-nums">{stats.statsAll.absentTotal}</td>
+                      <tr className="border-b border-black bg-[#f5f5f5] text-black font-normal" style={lightGrayRowStyle}>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 text-left pl-2 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>รวมทั้งหมด</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.maleTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.femaleTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.total}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.malePresent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.femalePresent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.presentTotal}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.maleAbsent}</td>
+                        <td className="border-r border-black py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.femaleAbsent}</td>
+                        <td className="py-1 px-1 sm:p-1.5 tabular-nums font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>{stats.statsAll.absentTotal}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -8451,23 +8465,23 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
 
                 {/* Time Slots Table */}
                 <div className="mt-2.5">
-                  <h3 className="font-bold text-xs mb-1 text-slate-900">
+                  <h3 className="font-normal text-xs mb-1 text-black" style={{ fontWeight: 400, color: '#000000' }}>
                     บันทึกการปฏิบัติหน้าที่ตามช่วงเวลา
                   </h3>
-                  <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px]" style={cleanNumberStyle}>
+                  <table className="w-full text-left border-collapse border border-black text-[12px] sm:text-[13px] text-black font-normal bg-white" style={cleanNumberStyle}>
                     <thead>
-                      <tr className="bg-slate-100 border-b border-black text-black">
-                        <th className="border-r border-black p-1.5 text-center w-12 font-bold">ลำดับ</th>
-                        <th className="border-r border-black p-1.5 text-center w-28 font-bold">ช่วงเวลา</th>
-                        <th className="p-1.5 font-bold">รายละเอียดการปฏิบัติหน้าที่</th>
+                      <tr className="bg-[#f5f5f5] border-b border-black text-black font-normal" style={lightGrayRowStyle}>
+                        <th className="border-r border-black p-1.5 text-center w-12 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>ลำดับ</th>
+                        <th className="border-r border-black p-1.5 text-center w-28 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>ช่วงเวลา</th>
+                        <th className="p-1.5 font-normal text-black bg-[#f5f5f5]" style={lightGrayRowStyle}>รายละเอียดการปฏิบัติหน้าที่</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="text-black font-normal">
                       {log.timeSlots.map((slot, idx) => (
-                        <tr key={slot.id || idx} className="border-b border-black">
-                          <td className="border-r border-black p-1.5 text-center tabular-nums align-middle">{idx + 1}</td>
-                          <td className="border-r border-black p-1.5 text-center font-bold tabular-nums whitespace-nowrap align-middle">{slot.time}</td>
-                          <td className="p-1.5 leading-relaxed align-middle">{slot.description}</td>
+                        <tr key={slot.id || idx} className="border-b border-black bg-white text-black font-normal" style={whiteRowStyle}>
+                          <td className="border-r border-black p-1.5 text-center tabular-nums align-middle font-normal text-black">{idx + 1}</td>
+                          <td className="border-r border-black p-1.5 text-center font-normal tabular-nums whitespace-nowrap align-middle text-black">{slot.time}</td>
+                          <td className="p-1.5 leading-relaxed align-middle font-normal text-black">{slot.description}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -8475,30 +8489,30 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                 </div>
 
                 {/* Summary & Observations */}
-                <div className="border border-black p-2 text-[12px]">
-                  <div>
-                    <strong>สรุปภาพรวมการปฏิบัติหน้าที่:</strong> {log.overallStatus || 'การปฏิบัติหน้าที่เรียบร้อยดี'}
+                <div className="border border-black p-2 text-[12px] bg-white text-black font-normal" style={whiteRowStyle}>
+                  <div className="font-normal text-black">
+                    <span className="font-normal text-black">สรุปภาพรวมการปฏิบัติหน้าที่:</span> {log.overallStatus || 'การปฏิบัติหน้าที่เรียบร้อยดี'}
                   </div>
                   {log.incidentsNote && (
-                    <div className="mt-1">
-                      <strong>หมายเหตุ / เหตุการณ์พิเศษ:</strong> {log.incidentsNote}
+                    <div className="mt-1 font-normal text-black">
+                      <span className="font-normal text-black">หมายเหตุ / เหตุการณ์พิเศษ:</span> {log.incidentsNote}
                     </div>
                   )}
                 </div>
               </div>
 
               {/* Signatures Section */}
-              <div className="grid grid-cols-2 gap-8 mt-auto pt-6 pb-4 text-center text-[12px]">
-                <div className="space-y-3">
-                  <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-normal">( {formatDutySignatureName(log.dutyTeacherName)} )</p>
-                  <p className="text-slate-600">ครูเวรผู้รายงาน</p>
+              <div className="grid grid-cols-2 gap-8 mt-auto pt-5 pb-3 text-center text-[12px] text-black font-normal" style={{ fontWeight: 400, color: '#000000' }}>
+                <div className="space-y-1.5 text-black font-normal">
+                  <p className="font-normal text-black">ลงชื่อ ...........................................................</p>
+                  <p className="font-normal text-black">( {formatDutySignatureName(log.dutyTeacherName)} )</p>
+                  <p className="font-normal text-black">ครูเวรผู้รายงาน</p>
                 </div>
 
-                <div className="space-y-4">
-                  <p>ลงชื่อ ...........................................................</p>
-                  <p className="font-normal">( {formatDutySignatureName(directorFullName)} )</p>
-                  <p className="text-slate-700 font-semibold">{directorPositionTitle}</p>
+                <div className="space-y-1.5 text-black font-normal">
+                  <p className="font-normal text-black">ลงชื่อ ...........................................................</p>
+                  <p className="font-normal text-black">( {formatDutySignatureName(directorFullName)} )</p>
+                  <p className="font-normal text-black">{directorPositionTitle}</p>
                 </div>
               </div>
             </div>
@@ -8511,12 +8525,18 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             {previewDutyLog && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
                 <style dangerouslySetInnerHTML={{ __html: `
+                  #duty-official-a4-print, #duty-official-a4-print * {
+                    font-weight: 400 !important;
+                    color: #000000 !important;
+                  }
                   @media print {
                     body * {
                       visibility: hidden !important;
                     }
                     #duty-official-a4-print, #duty-official-a4-print * {
                       visibility: visible !important;
+                      font-weight: 400 !important;
+                      color: #000000 !important;
                     }
                     #duty-official-a4-print {
                       position: fixed !important;
@@ -8581,7 +8601,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                   <div className="p-4 sm:p-8 overflow-auto bg-slate-200/60 flex justify-center flex-1">
                     <div
                       id="duty-official-a4-print"
-                      className="bg-white shadow-xl border border-slate-300 text-slate-900 leading-tight text-[12px] flex flex-col justify-between shrink-0 mx-auto box-border"
+                      className="bg-white shadow-xl border border-slate-300 text-black font-normal leading-tight text-[12px] flex flex-col justify-between shrink-0 mx-auto box-border"
                       style={{
                         fontFamily: "'Sarabun', 'TH Sarabun New', serif",
                         width: '210mm',
@@ -8589,6 +8609,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                         minHeight: '297mm',
                         padding: '10mm 12mm',
                         boxSizing: 'border-box',
+                        color: '#000000',
+                        fontWeight: 400
                       }}
                     >
                       {renderDutyOfficialSheet(previewDutyLog)}
@@ -8602,12 +8624,18 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
             {previewAllDutyLogs && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
                 <style dangerouslySetInnerHTML={{ __html: `
+                  #duty-all-official-a4-print, #duty-all-official-a4-print * {
+                    font-weight: 400 !important;
+                    color: #000000 !important;
+                  }
                   @media print {
                     body * {
                       visibility: hidden !important;
                     }
                     #duty-all-official-a4-print, #duty-all-official-a4-print * {
                       visibility: visible !important;
+                      font-weight: 400 !important;
+                      color: #000000 !important;
                     }
                     #duty-all-official-a4-print {
                       position: static !important;
@@ -8693,7 +8721,7 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                       {dutyLogs.map((log, index) => (
                         <div
                           key={log.id || index}
-                          className="duty-a4-all-sheet bg-white shadow-xl border border-slate-300 text-slate-900 leading-tight text-[12px] flex flex-col justify-between mx-auto print:border-none print:shadow-none shrink-0 box-border"
+                          className="duty-a4-all-sheet bg-white shadow-xl border border-slate-300 text-black font-normal leading-tight text-[12px] flex flex-col justify-between mx-auto print:border-none print:shadow-none shrink-0 box-border"
                           style={{
                             fontFamily: "'Sarabun', 'TH Sarabun New', serif",
                             width: '210mm',
@@ -8701,6 +8729,8 @@ export const ModuleDataOthers: React.FC<ModuleDataOthersProps> = ({
                             minHeight: '297mm',
                             padding: '10mm 12mm',
                             boxSizing: 'border-box',
+                            color: '#000000',
+                            fontWeight: 400
                           }}
                         >
                           {renderDutyOfficialSheet(log, index)}

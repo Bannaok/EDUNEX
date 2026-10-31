@@ -604,377 +604,116 @@ export const INITIAL_DAILY_TRACKING: DailyTracking[] = [
   }
 ];
 
-export const INITIAL_SUBJECTS: Subject[] = [
-  // ปีการศึกษา 2568 - ภาคเรียนที่ 1
-  {
-    id: "sub-001",
-    code: "ท11101",
-    name: "ภาษาไทยพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 5,
-    semester: "1",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 },
-      { id: "asg-03", name: "งานที่ 3: ชิ้นงาน/นำเสนอ", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-002",
-    code: "ค11101",
-    name: "คณิตศาสตร์ 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 4,
-    semester: "1",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-003",
-    code: "ว11101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: ใบงานการทดลอง", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: สมุดบันทึก", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-004",
-    code: "อ11101",
-    name: "ภาษาอังกฤษพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: คำศัพท์", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-005",
-    code: "ว12101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 2",
-    gradeLevel: "ป.2",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: รายงาน", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
+export interface PrimarySubjectTemplate {
+  order: number;
+  prefix: string;
+  name: string;
+  lowerHours: number; // ป.1 - ป.3
+  upperHours: number; // ป.4 - ป.6
+  totalScore: number;
+  courseworkScore: number;
+  examScore: number;
+}
 
-  // ปีการศึกษา 2568 - ภาคเรียนที่ 2
-  {
-    id: "sub-001-2568-sem2",
-    code: "ท11101",
-    name: "ภาษาไทยพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 5,
-    semester: "2",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-002-2568-sem2",
-    code: "ค11101",
-    name: "คณิตศาสตร์ 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 4,
-    semester: "2",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-003-2568-sem2",
-    code: "ว11101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: การทดลอง", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: สมุดบันทึก", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-004-2568-sem2",
-    code: "อ11101",
-    name: "ภาษาอังกฤษพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: คำศัพท์", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-005-2568-sem2",
-    code: "ว12101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 2",
-    gradeLevel: "ป.2",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2568",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: รายงาน", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-
-  // ปีการศึกษา 2569 - ภาคเรียนที่ 1
-  {
-    id: "sub-001-2569-sem1",
-    code: "ท11101",
-    name: "ภาษาไทยพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 5,
-    semester: "1",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 },
-      { id: "asg-03", name: "งานที่ 3: ชิ้นงาน/นำเสนอ", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-002-2569-sem1",
-    code: "ค11101",
-    name: "คณิตศาสตร์ 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 4,
-    semester: "1",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-003-2569-sem1",
-    code: "ว11101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: ใบงานการทดลอง", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: สมุดบันทึก", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-004-2569-sem1",
-    code: "อ11101",
-    name: "ภาษาอังกฤษพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: คำศัพท์", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-005-2569-sem1",
-    code: "ว12101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 2",
-    gradeLevel: "ป.2",
-    hoursPerWeek: 2,
-    semester: "1",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: รายงาน", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-
-  // ปีการศึกษา 2569 - ภาคเรียนที่ 2
-  {
-    id: "sub-001-2569-sem2",
-    code: "ท11101",
-    name: "ภาษาไทยพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 5,
-    semester: "2",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-002-2569-sem2",
-    code: "ค11101",
-    name: "คณิตศาสตร์ 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 4,
-    semester: "2",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-003-2569-sem2",
-    code: "ว11101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: การทดลอง", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: สมุดบันทึก", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-004-2569-sem2",
-    code: "อ11101",
-    name: "ภาษาอังกฤษพื้นฐาน 1",
-    gradeLevel: "ป.1",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-01",
-    teacherName: "นางสาวสมศรี ใจดีงาม",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: คำศัพท์", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  },
-  {
-    id: "sub-005-2569-sem2",
-    code: "ว12101",
-    name: "วิทยาศาสตร์และเทคโนโลยี 2",
-    gradeLevel: "ป.2",
-    hoursPerWeek: 2,
-    semester: "2",
-    academicYear: "2569",
-    totalScore: 100,
-    courseworkScore: 70,
-    examScore: 30,
-    teacherId: "mem-02",
-    teacherName: "นายวิชัย สุวรรณมาลา",
-    assignmentItems: [
-      { id: "asg-01", name: "งานที่ 1: รายงาน", maxScore: 5 },
-      { id: "asg-02", name: "งานที่ 2: แบบฝึกหัด", maxScore: 5 }
-    ]
-  }
+export const PRIMARY_DEFAULT_SUBJECT_TEMPLATES: PrimarySubjectTemplate[] = [
+  { order: 1, prefix: "ท", name: "ภาษาไทย", lowerHours: 5, upperHours: 4, totalScore: 50, courseworkScore: 35, examScore: 15 },
+  { order: 2, prefix: "ค", name: "คณิตศาสตร์", lowerHours: 5, upperHours: 4, totalScore: 50, courseworkScore: 35, examScore: 15 },
+  { order: 3, prefix: "ส", name: "สังคมศึกษา", lowerHours: 2, upperHours: 2, totalScore: 50, courseworkScore: 35, examScore: 15 },
+  { order: 4, prefix: "พ", name: "สุขศึกษาและพลศึกษา", lowerHours: 2, upperHours: 2, totalScore: 50, courseworkScore: 40, examScore: 10 },
+  { order: 5, prefix: "ศ", name: "ศิลปะ", lowerHours: 1, upperHours: 2, totalScore: 50, courseworkScore: 40, examScore: 10 },
+  { order: 6, prefix: "ง", name: "การงานอาชีพ", lowerHours: 1, upperHours: 1, totalScore: 50, courseworkScore: 40, examScore: 10 },
+  { order: 7, prefix: "อ", name: "ภาษาต่างประเทศ", lowerHours: 3, upperHours: 2, totalScore: 50, courseworkScore: 35, examScore: 15 },
+  { order: 8, prefix: "ว", name: "วิทยาศาสตร์และเทคโนโลยี", lowerHours: 2, upperHours: 3, totalScore: 50, courseworkScore: 35, examScore: 15 },
+  { order: 9, prefix: "ป", name: "ประวัติศาสตร์", lowerHours: 1, upperHours: 1, totalScore: 50, courseworkScore: 40, examScore: 10 }
 ];
+
+export function buildDefaultPrimarySubjectsForYears(years: string[] = ["2568", "2569"]): Subject[] {
+  const results: Subject[] = [];
+  const primaryGrades: { gradeNum: number; gradeLevel: Subject["gradeLevel"] }[] = [
+    { gradeNum: 1, gradeLevel: "ป.1" },
+    { gradeNum: 2, gradeLevel: "ป.2" },
+    { gradeNum: 3, gradeLevel: "ป.3" },
+    { gradeNum: 4, gradeLevel: "ป.4" },
+    { gradeNum: 5, gradeLevel: "ป.5" },
+    { gradeNum: 6, gradeLevel: "ป.6" }
+  ];
+  const semesters: ("1" | "2")[] = ["1", "2"];
+
+  for (const yr of years) {
+    for (const sem of semesters) {
+      for (const { gradeNum, gradeLevel } of primaryGrades) {
+        const isLower = gradeNum <= 3;
+        for (const tpl of PRIMARY_DEFAULT_SUBJECT_TEMPLATES) {
+          const code = `${tpl.prefix}1${gradeNum}101`;
+          const hoursPerWeek = isLower ? tpl.lowerHours : tpl.upperHours;
+
+          // Keep backward-compatible IDs for original initial subjects where applicable
+          let id = `sub-def-${yr}-sem${sem}-p${gradeNum}-${tpl.order}`;
+          let teacherId = "";
+          let teacherName = "";
+          let assignmentItems = [
+            { id: `asg-${code}-${yr}-${sem}-1`, name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
+            { id: `asg-${code}-${yr}-${sem}-2`, name: "งานที่ 2: ใบงาน", maxScore: 5 }
+          ];
+
+          if (gradeNum === 1 && tpl.prefix === "ท") {
+            id = yr === "2568" && sem === "1" ? "sub-001" : `sub-001-${yr}-sem${sem}`;
+            teacherId = "mem-01";
+            teacherName = "นางสาวสมศรี ใจดีงาม";
+            if (sem === "1") {
+              assignmentItems = [
+                { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
+                { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 },
+                { id: "asg-03", name: "งานที่ 3: ชิ้นงาน/นำเสนอ", maxScore: 5 }
+              ];
+            } else {
+              assignmentItems = [
+                { id: "asg-01", name: "งานที่ 1: แบบฝึกหัด", maxScore: 5 },
+                { id: "asg-02", name: "งานที่ 2: ใบงาน", maxScore: 5 }
+              ];
+            }
+          } else if (gradeNum === 1 && tpl.prefix === "ค") {
+            id = yr === "2568" && sem === "1" ? "sub-002" : `sub-002-${yr}-sem${sem}`;
+            teacherId = "mem-01";
+            teacherName = "นางสาวสมศรี ใจดีงาม";
+          } else if (gradeNum === 1 && tpl.prefix === "ว") {
+            id = yr === "2568" && sem === "1" ? "sub-003" : `sub-003-${yr}-sem${sem}`;
+            teacherId = "mem-02";
+            teacherName = "นายวิชัย สุวรรณมาลา";
+          } else if (gradeNum === 1 && tpl.prefix === "อ") {
+            id = yr === "2568" && sem === "1" ? "sub-004" : `sub-004-${yr}-sem${sem}`;
+            teacherId = "mem-01";
+            teacherName = "นางสาวสมศรี ใจดีงาม";
+          } else if (gradeNum === 2 && tpl.prefix === "ว") {
+            id = yr === "2568" && sem === "1" ? "sub-005" : `sub-005-${yr}-sem${sem}`;
+            teacherId = "mem-02";
+            teacherName = "นายวิชัย สุวรรณมาลา";
+          }
+
+          results.push({
+            id,
+            code,
+            name: tpl.name,
+            gradeLevel,
+            hoursPerWeek,
+            semester: sem,
+            academicYear: yr,
+            totalScore: tpl.totalScore,
+            courseworkScore: tpl.courseworkScore,
+            examScore: tpl.examScore,
+            teacherId,
+            teacherName,
+            assignmentItems
+          });
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+export const INITIAL_SUBJECTS: Subject[] = buildDefaultPrimarySubjectsForYears(["2568", "2569"]);
 
 
 export const INITIAL_GRADES: GradeRecord[] = [
@@ -985,7 +724,7 @@ export const INITIAL_GRADES: GradeRecord[] = [
     gradeLevel: "ป.1",
     subjectId: "sub-001",
     subjectCode: "ท11101",
-    subjectName: "ภาษาไทยพื้นฐาน 1",
+    subjectName: "ภาษาไทย",
     semester: "1",
     academicYear: "2569",
     assignmentScores: {
@@ -993,9 +732,9 @@ export const INITIAL_GRADES: GradeRecord[] = [
       "asg-02": 4,
       "asg-03": 4
     },
-    courseworkScore: 61,
-    examScore: 26,
-    totalScore: 87,
+    courseworkScore: 31,
+    examScore: 13,
+    totalScore: 44,
     gradeGpa: 4.0,
     readingWritingScore: 3,
     desiredCharacteristicsScore: 3,
@@ -1008,7 +747,7 @@ export const INITIAL_GRADES: GradeRecord[] = [
     gradeLevel: "ป.1",
     subjectId: "sub-001",
     subjectCode: "ท11101",
-    subjectName: "ภาษาไทยพื้นฐาน 1",
+    subjectName: "ภาษาไทย",
     semester: "1",
     academicYear: "2569",
     assignmentScores: {
@@ -1016,9 +755,9 @@ export const INITIAL_GRADES: GradeRecord[] = [
       "asg-02": 5,
       "asg-03": 5
     },
-    courseworkScore: 70,
-    examScore: 28,
-    totalScore: 98,
+    courseworkScore: 35,
+    examScore: 14,
+    totalScore: 49,
     gradeGpa: 4.0,
     readingWritingScore: 3,
     desiredCharacteristicsScore: 3,
@@ -1031,7 +770,7 @@ export const INITIAL_GRADES: GradeRecord[] = [
     gradeLevel: "ป.1",
     subjectId: "sub-001",
     subjectCode: "ท11101",
-    subjectName: "ภาษาไทยพื้นฐาน 1",
+    subjectName: "ภาษาไทย",
     semester: "1",
     academicYear: "2569",
     assignmentScores: {
@@ -1039,9 +778,9 @@ export const INITIAL_GRADES: GradeRecord[] = [
       "asg-02": 4,
       "asg-03": 3
     },
-    courseworkScore: 47,
-    examScore: 21,
-    totalScore: 68,
+    courseworkScore: 24,
+    examScore: 10,
+    totalScore: 34,
     gradeGpa: 2.5,
     readingWritingScore: 2,
     desiredCharacteristicsScore: 3,

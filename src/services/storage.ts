@@ -38,6 +38,8 @@ import {
   INITIAL_PERSONNEL,
   INITIAL_DAILY_TRACKING,
   INITIAL_SUBJECTS,
+  PRIMARY_DEFAULT_SUBJECT_TEMPLATES,
+  buildDefaultPrimarySubjectsForYears,
   INITIAL_GRADES,
   INITIAL_ATTENDANCE_CONFIG,
   INITIAL_ATTENDANCE,
@@ -671,7 +673,26 @@ function mergeSubjectListsClient(localList: Subject[], incomingList: Subject[], 
     const locItem = localMap.get(sId);
     const incItem = incomingMap.get(sId);
     if (locItem && incItem) {
-      result.push(preferIncoming ? { ...locItem, ...incItem } : { ...incItem, ...locItem });
+      const legacyNames = new Set([
+        'ภาษาไทยพื้นฐาน 1',
+        'คณิตศาสตร์ 1',
+        'วิทยาศาสตร์และเทคโนโลยี 1',
+        'ภาษาอังกฤษพื้นฐาน 1',
+        'วิทยาศาสตร์และเทคโนโลยี 2'
+      ]);
+      const incIsUnmigratedLegacy =
+        legacyNames.has(String(incItem.name || '').trim()) && Number(incItem.totalScore) === 100;
+      const locIsMigrated = Number(locItem.totalScore) === 50 && !legacyNames.has(String(locItem.name || '').trim());
+      if (incIsUnmigratedLegacy && locIsMigrated) {
+        result.push({
+          ...incItem,
+          ...locItem,
+          teacherId: incItem.teacherId || locItem.teacherId || '',
+          teacherName: incItem.teacherName || locItem.teacherName || ''
+        });
+      } else {
+        result.push(preferIncoming ? { ...locItem, ...incItem } : { ...incItem, ...locItem });
+      }
     } else {
       result.push(item);
     }
@@ -1376,8 +1397,11 @@ function getLocal<T>(key: string, fallback: T): T {
 
     const val = nativeGetItem ? nativeGetItem(resolvedKey) : localStorage.getItem(resolvedKey);
     if (!val) {
-      // If secondary tenant school has no initialized data yet, return clean isolated fallback
+      // If secondary tenant school has no initialized data yet, return clean isolated fallback (except default primary subjects)
       if (resolvedKey !== key) {
+        if (key === KEYS.SUBJECTS) {
+          return fallback;
+        }
         if (Array.isArray(fallback)) return [] as unknown as T;
         if (key === KEYS.SCHOOL_INFO) {
           const schoolId = getActiveSchoolId();
@@ -2612,7 +2636,103 @@ export const StorageService = {
       }
     }
 
-    const result = Array.from(dedupMap.values());
+    let result = Array.from(dedupMap.values());
+
+    // One-time per-tenant migration to populate the 9 standard Primary subjects (ป.1 - ป.6)
+    // and upgrade legacy initial subjects while allowing subsequent user edits/deletions
+    const migrationKey = resolveTenantKey('ams_primary_subjects_default_v2');
+    let isMigrated = false;
+    try {
+      isMigrated = (nativeGetItem ? nativeGetItem(migrationKey) : localStorage.getItem(migrationKey)) === 'true';
+    } catch {
+      isMigrated = false;
+    }
+
+    if (!isMigrated) {
+      const legacyNames = new Set([
+        'ภาษาไทยพื้นฐาน 1',
+        'คณิตศาสตร์ 1',
+        'วิทยาศาสตร์และเทคโนโลยี 1',
+        'ภาษาอังกฤษพื้นฐาน 1',
+        'วิทยาศาสตร์และเทคโนโลยี 2'
+      ]);
+
+      // 1. Upgrade any legacy default primary subjects to the new 50-point standard
+      result = result.map(s => {
+        const gMatch = String(s.gradeLevel || '').trim().match(/^ป\.([1-6])$/);
+        if (!gMatch) return s;
+        const gradeNum = Number(gMatch[1]);
+        const isLower = gradeNum <= 3;
+        const codeTrim = String(s.code || '').trim();
+        const tpl = PRIMARY_DEFAULT_SUBJECT_TEMPLATES.find(
+          t => `${t.prefix}1${gradeNum}101` === codeTrim || t.name === String(s.name || '').trim()
+        );
+        if (tpl && (legacyNames.has(String(s.name || '').trim()) || (s.id.startsWith('sub-00') && s.totalScore === 100))) {
+          changed = true;
+          return {
+            ...s,
+            code: `${tpl.prefix}1${gradeNum}101`,
+            name: tpl.name,
+            hoursPerWeek: isLower ? tpl.lowerHours : tpl.upperHours,
+            totalScore: tpl.totalScore,
+            courseworkScore: tpl.courseworkScore,
+            examScore: tpl.examScore
+          };
+        }
+        return s;
+      });
+
+      // 2. Ensure all 9 primary subjects exist across ป.1-ป.6 for Semesters 1 & 2 in active academic years
+      const yearsSet = new Set<string>(['2568', '2569']);
+      result.forEach(s => {
+        if (s.academicYear) yearsSet.add(String(s.academicYear).trim());
+      });
+      try {
+        const savedYears = this.getAcademicYears();
+        if (Array.isArray(savedYears)) {
+          savedYears.forEach(y => {
+            if (y) yearsSet.add(String(y).trim());
+          });
+        }
+      } catch {
+        // ignore
+      }
+
+      const defaultPrimaryList = buildDefaultPrimarySubjectsForYears(Array.from(yearsSet));
+      const existingComboKeys = new Set(
+        result.map(
+          s =>
+            `${String(s.academicYear || '2568').trim()}_${String(s.semester || '1').trim()}_${String(s.gradeLevel || '').trim()}_${String(s.code || '').trim().toUpperCase()}`
+        )
+      );
+
+      for (const defSub of defaultPrimaryList) {
+        if (isSubjectDeletedClient(defSub)) continue;
+        const comboKey = `${defSub.academicYear}_${defSub.semester}_${defSub.gradeLevel}_${defSub.code.toUpperCase()}`;
+        if (!existingComboKeys.has(comboKey) && !dedupMap.has(defSub.id)) {
+          existingComboKeys.add(comboKey);
+          dedupMap.set(defSub.id, defSub);
+          result.push(defSub);
+          changed = true;
+        }
+      }
+
+      try {
+        if (nativeSetItem) {
+          nativeSetItem(migrationKey, 'true');
+        } else {
+          localStorage.setItem(migrationKey, 'true');
+        }
+      } catch {
+        // ignore
+      }
+
+      if (changed) {
+        setLocal(KEYS.SUBJECTS, result);
+        return result;
+      }
+    }
+
     if (changed) {
       memoryCache.set(resolveTenantKey(KEYS.SUBJECTS), result);
     }

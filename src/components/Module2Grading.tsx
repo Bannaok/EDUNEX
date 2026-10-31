@@ -178,11 +178,29 @@ export const Module2Grading: React.FC<Module2Props> = ({
     return 99;
   };
 
+  const getPrimarySubjectOrder = (sub: Subject): number => {
+    const name = (sub.name || '').trim();
+    const code = (sub.code || '').trim();
+    if (name === 'ภาษาไทย' || code.startsWith('ท1')) return 1;
+    if (name === 'คณิตศาสตร์' || code.startsWith('ค1')) return 2;
+    if (name === 'สังคมศึกษา' || code.startsWith('ส1')) return 3;
+    if (name === 'สุขศึกษาและพลศึกษา' || code.startsWith('พ1')) return 4;
+    if (name === 'ศิลปะ' || code.startsWith('ศ1')) return 5;
+    if (name === 'การงานอาชีพ' || code.startsWith('ง1')) return 6;
+    if (name === 'ภาษาต่างประเทศ' || code.startsWith('อ1')) return 7;
+    if (name === 'วิทยาศาสตร์และเทคโนโลยี' || code.startsWith('ว1')) return 8;
+    if (name === 'ประวัติศาสตร์' || code.startsWith('ป1')) return 9;
+    return 99;
+  };
+
   const sortSubjectsByGrade = (subs: Subject[]): Subject[] => {
     return [...subs].sort((a, b) => {
       const orderA = getGradeRank(a.gradeLevel);
       const orderB = getGradeRank(b.gradeLevel);
       if (orderA !== orderB) return orderA - orderB;
+      const subjOrderA = getPrimarySubjectOrder(a);
+      const subjOrderB = getPrimarySubjectOrder(b);
+      if (subjOrderA !== subjOrderB) return subjOrderA - subjOrderB;
       const codeA = a.code || '';
       const codeB = b.code || '';
       const codeCmp = codeA.localeCompare(codeB, 'th');
@@ -1386,15 +1404,17 @@ export const Module2Grading: React.FC<Module2Props> = ({
     return (a.studentCode || '').localeCompare(b.studentCode || '');
   });
 
-  // Thai GPA calculation standard (0-100 score -> GPA)
-  const calculateThaiGrade = (total: number): number => {
-    if (total >= 80) return 4.0;
-    if (total >= 75) return 3.5;
-    if (total >= 70) return 3.0;
-    if (total >= 65) return 2.5;
-    if (total >= 60) return 2.0;
-    if (total >= 55) return 1.5;
-    if (total >= 50) return 1.0;
+  // Thai GPA calculation standard (supports 50-point or 100-point max score -> GPA)
+  const calculateThaiGrade = (total: number, maxScore: number = selectedSubject?.totalScore || 100): number => {
+    const effectiveMax = maxScore && maxScore > 0 ? maxScore : 100;
+    const normalized = total > effectiveMax && effectiveMax < 100 ? total : (total / effectiveMax) * 100;
+    if (normalized >= 80) return 4.0;
+    if (normalized >= 75) return 3.5;
+    if (normalized >= 70) return 3.0;
+    if (normalized >= 65) return 2.5;
+    if (normalized >= 60) return 2.0;
+    if (normalized >= 55) return 1.5;
+    if (normalized >= 50) return 1.0;
     return 0.0;
   };
 
@@ -2383,12 +2403,12 @@ export const Module2Grading: React.FC<Module2Props> = ({
     const form = e.currentTarget;
     const formData = new FormData(form);
 
-    const fullScore = Number(formData.get('totalScore') || 100);
-    const coursework = Number(formData.get('courseworkScore') || 70);
-    const exam = Number(formData.get('examScore') || 30);
-    const semChoice = formData.get('semester') as string;
-
     const gradeLevel = (formData.get('gradeLevel') as GradeLevel) || modalGradeLevel;
+    const isPrimary = gradeLevel.startsWith('ป.');
+    const fullScore = Number(formData.get('totalScore') || (isPrimary ? 50 : 100));
+    const coursework = Number(formData.get('courseworkScore') || (isPrimary ? 35 : 70));
+    const exam = Number(formData.get('examScore') || (isPrimary ? 15 : 30));
+    const semChoice = formData.get('semester') as string;
     const isKindergarten = isKindergartenGrade(gradeLevel);
 
     let cleanedSubtopics: string[] = [];
@@ -3293,7 +3313,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
                             {semSubs.map(subj => {
                               const gRec = grades.find(g => g.studentId === student.id && g.subjectId === subj.id && g.semester === currentSemester);
                               const scoreVal = gRec?.totalScore !== undefined ? gRec.totalScore : 0;
-                              const gradeVal = gRec?.totalScore !== undefined ? calculateThaiGrade(scoreVal) : '-';
+                              const gradeVal = gRec?.totalScore !== undefined ? calculateThaiGrade(scoreVal, subj.totalScore || 100) : '-';
 
                               return (
                                 <td key={subj.id} className="py-2 px-2 text-center font-mono font-bold text-amber-950 bg-amber-50/20 border-r border-slate-100 text-sm">
@@ -4894,13 +4914,21 @@ export const Module2Grading: React.FC<Module2Props> = ({
                   key={sub.id}
                   className="py-2.5 px-4 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors"
                 >
-                  {/* Left: Class badge, Name, Semester, Ratio */}
+                  {/* Left: Class badge, Code, Name, Hours/week, Semester, Ratio */}
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     <span className="font-bold text-amber-900 bg-amber-100/90 border border-amber-200/80 px-2 py-0.5 rounded-lg text-xs shrink-0">
                       ชั้น {sub.gradeLevel}
                     </span>
+                    {sub.code && (
+                      <span className="font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md text-xs shrink-0">
+                        {sub.code}
+                      </span>
+                    )}
                     <span className="font-bold text-slate-800 text-xs truncate max-w-xs md:max-w-md">
                       {sub.name}
+                    </span>
+                    <span className="text-[11px] px-2 py-0.5 rounded-md font-semibold bg-amber-50/80 text-amber-800 border border-amber-200/70 shrink-0">
+                      {sub.hoursPerWeek} ชั่วโมง/สัปดาห์
                     </span>
                     <span className={`text-[11px] px-2 py-0.5 rounded-md font-bold shrink-0 ${
                       sub.semester === '1'
@@ -4909,8 +4937,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     }`}>
                       ภาค {sub.semester}
                     </span>
-                    <span className="text-[11px] text-slate-500 font-mono shrink-0">
-                      สัดส่วน {sub.courseworkScore}:{sub.examScore} (เต็ม {sub.totalScore})
+                    <span className="text-[11px] text-slate-600 font-mono shrink-0">
+                      คะแนนเต็ม {sub.totalScore} (ระหว่างภาค {sub.courseworkScore} : สอบ {sub.examScore})
                     </span>
                   </div>
 
@@ -5191,13 +5219,13 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
               {/* สำหรับ ป.1 - ม.6 เท่านั้น: แสดงสัดส่วนคะแนนเต็ม ระหว่างภาค ปลายภาค */}
               {!isKindergartenGrade(modalGradeLevel) && (
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-3" key={`score-fields-${editingSubject?.id || (modalGradeLevel.startsWith('ป.') ? 'primary' : 'secondary')}`}>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">คะแนนเต็ม</label>
                     <input
                       type="number"
                       name="totalScore"
-                      defaultValue={editingSubject?.totalScore || 100}
+                      defaultValue={editingSubject?.totalScore ?? (modalGradeLevel.startsWith('ป.') ? 50 : 100)}
                       className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
                     />
                   </div>
@@ -5206,16 +5234,16 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     <input
                       type="number"
                       name="courseworkScore"
-                      defaultValue={editingSubject?.courseworkScore || 70}
+                      defaultValue={editingSubject?.courseworkScore ?? (modalGradeLevel.startsWith('ป.') ? 35 : 70)}
                       className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">ปลายภาค</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">ปลายภาค (สอบ)</label>
                     <input
                       type="number"
                       name="examScore"
-                      defaultValue={editingSubject?.examScore || 30}
+                      defaultValue={editingSubject?.examScore ?? (modalGradeLevel.startsWith('ป.') ? 15 : 30)}
                       className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
                     />
                   </div>

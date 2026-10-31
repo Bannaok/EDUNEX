@@ -64,16 +64,33 @@ export type PhorPhor6Tab =
   | 'comments' 
   | 'all';
 
-export const calculateThaiGrade = (score: number | null | undefined): string => {
+export const calculateThaiGrade = (score: number | null | undefined, maxScore: number = 100): string => {
   if (score === null || score === undefined || isNaN(score)) return '-';
-  if (score >= 80) return '4';
-  if (score >= 75) return '3.5';
-  if (score >= 70) return '3';
-  if (score >= 65) return '2.5';
-  if (score >= 60) return '2';
-  if (score >= 55) return '1.5';
-  if (score >= 50) return '1';
+  const effectiveMax = maxScore && maxScore > 0 ? maxScore : 100;
+  const normalized = score > effectiveMax && effectiveMax < 100 ? score : (score / effectiveMax) * 100;
+  if (normalized >= 80) return '4';
+  if (normalized >= 75) return '3.5';
+  if (normalized >= 70) return '3';
+  if (normalized >= 65) return '2.5';
+  if (normalized >= 60) return '2';
+  if (normalized >= 55) return '1.5';
+  if (normalized >= 50) return '1';
   return '0';
+};
+
+const getPrimarySubjectOrder = (sub: Subject): number => {
+  const name = (sub.name || '').trim();
+  const code = (sub.code || '').trim();
+  if (name === 'ภาษาไทย' || code.startsWith('ท1')) return 1;
+  if (name === 'คณิตศาสตร์' || code.startsWith('ค1')) return 2;
+  if (name === 'สังคมศึกษา' || code.startsWith('ส1')) return 3;
+  if (name === 'สุขศึกษาและพลศึกษา' || code.startsWith('พ1')) return 4;
+  if (name === 'ศิลปะ' || code.startsWith('ศ1')) return 5;
+  if (name === 'การงานอาชีพ' || code.startsWith('ง1')) return 6;
+  if (name === 'ภาษาต่างประเทศ' || code.startsWith('อ1')) return 7;
+  if (name === 'วิทยาศาสตร์และเทคโนโลยี' || code.startsWith('ว1')) return 8;
+  if (name === 'ประวัติศาสตร์' || code.startsWith('ป1')) return 9;
+  return 99;
 };
 
 export const getGradePoints = (gradeStr: string): number | null => {
@@ -553,8 +570,13 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       }
     });
 
-    return unique;
-  }, [effectiveSubjects, student.gradeLevel, grade, semester]);
+      return unique.sort((a, b) => {
+        const ordA = getPrimarySubjectOrder(a);
+        const ordB = getPrimarySubjectOrder(b);
+        if (ordA !== ordB) return ordA - ordB;
+        return (a.code || '').localeCompare(b.code || '', 'th');
+      });
+    }, [effectiveSubjects, student.gradeLevel, grade, semester]);
 
   // Subject evaluation rows: pulls directly from "รายงานวัดผล" (StorageService.getGrades())
   const academicResults = useMemo(() => {
@@ -590,7 +612,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       if (total === null && (cw !== null || ex !== null)) {
         total = (Number(cw) || 0) + (Number(ex) || 0);
       }
-      const gradeStr = calculateThaiGrade(total);
+      const gradeStr = calculateThaiGrade(total, subj.totalScore || 100);
       const points = getGradePoints(gradeStr);
       const weight = subj.hoursPerWeek ? subj.hoursPerWeek / 2 : 1; // standard weight credit
 
@@ -718,27 +740,46 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       return null;
     };
 
-    const rows = Array.from(subjectGroups.values()).map(grp => {
+    const sortedGroups = Array.from(subjectGroups.values()).sort((a, b) => {
+      const ordA = getPrimarySubjectOrder(a.primary);
+      const ordB = getPrimarySubjectOrder(b.primary);
+      if (ordA !== ordB) return ordA - ordB;
+      return (a.primary.code || '').localeCompare(b.primary.code || '', 'th');
+    });
+
+    const rows = sortedGroups.map(grp => {
       const subj = grp.primary;
       const rec1 = findStudentGradeForTerm(grp, '1');
       const rec2 = findStudentGradeForTerm(grp, '2');
 
+      const max1 = (grp.sem1Subj || subj).totalScore || 50;
+      const max2 = (grp.sem2Subj || subj).totalScore || 50;
+
       const total1 = getNumericTotal(rec1);
       const total2 = getNumericTotal(rec2);
 
-      const grade1 = calculateThaiGrade(total1);
-      const grade2 = calculateThaiGrade(total2);
+      const grade1 = calculateThaiGrade(total1, max1);
+      const grade2 = calculateThaiGrade(total2, max2);
 
       let avgTotal: number | null = null;
+      let combinedMax = 100;
       if (total1 !== null && total2 !== null) {
-        avgTotal = Math.round(((total1 + total2) / 2) * 100) / 100;
+        if (max1 + max2 === 100) {
+          avgTotal = Math.round((total1 + total2) * 100) / 100;
+          combinedMax = 100;
+        } else {
+          avgTotal = Math.round(((total1 + total2) / 2) * 100) / 100;
+          combinedMax = (max1 + max2) / 2;
+        }
       } else if (total1 !== null) {
         avgTotal = total1;
+        combinedMax = max1;
       } else if (total2 !== null) {
         avgTotal = total2;
+        combinedMax = max2;
       }
 
-      const combinedGrade = calculateThaiGrade(avgTotal);
+      const combinedGrade = calculateThaiGrade(avgTotal, combinedMax);
       const weight = subj.hoursPerWeek ? subj.hoursPerWeek / 2 : 1;
 
       const pts1 = getGradePoints(grade1);

@@ -252,6 +252,44 @@ export const Module2Grading: React.FC<Module2Props> = ({
   );
   const sortedMyRegisteredSubjects = sortSubjectsByGrade(myRegisteredSubjects);
 
+  // Registered homeroom grades (only classes that have a registered homeroom teacher member)
+  const registeredHomeroomGrades = useMemo<GradeLevel[]>(() => {
+    const gradeOrder: GradeLevel[] = [
+      'อ.1', 'อ.2', 'อ.3',
+      'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+    ];
+    const homeroomSet = new Set<string>();
+    allMembers.forEach(m => {
+      if (m.role === 'member' && m.gradeLevel) {
+        homeroomSet.add(m.gradeLevel.trim());
+      }
+    });
+    return gradeOrder.filter(g => homeroomSet.has(g));
+  }, [allMembers]);
+
+  const [adminGradeFilter, setAdminGradeFilter] = useState<string>(() => {
+    if (user.role === 'admin' && registeredHomeroomGrades.length > 0) {
+      return registeredHomeroomGrades[0];
+    }
+    return 'ป.1';
+  });
+
+  React.useEffect(() => {
+    if (user.role === 'admin' && registeredHomeroomGrades.length > 0) {
+      if (!registeredHomeroomGrades.includes(adminGradeFilter as GradeLevel)) {
+        setAdminGradeFilter(registeredHomeroomGrades[0]);
+      }
+    }
+  }, [user.role, registeredHomeroomGrades]);
+
+  // Admin filtered subjects matching selected homeroom grade
+  const adminGradeSubjects = useMemo(() => {
+    return sortSubjectsByGrade(
+      currentSemSubjects.filter(s => (s.gradeLevel || '').trim() === adminGradeFilter)
+    );
+  }, [currentSemSubjects, adminGradeFilter]);
+
   // Grade input selection: if user is a member, prioritize subject they registered in current semester & year
   const findDefaultSubjectId = (targetSem: '1' | '2' = currentSemester, targetYear: string = currentAcademicYear): string => {
     const semSubs = subjects.filter(s => isSubjectInYear(s, targetYear) && (!s.semester || s.semester === targetSem));
@@ -262,13 +300,28 @@ export const Module2Grading: React.FC<Module2Props> = ({
       if (mySub) return mySub.id;
       return ''; // Member has no registered subjects in this semester yet
     } else {
-      // Admin: show first registered subject if available
+      // Admin: show first subject of admin selected grade
+      const match = semSubs.filter(s => (s.gradeLevel || '').trim() === adminGradeFilter);
+      if (match.length > 0) return match[0].id;
       if (semRegistered.length > 0) return semRegistered[0].id;
       return '';
     }
   };
 
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(() => findDefaultSubjectId());
+
+  // Keep selectedSubjectId synced for Admin when adminGradeFilter or currentSemester changes
+  React.useEffect(() => {
+    if (user.role === 'admin') {
+      if (adminGradeSubjects.length > 0) {
+        if (!selectedSubjectId || !adminGradeSubjects.some(s => s.id === selectedSubjectId)) {
+          setSelectedSubjectId(adminGradeSubjects[0].id);
+        }
+      } else {
+        setSelectedSubjectId('');
+      }
+    }
+  }, [user.role, adminGradeFilter, adminGradeSubjects, selectedSubjectId]);
   
 
 
@@ -1408,16 +1461,16 @@ export const Module2Grading: React.FC<Module2Props> = ({
   // Member is read-only if admin has locked this semester (เพื่อป้องกันการกรอกผิดภาคเรียน)
   const isMemberLockedReadOnly = user.role === 'member' && isCurrentSemLocked;
 
-  // Admin cannot edit scores of registered members, view only ("Admin ไม่สามารถปรับแก้คะแนนของสมาชิกที่ลงทะเบียนได้ ดูได้อย่างเดียว")
-  const isAdminReadOnly = user.role === 'admin' && isSubjectRegisteredByMember;
+  // Admin is strictly read-only ("ไม่สามารถกรอกได้ แสดงหน้าอย่างเดียว ให้รู้ว่าสมาชิกชั้นไหนกรอกอะไรแล้วบ้าง")
+  const isAdminReadOnly = user.role === 'admin';
 
-  // Only the enrolled member can enter/edit scores! Admin is view-only for registered subjects.
+  // Only the enrolled member can enter/edit scores! Admin is view-only.
   // If semester is locked, member cannot enter/edit scores.
   const canGradeSubject = user.role === 'member' && isEnrolledByMember && !isCurrentSemLocked;
-  // Can manage learning units (เพิ่ม/ลบหน่วยการเรียนรู้สำหรับสมาชิกและแอดมิน)
-  const canManageUnits = (user.role === 'admin') || (user.role === 'member' && !isMemberLockedReadOnly);
-  // Can manage kindergarten pages and evaluation columns (แอดมิน และครูผู้สอนที่ยังไม่ถูกล็อก)
-  const canManageKindergartenTopics = (user.role === 'admin') || (user.role === 'member' && !isMemberLockedReadOnly);
+  // Can manage learning units (เฉพาะสมาชิกครูผู้สอน)
+  const canManageUnits = user.role === 'member' && !isMemberLockedReadOnly;
+  // Can manage kindergarten pages and evaluation columns (เฉพาะสมาชิกครูผู้สอน)
+  const canManageKindergartenTopics = user.role === 'member' && !isMemberLockedReadOnly;
 
   // Sort students by roll number (เรียงตามเลขที่)
   const gradeStudents = [...students.filter(s => s.gradeLevel === selectedSubject?.gradeLevel)].sort((a, b) => {
@@ -2997,6 +3050,20 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 <span className="sm:hidden">วิชา:</span>
               </label>
 
+              {user.role === 'admin' && registeredHomeroomGrades.length > 0 && (
+                <select
+                  value={adminGradeFilter}
+                  onChange={(e) => setAdminGradeFilter(e.target.value)}
+                  className="text-xs px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-xl border border-indigo-200 bg-indigo-50/80 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold text-indigo-900 cursor-pointer shadow-2xs shrink-0"
+                >
+                  {registeredHomeroomGrades.map((g) => (
+                    <option key={g} value={g}>
+                      ชั้น {g}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               {/* Subject Dropdown: ปรับให้เต็มความกว้างพอดีหน้าจอบน Mobile ไม่ยาวล้น */}
               <select
                 value={selectedSubjectId}
@@ -3005,16 +3072,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
               >
                 {user.role === 'admin' ? (
                   <>
-                    {sortedRegisteredSubjects.length > 0 ? (
-                      <optgroup label={`รายวิชา/กิจกรรมที่สมาชิกลงทะเบียนแล้ว (ภาค ${currentSemester})`}>
-                        {sortedRegisteredSubjects.map(sub => (
-                          <option key={sub.id} value={sub.id}>
-                            ชั้น {sub.gradeLevel} : {sub.isActivity ? `[กิจกรรม] ${sub.name}` : sub.name} — {sub.teacherName || 'ผู้สอน'}
-                          </option>
-                        ))}
-                      </optgroup>
+                    {adminGradeSubjects.length > 0 ? (
+                      adminGradeSubjects.map(sub => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.isActivity ? `[กิจกรรม] ${sub.name}` : sub.name} — {sub.teacherName || 'ผู้สอน'}
+                        </option>
+                      ))
                     ) : (
-                      <option value="">-- ยังไม่มีสมาชิกลงทะเบียนรายวิชาในภาคเรียนที่ {currentSemester} --</option>
+                      <option value="">-- ไม่พบรายวิชาในชั้น {adminGradeFilter} --</option>
                     )}
                   </>
                 ) : (

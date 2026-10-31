@@ -739,7 +739,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Update single indicator score for student
   const updateIndicatorScore = (student: Student, indicatorId: string, rawVal: string | number, maxScore: number) => {
-    if (isLocked) return;
+    if (isLocked || isAdmin) return;
     const key = getRecordKey(student.id);
     const current = getStudentAssessment(student);
 
@@ -768,7 +768,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Update characteristic item
   const updateCharacteristic = (student: Student, itemKey: keyof Characteristics8Criteria, value: number) => {
-    if (isLocked) return;
+    if (isLocked || isAdmin) return;
     const key = getRecordKey(student.id);
     const current = getStudentAssessment(student);
     const updatedChar: Characteristics8Criteria = {
@@ -804,7 +804,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Update competency item
   const updateCompetency = (student: Student, compKey: keyof Competency5Criteria, rawValue: string | number) => {
-    if (isLocked) return;
+    if (isLocked || isAdmin) return;
     const key = getRecordKey(student.id);
     const current = getStudentAssessment(student);
     const updatedComp: Competency5Criteria = { ...current.competency };
@@ -907,8 +907,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   const handleSaveCharacteristicsEvaluation = (andNextStudent: boolean = false) => {
     if (!evaluatingStudent) return;
-    if (isLocked) {
-      onShowToast('warning', 'ภาคเรียนถูกล็อก', 'ภาคเรียนนี้ถูกล็อกการบันทึก กรุณาติดต่อผู้ดูแลระบบ');
+    if (isLocked || isAdmin) {
+      onShowToast('warning', isAdmin ? 'ไม่มีสิทธิ์บันทึก' : 'ภาคเรียนถูกล็อก', isAdmin ? 'ผู้ดูแลระบบ (Admin) ไม่สามารถกรอกหรือแก้ไขคะแนนนักเรียนได้' : 'ภาคเรียนนี้ถูกล็อกการบันทึก กรุณาติดต่อผู้ดูแลระบบ');
       return;
     }
 
@@ -962,7 +962,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Quick fill characteristics
   const quickFillCharacteristics = (level: number) => {
-    if (isLocked) return;
+    if (isLocked || isAdmin) return;
     const nextData = { ...assessmentData };
     const allSubScores: Record<string, number> = {};
     CHARACTERISTICS_GROUPS.forEach(g => {
@@ -997,7 +997,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Quick fill competencies
   const quickFillCompetencies = (level: number) => {
-    if (isLocked) return;
+    if (isLocked || isAdmin) return;
     const nextData = { ...assessmentData };
     classStudents.forEach(st => {
       const key = getRecordKey(st.id);
@@ -1023,8 +1023,8 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
 
   // Save all and sync to GradeRecords
   const handleSaveAll = () => {
-    if (isLocked) {
-      onShowToast('warning', 'ภาคเรียนถูกล็อก', 'ภาคเรียนนี้ถูกล็อกการบันทึก กรุณาติดต่อผู้ดูแลระบบ');
+    if (isLocked || isAdmin) {
+      onShowToast('warning', isAdmin ? 'ผู้ดูแลระบบไม่มีสิทธิ์บันทึก' : 'ภาคเรียนถูกล็อก', isAdmin ? 'ผู้ดูแลระบบ (Admin) สามารถกำหนดโครงสร้างตารางและเกณฑ์คะแนนได้เท่านั้น ไม่สามารถกรอก/บันทึกคะแนนนักเรียนได้' : 'ภาคเรียนนี้ถูกล็อกการบันทึก กรุณาติดต่อผู้ดูแลระบบ');
       return;
     }
 
@@ -1252,12 +1252,12 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
             {/* ปุ่มบันทึก */}
             <button
               type="button"
-              disabled={isLocked}
+              disabled={isLocked || isAdmin}
               onClick={handleSaveAll}
-              className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer ${
-                isLocked 
-                  ? 'bg-slate-400 cursor-not-allowed' 
-                  : 'bg-amber-600 hover:bg-amber-700'
+              className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all flex items-center gap-1.5 active:scale-95 ${
+                isLocked || isAdmin 
+                  ? 'bg-slate-400 cursor-not-allowed opacity-70' 
+                  : 'bg-amber-600 hover:bg-amber-700 cursor-pointer'
               }`}
             >
               <Save className="w-3.5 h-3.5" />
@@ -1580,11 +1580,15 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                                   type="number"
                                   min={0}
                                   max={ind.maxScore}
-                                  disabled={isLocked}
+                                  disabled={isLocked || isAdmin}
                                   value={val}
                                   onChange={(e) => updateIndicatorScore(st, ind.id, e.target.value, ind.maxScore)}
                                   placeholder="-"
-                                  className="w-14 text-center font-bold font-mono py-1 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500 bg-white placeholder:text-slate-300"
+                                  className={`w-14 text-center font-bold font-mono py-1 rounded-lg border focus:outline-none placeholder:text-slate-300 ${
+                                    isAdmin
+                                      ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                                      : 'bg-white text-slate-800 border-slate-200 focus:ring-1 focus:ring-amber-500'
+                                  }`}
                                 />
                               </td>
                             );
@@ -1780,7 +1784,7 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                     <th className="py-2.5 px-3 w-12 text-center">เลขที่</th>
                     <th className="py-2.5 px-3 min-w-[150px]">
                       <div>ชื่อ - นามสกุล</div>
-                      <div className="text-[9px] font-normal text-blue-600">(กดชื่อเพื่อประเมิน)</div>
+                      {!isAdmin && <div className="text-[9px] font-normal text-blue-600">(กดชื่อเพื่อประเมิน)</div>}
                     </th>
                     <th className="py-2.5 px-2 text-center min-w-[65px]" title="1. รักชาติ ศาสน์ กษัตริย์">
                       1.รักชาติ
@@ -1827,18 +1831,24 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                           {st.rollNumber ?? '-'}
                         </td>
                         <td className="py-2 px-3 whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenCharacteristicsModal(st)}
-                            className="group text-left text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
-                            title="กดเพื่อเปิดหน้าต่างประเมินคุณลักษณะอันพึงประสงค์ 8 ประการแบบละเอียด"
-                          >
-                            <span>{st.prefix}{st.firstName} {st.lastName}</span>
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 bg-blue-50 group-hover:bg-blue-100 px-1.5 py-0.5 rounded-md border border-blue-200 transition-colors">
-                              <Edit className="w-2.5 h-2.5" />
-                              <span>ประเมิน</span>
+                          {isAdmin ? (
+                            <span className="font-semibold text-slate-800">
+                              {st.prefix}{st.firstName} {st.lastName}
                             </span>
-                          </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCharacteristicsModal(st)}
+                              className="group text-left text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1.5 hover:underline cursor-pointer"
+                              title="กดเพื่อเปิดหน้าต่างประเมินคุณลักษณะอันพึงประสงค์ 8 ประการแบบละเอียด"
+                            >
+                              <span>{st.prefix}{st.firstName} {st.lastName}</span>
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 bg-blue-50 group-hover:bg-blue-100 px-1.5 py-0.5 rounded-md border border-blue-200 transition-colors">
+                                <Edit className="w-2.5 h-2.5" />
+                                <span>ประเมิน</span>
+                              </span>
+                            </button>
+                          )}
                         </td>
                         {items.map((itKey) => {
                           const val = hasChar ? ch[itKey] : undefined;
@@ -1932,9 +1942,13 @@ export const Assessment3Booklets: React.FC<Assessment3BookletsProps> = ({
                             <td key={cKey} className="py-1.5 px-1.5 text-center">
                               <select
                                 value={val}
-                                disabled={isLocked}
+                                disabled={isLocked || isAdmin}
                                 onChange={(e) => updateCompetency(st, cKey, e.target.value)}
-                                className="text-xs font-bold font-mono px-2 py-1 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+                                className={`text-xs font-bold font-mono px-2 py-1 rounded-lg border focus:outline-none ${
+                                  isAdmin
+                                    ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed'
+                                    : 'bg-white text-slate-800 border-slate-200 focus:ring-1 focus:ring-emerald-500 cursor-pointer'
+                                }`}
                               >
                                 <option value="">-</option>
                                 <option value={3}>3</option>

@@ -5,7 +5,8 @@ import {
   GradeLevel, 
   UserSession,
   Personnel,
-  SchoolInfo
+  SchoolInfo,
+  MemberAccount
 } from '../types';
 import { StorageService } from '../services/storage';
 import { Module1CommentsEvaluation } from './Module1CommentsEvaluation';
@@ -41,6 +42,7 @@ interface Module1Props {
   onShowToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
   personnel?: Personnel[];
   schoolInfo?: SchoolInfo;
+  members?: MemberAccount[];
   onSaveStudent?: (student: Student) => void;
   onDeleteStudent?: (id: string) => void;
   onSavePersonnel?: (person: Personnel) => void;
@@ -387,8 +389,26 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
   onShowToast,
   schoolInfo,
   personnel,
+  members,
   onOpenLightbox
 }) => {
+  // Registered homeroom grades (only classes that have a registered homeroom teacher member)
+  const registeredHomeroomGrades = useMemo<GradeLevel[]>(() => {
+    const allMembers = members && members.length > 0 ? members : StorageService.getMembers();
+    const gradeOrder: GradeLevel[] = [
+      'อ.1', 'อ.2', 'อ.3',
+      'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+    ];
+    const homeroomSet = new Set<string>();
+    allMembers.forEach(m => {
+      if (m.role === 'member' && m.gradeLevel) {
+        homeroomSet.add(m.gradeLevel.trim());
+      }
+    });
+    return gradeOrder.filter(g => homeroomSet.has(g));
+  }, [members]);
+
   // Sub tab state for separating weight vs milk & teeth vs comments
   const [adminSubTab, setAdminSubTab] = useState<'weight' | 'milkTeeth' | 'comments'>('weight');
 
@@ -469,24 +489,22 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
   const [openManageMenuSessionId, setOpenManageMenuSessionId] = useState<string | null>(null);
 
   // Grade filter for table inside active session
-  const [gradeFilter, setGradeFilter] = useState<string>(
-    user.role === 'member' && user.assignedGrade ? user.assignedGrade : 'ALL'
-  );
+  const [gradeFilter, setGradeFilter] = useState<string>(() => {
+    if (user.role === 'member' && user.assignedGrade) return user.assignedGrade;
+    if (user.role === 'admin' && registeredHomeroomGrades.length > 0) return registeredHomeroomGrades[0];
+    return 'ป.1';
+  });
   const [weightCalendarMonthIdx, setWeightCalendarMonthIdx] = useState<number>(0);
-
-  useEffect(() => {
-    if (user.role === 'member' && user.assignedGrade) {
-      setGradeFilter(user.assignedGrade);
-    }
-  }, [user.role, user.assignedGrade]);
 
   // Date for Milk & Teeth
   const [milkTeethDate, setMilkTeethDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
-  const [milkTeethGradeFilter, setMilkTeethGradeFilter] = useState<string>(
-    user.role === 'member' && user.assignedGrade ? user.assignedGrade : 'ALL'
-  );
+  const [milkTeethGradeFilter, setMilkTeethGradeFilter] = useState<string>(() => {
+    if (user.role === 'member' && user.assignedGrade) return user.assignedGrade;
+    if (user.role === 'admin' && registeredHomeroomGrades.length > 0) return registeredHomeroomGrades[0];
+    return 'ป.1';
+  });
   const [isMilkCalendarModalOpen, setIsMilkCalendarModalOpen] = useState<boolean>(false);
   const [isMilkCalendarOpen, setIsMilkCalendarOpen] = useState<boolean>(false);
   const [milkCalMonthIdx, setMilkCalMonthIdx] = useState<number>(0);
@@ -523,9 +541,22 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
 
   useEffect(() => {
     if (user.role === 'member' && user.assignedGrade) {
+      setGradeFilter(user.assignedGrade);
       setMilkTeethGradeFilter(user.assignedGrade);
+    } else if (user.role === 'admin' && registeredHomeroomGrades.length > 0) {
+      if (!registeredHomeroomGrades.includes(gradeFilter as GradeLevel)) {
+        setGradeFilter(registeredHomeroomGrades[0]);
+      }
+      if (!registeredHomeroomGrades.includes(milkTeethGradeFilter as GradeLevel)) {
+        setMilkTeethGradeFilter(registeredHomeroomGrades[0]);
+      }
     }
-  }, [user.role, user.assignedGrade]);
+  }, [user.role, user.assignedGrade, registeredHomeroomGrades]);
+
+  const handleAdminSelectGrade = (nextGrade: string) => {
+    setGradeFilter(nextGrade);
+    setMilkTeethGradeFilter(nextGrade);
+  };
 
   // Open Create Session Modal with 100-School-Day Calendar
   const handleOpenCreateSessionModal = () => {
@@ -647,7 +678,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
   };
 
   const activeSession = sessions.find(s => s.id === activeSessionMode?.id);
-  const isViewOnly = activeSessionMode?.mode === 'view';
+  const isViewOnly = user.role === 'admin' || activeSessionMode?.mode === 'view';
 
   // Unique list of grades actually present in students (only grades with at least 1 student)
   const availableGradeLevels = useMemo(() => {
@@ -803,17 +834,31 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           </button>
         </div>
 
-        {/* Action Button "+" for creating new weight recording session with Floating Popover Calendar */}
-        {adminSubTab === 'weight' && !activeSessionMode && (
-          <div className="relative" ref={weightCalendarRef}>
-            <button
-              type="button"
-              onClick={handleOpenCreateSessionModal}
-              className="p-2 sm:px-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-              title="สร้างรายการที่จะกรอกน้ำหนัก/ส่วนสูงใหม่"
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+          {/* Single Grade Dropdown Button for Admin (Only Registered Homeroom Teachers' Grades, Zero Extra Text) */}
+          {user.role === 'admin' && registeredHomeroomGrades.length > 0 && (
+            <select
+              value={gradeFilter}
+              onChange={(e) => handleAdminSelectGrade(e.target.value)}
+              className="px-3.5 py-2 rounded-xl bg-white hover:bg-blue-50 text-blue-900 border border-blue-300 text-xs font-bold outline-none cursor-pointer shadow-2xs transition-colors"
             >
-              <Plus className="w-4 h-4 stroke-[3]" />
-            </button>
+              {registeredHomeroomGrades.map(g => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Action Button "+" for creating new weight recording session with Floating Popover Calendar (Member only) */}
+          {adminSubTab === 'weight' && !activeSessionMode && user.role !== 'admin' && (
+            <div className="relative" ref={weightCalendarRef}>
+              <button
+                type="button"
+                onClick={handleOpenCreateSessionModal}
+                className="p-2 sm:px-3 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center justify-center shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
+                title="สร้างรายการที่จะกรอกน้ำหนัก/ส่วนสูงใหม่"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+              </button>
 
             {/* Floating Popover Calendar matching Attendance & Savings EXACTLY */}
             {isWeightCalendarOpen && (() => {
@@ -993,29 +1038,30 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           </div>
         )}
 
-        {/* Top-Right Download Buttons for Milk & Teeth */}
-        {adminSubTab === 'milkTeeth' && (
-          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
-            <button
-              type="button"
-              onClick={() => handleOpenMilkTeethReport('milk')}
-              className="w-full sm:w-auto px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-              title="ดาวน์โหลดรายงานการดื่มนมโรงเรียน"
-            >
-              <Download className="w-4 h-4" />
-              <span>รายงานดื่มนม</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleOpenMilkTeethReport('teeth')}
-              className="w-full sm:w-auto px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
-              title="ดาวน์โหลดรายงานการแปรงฟันหลังอาหาร"
-            >
-              <Download className="w-4 h-4" />
-              <span>รายงานแปรงฟัน</span>
-            </button>
-          </div>
-        )}
+          {/* Top-Right Download Buttons for Milk & Teeth */}
+          {adminSubTab === 'milkTeeth' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleOpenMilkTeethReport('milk')}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
+                title="ดาวน์โหลดรายงานการดื่มนมโรงเรียน"
+              >
+                <Download className="w-4 h-4" />
+                <span>รายงานดื่มนม</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenMilkTeethReport('teeth')}
+                className="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95 shrink-0"
+                title="ดาวน์โหลดรายงานการแปรงฟันหลังอาหาร"
+              >
+                <Download className="w-4 h-4" />
+                <span>รายงานแปรงฟัน</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* SUB-TAB 1: WEIGHT & HEIGHT TRACKING */}
@@ -1025,57 +1071,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           {!activeSessionMode ? (
               /* LIST VIEW */
               <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-                {user.role === 'admin' ? (
-                  <div className="p-3.5 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-2.5 flex-wrap text-xs">
-                    <div className="flex items-center gap-2">
-                      <Scale className="w-4 h-4 text-blue-600" />
-                      <span className="font-bold text-slate-800">ตัวกรองระดับชั้นและช่วงเวลา:</span>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Grade Selector for Admin (Only grades with students, ordered Kindergarten to High School) */}
-                      <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-blue-200 text-xs font-bold text-slate-700 shadow-2xs">
-                        <span className="text-[11px] text-slate-500">ระดับชั้น:</span>
-                        <select
-                          value={gradeFilter}
-                          onChange={(e) => setGradeFilter(e.target.value)}
-                          className="bg-blue-50 text-blue-900 font-bold px-2 py-0.5 rounded-lg border border-blue-200 outline-none cursor-pointer text-xs"
-                        >
-                          <option value="ALL">ทุกระดับชั้น ({students.length} คน)</option>
-                          {availableGradeLevels.map(g => (
-                            <option key={g} value={g}>
-                              ชั้น {g} ({students.filter(s => (s.gradeLevel || '').trim() === g).length} คน)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Academic Year and Semester */}
-                      <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-blue-200 text-xs font-bold text-slate-700 shadow-2xs">
-                        <span className="text-[11px] text-slate-500">ปีการศึกษา:</span>
-                        <select
-                          value={selectedAcademicYear}
-                          onChange={(e) => setSelectedAcademicYear(e.target.value)}
-                          className="bg-blue-50 text-blue-900 font-bold px-2 py-0.5 rounded-lg border border-blue-200 outline-none cursor-pointer text-xs"
-                        >
-                          <option value="2570">2570</option>
-                          <option value="2569">2569</option>
-                          <option value="2568">2568</option>
-                          <option value="2567">2567</option>
-                        </select>
-                        <span className="text-[11px] text-slate-500 ml-1">ภาคเรียน:</span>
-                        <select
-                          value={selectedSemester}
-                          onChange={(e) => setSelectedSemester(e.target.value)}
-                          className="bg-blue-50 text-blue-900 font-bold px-2 py-0.5 rounded-lg border border-blue-200 outline-none cursor-pointer text-xs"
-                        >
-                          <option value="1">1</option>
-                          <option value="2">2</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
+                {user.role !== 'admin' && (
                   <div className="p-3.5 bg-slate-50/90 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap text-xs">
                     <div className="flex items-center gap-2">
                       <Scale className="w-4 h-4 text-blue-600" />
@@ -1093,16 +1089,20 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                     </div>
                     <div>
                       <p className="text-sm font-bold text-slate-700">ยังไม่มีรายการบันทึกน้ำหนัก / ส่วนสูง</p>
-                      <p className="text-xs text-slate-400 mt-1">กดปุ่ม "+" เพื่อสร้างรายการลงคะแนนใหม่</p>
+                      {user.role !== 'admin' && (
+                        <p className="text-xs text-slate-400 mt-1">กดปุ่ม "+" เพื่อสร้างรายการลงคะแนนใหม่</p>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenCreateSessionModal()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 hover:bg-blue-700 transition-colors cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>สร้างรายการแรก</span>
-                    </button>
+                    {user.role !== 'admin' && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCreateSessionModal()}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold shadow-xs inline-flex items-center gap-1.5 hover:bg-blue-700 transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>สร้างรายการแรก</span>
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="divide-y divide-slate-100">
@@ -1145,59 +1145,85 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {/* Mobile Single Action Icon Button */}
-                            <div className="sm:hidden">
-                              <button
-                                type="button"
-                                onClick={() => setOpenManageMenuSessionId(sess.id)}
-                                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-95"
-                                title="เมนูกิจกรรม"
-                              >
-                                <MoreVertical className="w-4 h-4 text-slate-700" />
-                              </button>
-                            </div>
+                            {user.role === 'admin' ? (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveSessionMode({ id: sess.id, mode: 'view' })}
+                                  className="p-2 sm:p-2.5 rounded-xl bg-slate-50 hover:bg-slate-700 text-slate-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                                  title="ดูข้อมูล"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPdfPreviewSession(sess);
+                                    setPdfPreviewGradeFilter(gradeFilter);
+                                  }}
+                                  className="p-2 sm:p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                                  title="ดาวน์โหลดรายงาน PDF"
+                                >
+                                  <Download className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Mobile Single Action Icon Button */}
+                                <div className="sm:hidden">
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenManageMenuSessionId(sess.id)}
+                                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-95"
+                                    title="เมนูกิจกรรม"
+                                  >
+                                    <MoreVertical className="w-4 h-4 text-slate-700" />
+                                  </button>
+                                </div>
 
-                            {/* Desktop normal 4 buttons */}
-                            <div className="hidden sm:flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setActiveSessionMode({ id: sess.id, mode: 'view' })}
-                                className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-700 text-slate-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                                title="ดูข้อมูล"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
+                                {/* Desktop normal 4 buttons */}
+                                <div className="hidden sm:flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSessionMode({ id: sess.id, mode: 'view' })}
+                                    className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-700 text-slate-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                                    title="ดูข้อมูล"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
 
-                              <button
-                                type="button"
-                                onClick={() => setActiveSessionMode({ id: sess.id, mode: 'edit' })}
-                                className="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                                title="กรอก / แก้ไขคะแนนน้ำหนัก-ส่วนสูง และเปลี่ยนวันที่"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSessionMode({ id: sess.id, mode: 'edit' })}
+                                    className="p-2.5 rounded-xl bg-blue-50 hover:bg-blue-600 text-blue-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
+                                    title="กรอก / แก้ไขคะแนนน้ำหนัก-ส่วนสูง และเปลี่ยนวันที่"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPdfPreviewSession(sess);
-                                  setPdfPreviewGradeFilter(gradeFilter);
-                                }}
-                                className="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 transition-all cursor-pointer shadow-2xs"
-                                title={`แสดงตัวอย่างและดาวน์โหลดรายงาน (PDF) ${gradeFilter === 'ALL' ? 'ทุกระดับชั้น' : `ชั้น ${gradeFilter}`}`}
-                              >
-                                <Download className="w-4 h-4" />
-                              </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPdfPreviewSession(sess);
+                                      setPdfPreviewGradeFilter(gradeFilter);
+                                    }}
+                                    className="p-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-200 transition-all cursor-pointer shadow-2xs"
+                                    title={`แสดงตัวอย่างและดาวน์โหลดรายงาน (PDF) ${gradeFilter === 'ALL' ? 'ทุกระดับชั้น' : `ชั้น ${gradeFilter}`}`}
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
 
-                              <button
-                                type="button"
-                                onClick={() => setSessionToDelete(sess)}
-                                className="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 transition-all cursor-pointer shadow-2xs"
-                                title={gradeFilter === 'ALL' ? 'ลบรายการนี้' : `ลบข้อมูลชั้น ${gradeFilter} หรือลบรายการนี้`}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSessionToDelete(sess)}
+                                    className="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-600 text-rose-600 hover:text-white border border-rose-200 transition-all cursor-pointer shadow-2xs"
+                                    title={gradeFilter === 'ALL' ? 'ลบรายการนี้' : `ลบข้อมูลชั้น ${gradeFilter} หรือลบรายการนี้`}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       );
@@ -1340,26 +1366,14 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 </div>
 
                 <div className="flex items-center gap-2.5 flex-wrap self-end sm:self-auto">
-                  {/* Grade Quick Filter Pills / Assigned Grade Badge */}
                   <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
-                    <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap mr-1">ชั้น:</span>
-                    {user.role === 'admin' ? (
-                      <select
-                        value={gradeFilter}
-                        onChange={(e) => setGradeFilter(e.target.value)}
-                        className="text-xs font-bold text-blue-900 bg-blue-50 px-2.5 py-1.5 rounded-xl border border-blue-200 focus:outline-none cursor-pointer shadow-2xs"
-                      >
-                        <option value="ALL">ทุกระดับชั้น ({students.length} คน)</option>
-                        {availableGradeLevels.map(g => (
-                          <option key={g} value={g}>
-                            ชั้น {g} ({students.filter(s => (s.gradeLevel || '').trim() === g).length} คน)
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold shadow-2xs">
-                        {user.assignedGrade || 'ป.1'} (ครูประจำชั้น)
-                      </span>
+                    {user.role !== 'admin' && (
+                      <>
+                        <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap mr-1">ชั้น:</span>
+                        <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold shadow-2xs">
+                          {user.assignedGrade || 'ป.1'} (ครูประจำชั้น)
+                        </span>
+                      </>
                     )}
 
                     {/* Download PDF button */}
@@ -1375,19 +1389,6 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                       >
                         <Download className="w-3.5 h-3.5" />
                         <span>ดาวน์โหลด PDF</span>
-                      </button>
-                    )}
-
-                    {/* Delete button inside active session for Admin */}
-                    {user.role === 'admin' && activeSession && (
-                      <button
-                        type="button"
-                        onClick={() => setSessionToDelete(activeSession)}
-                        className="px-3 py-1 bg-rose-50 hover:bg-rose-600 text-rose-700 hover:text-white border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer shrink-0 ml-1"
-                        title={gradeFilter === 'ALL' ? 'ลบรายการนี้' : `ลบข้อมูลชั้น ${gradeFilter} หรือลบรายการนี้`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>ลบ</span>
                       </button>
                     )}
                   </div>
@@ -1719,23 +1720,25 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
 
             {/* Student Table Box */}
             <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
-              <div className="px-4 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2.5">
-                  <Activity className="w-5 h-5 text-emerald-600" />
-                  <div>
-                    <span className="text-xs sm:text-sm font-bold text-slate-800">
-                      บันทึกดื่มนมและแปรงฟัน (ชั้น {milkTeethGradeFilter === 'ALL' ? 'ทุกระดับชั้น' : milkTeethGradeFilter})
-                    </span>
-                    <span className="text-xs text-slate-500 ml-2 font-medium">
-                      (ปีการศึกษา {selectedAcademicYear} ภาคเรียนที่ {selectedSemester})
-                    </span>
+              {user.role !== 'admin' && (
+                <div className="px-4 py-3.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <Activity className="w-5 h-5 text-emerald-600" />
+                    <div>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800">
+                        บันทึกดื่มนมและแปรงฟัน (ชั้น {milkTeethGradeFilter === 'ALL' ? 'ทุกระดับชั้น' : milkTeethGradeFilter})
+                      </span>
+                      <span className="text-xs text-slate-500 ml-2 font-medium">
+                        (ปีการศึกษา {selectedAcademicYear} ภาคเรียนที่ {selectedSemester})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-xs font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200 shadow-2xs">
+                    วันที่เลือก: {formatThaiDate(milkTeethDate)} {currentMilkDateIdx !== -1 && `(ว.${schoolDaysList[currentMilkDateIdx]?.dayNumber})`}
                   </div>
                 </div>
-
-                <div className="text-xs font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200 shadow-2xs">
-                  วันที่เลือก: {formatThaiDate(milkTeethDate)} {currentMilkDateIdx !== -1 && `(ว.${schoolDaysList[currentMilkDateIdx]?.dayNumber})`}
-                </div>
-              </div>
+              )}
 
               <div className="overflow-x-hidden sm:overflow-x-auto">
                 <table className="w-full table-fixed sm:table-auto text-left text-xs border-collapse">
@@ -1767,6 +1770,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                             student={student}
                             date={milkTeethDate}
                             record={existingRecord}
+                            isViewOnly={user.role === 'admin'}
                             onSave={onSaveDailyTracking}
                           />
                         );
@@ -1810,15 +1814,17 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                   </button>
                 </div>
 
-                {/* Save All Button */}
-                <button
-                  type="button"
-                  onClick={handleSaveAllMilkTeeth}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>บันทึกทั้งหมด (วันที่ {formatThaiDate(milkTeethDate)})</span>
-                </button>
+                {/* Save All Button (Hidden for Admin read-only) */}
+                {user.role !== 'admin' && (
+                  <button
+                    type="button"
+                    onClick={handleSaveAllMilkTeeth}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer active:scale-95"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>บันทึกทั้งหมด (วันที่ {formatThaiDate(milkTeethDate)})</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1832,6 +1838,9 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
           students={students}
           schoolInfo={schoolInfo}
           personnel={personnel}
+          registeredHomeroomGrades={registeredHomeroomGrades}
+          selectedGrade={gradeFilter}
+          onSelectGrade={handleAdminSelectGrade}
           onShowToast={onShowToast}
           onOpenLightbox={onOpenLightbox}
         />
@@ -2768,6 +2777,7 @@ interface CleanTrackingRowProps {
   student: Student;
   date: string;
   record?: DailyTracking;
+  isViewOnly?: boolean;
   onSave: (record: DailyTracking) => void;
 }
 
@@ -2776,6 +2786,7 @@ const MilkTeethTrackingRowClean: React.FC<CleanTrackingRowProps> = ({
   student,
   date,
   record,
+  isViewOnly = false,
   onSave
 }) => {
   const [milk, setMilk] = useState<'ดื่มครบ' | 'ไม่ได้ดื่ม' | 'แพ้นม'>(record?.milkStatus || 'ดื่มครบ');
@@ -2790,6 +2801,7 @@ const MilkTeethTrackingRowClean: React.FC<CleanTrackingRowProps> = ({
   }, [record?.milkStatus, record?.toothBrushStatus]);
 
   const triggerSave = (mVal: 'ดื่มครบ' | 'ไม่ได้ดื่ม' | 'แพ้นม', tVal: 'แปรงฟันแล้ว' | 'ยังไม่ได้แปรง') => {
+    if (isViewOnly) return;
     const updated: DailyTracking = {
       id: record ? record.id : `dt-${student.id}-${date}`,
       date,
@@ -2821,33 +2833,63 @@ const MilkTeethTrackingRowClean: React.FC<CleanTrackingRowProps> = ({
         </div>
       </td>
       <td className="py-2.5 px-1 sm:px-4 text-center">
-        <select
-          value={milk}
-          onChange={(e: any) => {
-            const val = e.target.value;
-            setMilk(val);
-            triggerSave(val, teeth);
-          }}
-          className="text-[10px] sm:text-xs px-1 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs font-semibold text-slate-700 w-full max-w-[105px] sm:max-w-none truncate"
-        >
-          <option value="ดื่มครบ">🥛 ดื่มครบ</option>
-          <option value="ไม่ได้ดื่ม">❌ ไม่ได้ดื่ม</option>
-          <option value="แพ้นม">⚠️ แพ้นม</option>
-        </select>
+        {isViewOnly ? (
+          record?.milkStatus ? (
+            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg font-bold text-[10px] sm:text-xs border ${
+              record.milkStatus === 'ดื่มครบ'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : record.milkStatus === 'แพ้นม'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}>
+              {record.milkStatus === 'ดื่มครบ' ? '🥛 ดื่มครบ' : record.milkStatus === 'แพ้นม' ? '⚠️ แพ้นม' : '❌ ไม่ได้ดื่ม'}
+            </span>
+          ) : (
+            <span className="text-slate-400 font-bold text-xs">-</span>
+          )
+        ) : (
+          <select
+            value={milk}
+            onChange={(e: any) => {
+              const val = e.target.value;
+              setMilk(val);
+              triggerSave(val, teeth);
+            }}
+            className="text-[10px] sm:text-xs px-1 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs font-semibold text-slate-700 w-full max-w-[105px] sm:max-w-none truncate"
+          >
+            <option value="ดื่มครบ">🥛 ดื่มครบ</option>
+            <option value="ไม่ได้ดื่ม">❌ ไม่ได้ดื่ม</option>
+            <option value="แพ้นม">⚠️ แพ้นม</option>
+          </select>
+        )}
       </td>
       <td className="py-2.5 px-1 sm:px-4 text-center">
-        <select
-          value={teeth}
-          onChange={(e: any) => {
-            const val = e.target.value;
-            setTeeth(val);
-            triggerSave(milk, val);
-          }}
-          className="text-[10px] sm:text-xs px-1 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs font-semibold text-slate-700 w-full max-w-[105px] sm:max-w-none truncate"
-        >
-          <option value="แปรงฟันแล้ว">🪥 แปรงฟันแล้ว</option>
-          <option value="ยังไม่ได้แปรง">❌ ยังไม่ได้แปรง</option>
-        </select>
+        {isViewOnly ? (
+          record?.toothBrushStatus ? (
+            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg font-bold text-[10px] sm:text-xs border ${
+              record.toothBrushStatus === 'แปรงฟันแล้ว'
+                ? 'bg-sky-50 text-sky-700 border-sky-200'
+                : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}>
+              {record.toothBrushStatus === 'แปรงฟันแล้ว' ? '🪥 แปรงฟันแล้ว' : '❌ ยังไม่ได้แปรง'}
+            </span>
+          ) : (
+            <span className="text-slate-400 font-bold text-xs">-</span>
+          )
+        ) : (
+          <select
+            value={teeth}
+            onChange={(e: any) => {
+              const val = e.target.value;
+              setTeeth(val);
+              triggerSave(milk, val);
+            }}
+            className="text-[10px] sm:text-xs px-1 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer shadow-2xs font-semibold text-slate-700 w-full max-w-[105px] sm:max-w-none truncate"
+          >
+            <option value="แปรงฟันแล้ว">🪥 แปรงฟันแล้ว</option>
+            <option value="ยังไม่ได้แปรง">❌ ยังไม่ได้แปรง</option>
+          </select>
+        )}
       </td>
     </tr>
   );

@@ -17,6 +17,7 @@ import {
   CheckCircle2, 
   Calendar, 
   Edit3, 
+  Eye,
   Filter, 
   X, 
   Star,
@@ -30,6 +31,9 @@ interface Module1CommentsEvaluationProps {
   students: Student[];
   schoolInfo?: SchoolInfo;
   personnel?: Personnel[];
+  registeredHomeroomGrades?: GradeLevel[];
+  selectedGrade?: string;
+  onSelectGrade?: (grade: string) => void;
   onShowToast: (type: 'success' | 'warning' | 'error' | 'info', title: string, msg: string) => void;
   onOpenLightbox?: (imageUrl: string, title: string, subtitle?: string) => void;
 }
@@ -58,21 +62,21 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
   user,
   students,
   schoolInfo,
-  personnel,
-  onShowToast,
-  onOpenLightbox
+  registeredHomeroomGrades = [],
+  selectedGrade,
+  onSelectGrade,
+  onShowToast
 }) => {
-  // Academic Year & Semester state (Synced with Admin / SchoolInfo. Members cannot change this as Admin sets it)
+  const isReadOnly = user.role === 'admin';
+
+  // Academic Year & Semester state (Synced with SchoolInfo)
   const [academicYear, setAcademicYear] = useState<string>(schoolInfo?.academicYear || '2569');
   const [semester, setSemester] = useState<string>(schoolInfo?.semester || '1');
 
-  // If member, keep strictly synced to schoolInfo set by Admin
   useEffect(() => {
-    if (user.role === 'member') {
-      if (schoolInfo?.academicYear) setAcademicYear(schoolInfo.academicYear);
-      if (schoolInfo?.semester) setSemester(schoolInfo.semester);
-    }
-  }, [user.role, schoolInfo?.academicYear, schoolInfo?.semester]);
+    if (schoolInfo?.academicYear) setAcademicYear(schoolInfo.academicYear);
+    if (schoolInfo?.semester) setSemester(schoolInfo.semester);
+  }, [schoolInfo?.academicYear, schoolInfo?.semester]);
 
   // Stored evaluations: key = `${studentId}_${academicYear}_${semester}`
   const [evaluations, setEvaluations] = useState<Record<string, StudentBehaviorEvaluation>>(() => 
@@ -88,12 +92,32 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
     return () => unsubscribe();
   }, []);
 
+  // Available grade levels
+  const availableGradeLevels = useMemo(() => {
+    if (user.role === 'admin' && registeredHomeroomGrades.length > 0) {
+      return registeredHomeroomGrades;
+    }
+    const gradesSet = new Set<string>();
+    students.forEach(s => {
+      if (s.gradeLevel) gradesSet.add(s.gradeLevel.trim());
+    });
+    const order: GradeLevel[] = [
+      'อ.1', 'อ.2', 'อ.3',
+      'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+    ];
+    return order.filter(g => gradesSet.has(g));
+  }, [students, user.role, registeredHomeroomGrades]);
+
   // Grade filter & Search
   const [gradeFilter, setGradeFilter] = useState<string>(() => {
     if (user.role === 'member' && user.assignedGrade) {
       return user.assignedGrade;
     }
-    return 'ALL';
+    if (selectedGrade && selectedGrade !== 'ALL') {
+      return selectedGrade;
+    }
+    return availableGradeLevels[0] || 'ป.1';
   });
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -107,22 +131,21 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
   useEffect(() => {
     if (user.role === 'member' && user.assignedGrade) {
       setGradeFilter(user.assignedGrade);
+    } else if (user.role === 'admin') {
+      if (selectedGrade && selectedGrade !== 'ALL' && availableGradeLevels.includes(selectedGrade as GradeLevel)) {
+        setGradeFilter(selectedGrade);
+      } else if (availableGradeLevels.length > 0 && !availableGradeLevels.includes(gradeFilter as GradeLevel)) {
+        const nextGrade = availableGradeLevels[0];
+        setGradeFilter(nextGrade);
+        onSelectGrade?.(nextGrade);
+      }
     }
-  }, [user.role, user.assignedGrade]);
+  }, [user.role, user.assignedGrade, selectedGrade, availableGradeLevels]);
 
-  // Available grade levels
-  const availableGradeLevels = useMemo(() => {
-    const gradesSet = new Set<string>();
-    students.forEach(s => {
-      if (s.gradeLevel) gradesSet.add(s.gradeLevel.trim());
-    });
-    const order: GradeLevel[] = [
-      'อ.1', 'อ.2', 'อ.3',
-      'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
-      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
-    ];
-    return order.filter(g => gradesSet.has(g));
-  }, [students]);
+  const handleGradeChange = (val: string) => {
+    setGradeFilter(val);
+    onSelectGrade?.(val);
+  };
 
   // Filter students
   const filteredStudents = useMemo(() => {
@@ -168,6 +191,7 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
 
   // Bulk set all 8 criteria scores (3 All or 2 All)
   const handleBulkSetAllScores = (val: number) => {
+    if (isReadOnly) return;
     setCurrentEvalDraft(prev => ({
       ...prev,
       scores: {
@@ -203,7 +227,7 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
 
   // Save single student evaluation
   const handleSaveStudentEval = () => {
-    if (!selectedStudentForEval) return;
+    if (isReadOnly || !selectedStudentForEval) return;
     const key = getEvalKey(selectedStudentForEval.id);
     const evalData: StudentBehaviorEvaluation = {
       id: evaluations[key]?.id || `eval-${selectedStudentForEval.id}-${academicYear}-${semester}`,
@@ -222,107 +246,104 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-12">
-      {/* Action Bar & Filters */}
-      <div className="bg-white rounded-2xl p-2.5 sm:p-5 shadow-xs border border-slate-200">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
-          {/* Mobile Single-Row Compact Bar (ปี | เทอม | ชั้น) & Desktop Filters */}
-          <div className="grid grid-cols-3 gap-1.5 bg-slate-50 border border-slate-200 p-1.5 rounded-xl w-full sm:w-auto sm:flex sm:items-center sm:gap-3 sm:bg-transparent sm:border-0 sm:p-0">
-            {/* Year Selector */}
-            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
-              <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0 hidden sm:block" />
-              <span className="shrink-0 font-bold">ปี:</span>
-              <select
-                value={academicYear}
-                onChange={(e) => setAcademicYear(e.target.value)}
-                disabled={user.role === 'member'}
-                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
-                title={user.role === 'member' ? 'ปีการศึกษาถูกกำหนดโดย Admin โรงเรียน' : ''}
-              >
-                <option value="2570">2570</option>
-                <option value="2569">2569</option>
-                <option value="2568">2568</option>
-              </select>
+    <div className="space-y-4 animate-fadeIn pb-12">
+      {/* Action Bar & Filters (Hidden for Admin since single grade dropdown is in the top bar) */}
+      {!isReadOnly && (
+        <div className="bg-white rounded-2xl p-2.5 sm:p-5 shadow-xs border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+            {/* Mobile Single-Row Compact Bar (ปี | เทอม | ชั้น) & Desktop Filters */}
+            <div className="grid grid-cols-3 gap-1.5 bg-slate-50 border border-slate-200 p-1.5 rounded-xl w-full sm:w-auto sm:flex sm:items-center sm:gap-3 sm:bg-transparent sm:border-0 sm:p-0">
+              {/* Year Selector */}
+              <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+                <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0 hidden sm:block" />
+                <span className="shrink-0 font-bold">ปี:</span>
+                <select
+                  value={academicYear}
+                  onChange={(e) => setAcademicYear(e.target.value)}
+                  disabled={user.role === 'member'}
+                  className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                  title={user.role === 'member' ? 'ปีการศึกษาถูกกำหนดโดย Admin โรงเรียน' : ''}
+                >
+                  <option value="2570">2570</option>
+                  <option value="2569">2569</option>
+                  <option value="2568">2568</option>
+                </select>
+              </div>
+
+              {/* Semester Selector */}
+              <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+                <span className="shrink-0 font-bold">เทอม:</span>
+                <select
+                  value={semester}
+                  onChange={(e) => setSemester(e.target.value)}
+                  disabled={user.role === 'member'}
+                  className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
+                  title={user.role === 'member' ? 'ภาคเรียนถูกกำหนดโดย Admin โรงเรียน' : ''}
+                >
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                </select>
+              </div>
+
+              {/* Grade Level Selector */}
+              <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
+                <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden sm:block" />
+                <span className="shrink-0 font-bold">ชั้น:</span>
+                <select
+                  value={gradeFilter}
+                  onChange={(e) => {
+                    if (user.role === 'member') return;
+                    handleGradeChange(e.target.value);
+                  }}
+                  disabled={user.role === 'member'}
+                  className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed max-w-[65px] sm:max-w-none truncate"
+                  title={user.role === 'member' ? 'ระดับชั้นถูกกำหนดตามครูประจำชั้น' : ''}
+                >
+                  {availableGradeLevels.map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            {/* Semester Selector */}
-            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
-              <span className="shrink-0 font-bold">เทอม:</span>
-              <select
-                value={semester}
-                onChange={(e) => setSemester(e.target.value)}
-                disabled={user.role === 'member'}
-                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed"
-                title={user.role === 'member' ? 'ภาคเรียนถูกกำหนดโดย Admin โรงเรียน' : ''}
-              >
-                <option value="1">1</option>
-                <option value="2">2</option>
-              </select>
-            </div>
-
-            {/* Grade Level Selector */}
-            <div className="flex items-center justify-center sm:justify-start gap-1 bg-white sm:bg-slate-50 border border-slate-200 px-1.5 sm:px-3 py-1.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold text-slate-700">
-              <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden sm:block" />
-              <span className="shrink-0 font-bold">ชั้น:</span>
-              <select
-                value={gradeFilter}
-                onChange={(e) => {
-                  if (user.role === 'member') return;
-                  setGradeFilter(e.target.value);
-                }}
-                disabled={user.role === 'member'}
-                className="bg-transparent text-slate-800 font-bold outline-none cursor-pointer disabled:opacity-75 disabled:cursor-not-allowed max-w-[65px] sm:max-w-none truncate"
-                title={user.role === 'member' ? 'ระดับชั้นถูกกำหนดตามครูประจำชั้น' : ''}
-              >
-                {user.role !== 'member' && <option value="ALL">ทั้งหมด</option>}
-                {availableGradeLevels.map(g => (
-                  <option key={g} value={g}>{g}</option>
-                ))}
-              </select>
+            {/* Search Input (Hidden on Mobile, Visible on Desktop) */}
+            <div className="hidden sm:relative sm:flex sm:flex-1 sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อ, เลขที่..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {searchQuery && (
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
-
-          {/* Search Input (Hidden on Mobile, Visible on Desktop) */}
-          <div className="hidden sm:relative sm:flex sm:flex-1 sm:w-64">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อ, เลขที่..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {user.role !== 'member' && (
-            <div className="hidden md:block text-[11px] font-semibold text-slate-400 shrink-0">
-              โหมดผู้ดูแลระบบ
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* STUDENT TABLE DIRECTLY DISPLAYED */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-indigo-600" />
-            <h3 className="font-bold text-slate-800 text-sm">
-              รายชื่อนักเรียน ({filteredStudents.length} คน) — ภาคเรียนที่ {semester} ปีการศึกษา {academicYear}
-            </h3>
+        {!isReadOnly && (
+          <div className="px-6 py-4 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-indigo-600" />
+              <h3 className="font-bold text-slate-800 text-sm">
+                รายชื่อนักเรียน ({filteredStudents.length} คน) — ภาคเรียนที่ {semester} ปีการศึกษา {academicYear}
+              </h3>
+            </div>
+            <span className="text-[11px] font-bold text-slate-500 bg-slate-200/70 px-2.5 py-1 rounded-lg">
+              บันทึกประเมิน 1 ครั้งต่อ 1 ภาคเรียน
+            </span>
           </div>
-          <span className="text-[11px] font-bold text-slate-500 bg-slate-200/70 px-2.5 py-1 rounded-lg">
-            บันทึกประเมิน 1 ครั้งต่อ 1 ภาคเรียน
-          </span>
-        </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -332,7 +353,7 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                 <th className="py-3 px-3 text-center w-24">ระดับชั้น</th>
                 <th className="py-3 px-4">ชื่อ - นามสกุล</th>
                 <th className="py-3 px-4 text-center w-40">สถานะการประเมิน</th>
-                <th className="py-3 px-4 text-center w-40">จัดการ</th>
+                <th className="py-3 px-4 text-center w-40">{isReadOnly ? 'ดูข้อมูล' : 'จัดการ'}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -377,18 +398,33 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                         )}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEvalModal(st)}
-                          className={`px-4 py-2 rounded-xl font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
-                            hasEvaluated 
-                              ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200' 
-                              : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
-                          }`}
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>{hasEvaluated ? 'แก้ไขประเมิน' : 'ประเมิน 8 ด้าน'}</span>
-                        </button>
+                        {isReadOnly ? (
+                          hasEvaluated ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEvalModal(st)}
+                              className="px-4 py-2 rounded-xl font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>ดูผลประเมิน</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 font-bold">-</span>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEvalModal(st)}
+                            className={`px-4 py-2 rounded-xl font-bold text-xs inline-flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+                              hasEvaluated 
+                                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+                            }`}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{hasEvaluated ? 'แก้ไขประเมิน' : 'ประเมิน 8 ด้าน'}</span>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -419,32 +455,34 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
             </div>
 
             <div className="p-6 space-y-6 max-h-[75vh] overflow-y-auto">
-              <div className="bg-indigo-50/70 border border-indigo-100 p-3.5 rounded-2xl text-xs text-indigo-900 flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <Award className="w-5 h-5 text-indigo-600 shrink-0" />
-                  <p className="text-indigo-900 font-semibold">
-                    ให้คะแนนรวดเร็ว:
-                  </p>
+              {!isReadOnly && (
+                <div className="bg-indigo-50/70 border border-indigo-100 p-3.5 rounded-2xl text-xs text-indigo-900 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5">
+                    <Award className="w-5 h-5 text-indigo-600 shrink-0" />
+                    <p className="text-indigo-900 font-semibold">
+                      ให้คะแนนรวดเร็ว:
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleBulkSetAllScores(3)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>(3) All - ดีทั้งหมด</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleBulkSetAllScores(2)}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>(2) All - พอใช้ทั้งหมด</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleBulkSetAllScores(3)}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>(3) All - ดีทั้งหมด</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleBulkSetAllScores(2)}
-                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>(2) All - พอใช้ทั้งหมด</span>
-                  </button>
-                </div>
-              </div>
+              )}
 
               {/* 8 CRITERIA ITEMS */}
               <div className="space-y-4">
@@ -476,7 +514,9 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                               <button
                                 key={opt.val}
                                 type="button"
+                                disabled={isReadOnly}
                                 onClick={() => {
+                                  if (isReadOnly) return;
                                   setCurrentEvalDraft(prev => ({
                                     ...prev,
                                     scores: {
@@ -485,14 +525,16 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                                     }
                                   }));
                                 }}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                                  isReadOnly ? 'cursor-default' : 'cursor-pointer'
+                                } ${
                                   isSelected
                                     ? opt.val === 3 
                                       ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-105' 
                                       : opt.val === 2 
                                         ? 'bg-amber-500 text-white border-amber-500 shadow-sm scale-105' 
                                         : 'bg-rose-600 text-white border-rose-600 shadow-sm scale-105'
-                                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    : 'bg-white text-slate-700 border-slate-200'
                                 }`}
                               >
                                 {opt.text}
@@ -509,7 +551,7 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
               {/* TEACHER COMMENT INPUT, PAST HISTORY & PRESET CHIPS */}
               <div className="space-y-4 pt-2">
                 {/* Past Comment History (Previous Semesters & Years) */}
-                {studentPastEvaluations.length > 0 && (
+                {!isReadOnly && studentPastEvaluations.length > 0 && (
                   <div className="space-y-2 bg-slate-50 border border-slate-200 p-3.5 rounded-2xl">
                     <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <span>📜 ประวัติความคิดเห็นจากภาคเรียนหรือปีที่ผ่านมา:</span>
@@ -540,32 +582,41 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                   <label className="block text-xs font-bold text-slate-700">
                     ความคิดเห็นและข้อเสนอแนะของครูประจำชั้น
                   </label>
-                  <span className="text-[11px] text-slate-400">เลือกข้อความสำเร็จรูปด้านล่างเพื่อความรวดเร็ว</span>
+                  {!isReadOnly && (
+                    <span className="text-[11px] text-slate-400">เลือกข้อความสำเร็จรูปด้านล่างเพื่อความรวดเร็ว</span>
+                  )}
                 </div>
 
                 {/* Preset comment chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {PRESET_COMMENTS.map((preset, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => {
-                        setCurrentEvalDraft(prev => ({ ...prev, teacherComment: preset }));
-                      }}
-                      className="text-left text-[11px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-slate-600 px-3 py-1.5 rounded-xl border border-slate-200 transition-all cursor-pointer line-clamp-1 max-w-full"
-                      title={preset}
-                    >
-                      💡 {preset}
-                    </button>
-                  ))}
-                </div>
+                {!isReadOnly && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESET_COMMENTS.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setCurrentEvalDraft(prev => ({ ...prev, teacherComment: preset }));
+                        }}
+                        className="text-left text-[11px] bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-slate-600 px-3 py-1.5 rounded-xl border border-slate-200 transition-all cursor-pointer line-clamp-1 max-w-full"
+                        title={preset}
+                      >
+                        💡 {preset}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <textarea
                   rows={3}
-                  value={currentEvalDraft.teacherComment}
-                  onChange={(e) => setCurrentEvalDraft(prev => ({ ...prev, teacherComment: e.target.value }))}
+                  readOnly={isReadOnly}
+                  disabled={isReadOnly}
+                  value={isReadOnly ? (currentEvalDraft.teacherComment || '-') : currentEvalDraft.teacherComment}
+                  onChange={(e) => {
+                    if (isReadOnly) return;
+                    setCurrentEvalDraft(prev => ({ ...prev, teacherComment: e.target.value }));
+                  }}
                   placeholder="พิมพ์ความคิดเห็น พฤติกรรมเด่น หรือข้อควรพัฒนาเพิ่มเติมของนักเรียน..."
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs leading-relaxed"
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs leading-relaxed disabled:opacity-90"
                 />
               </div>
             </div>
@@ -576,16 +627,18 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
                 onClick={() => setSelectedStudentForEval(null)}
                 className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition-all cursor-pointer"
               >
-                ยกเลิก
+                {isReadOnly ? 'ปิด' : 'ยกเลิก'}
               </button>
-              <button
-                type="button"
-                onClick={handleSaveStudentEval}
-                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
-              >
-                <Save className="w-4 h-4" />
-                <span>บันทึกการประเมิน</span>
-              </button>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={handleSaveStudentEval}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>บันทึกการประเมิน</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -593,3 +646,4 @@ export const Module1CommentsEvaluation: React.FC<Module1CommentsEvaluationProps>
     </div>
   );
 };
+

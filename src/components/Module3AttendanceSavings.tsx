@@ -2043,10 +2043,26 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
           </button>
         </div>
 
-        {/* Display academic year and semester text */}
-        <div className="hidden sm:flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-emerald-200 text-xs font-bold text-slate-800 shadow-2xs">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-          <span>ปีการศึกษา {activeAcademicYear} ภาค {activeSemester}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {user.role === 'admin' && activeTab === 'main' && registeredHomeroomGrades.length > 0 && (
+            <select
+              value={selectedGrade}
+              onChange={(e) => setSelectedGrade(e.target.value as GradeLevel)}
+              className="px-3 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-300 text-xs font-bold outline-none cursor-pointer shadow-2xs transition-colors"
+            >
+              {registeredHomeroomGrades.map(grade => (
+                <option key={grade} value={grade}>
+                  {grade}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Display academic year and semester text */}
+          <div className="hidden sm:flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-xl border border-emerald-200 text-xs font-bold text-slate-800 shadow-2xs">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+            <span>ปีการศึกษา {activeAcademicYear} ภาค {activeSemester}</span>
+          </div>
         </div>
       </div>
 
@@ -2055,28 +2071,6 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
       {/* ======================================================== */}
       {activeTab === 'main' && (
         <div className="space-y-3">
-          {/* Admin Class Selector: Clean, space-saving single scrollable row without dark bar or extra text */}
-          {user.role === 'admin' && registeredHomeroomGrades.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
-              {registeredHomeroomGrades.map(grade => {
-                const isSelected = selectedGrade === grade;
-                return (
-                  <button
-                    key={grade}
-                    type="button"
-                    onClick={() => setSelectedGrade(grade)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold font-mono transition-all shrink-0 cursor-pointer shadow-2xs border ${
-                      isSelected
-                        ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200'
-                        : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-200/90 hover:border-emerald-300'
-                    }`}
-                  >
-                    {grade}
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* Controls Bar: 4 Buttons evenly spanning 1 full bar (ปฏิทิน, มา, ประวัติ, รวม) */}
           <div className="bg-white p-2 sm:p-3 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">

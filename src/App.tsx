@@ -744,6 +744,7 @@ export default function App() {
             onShowToast={showToast}
             schoolInfo={schoolInfo}
             personnel={personnel}
+            members={tenantMembers}
           />
         )}
 

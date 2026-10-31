@@ -190,6 +190,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
     if (name === 'ภาษาต่างประเทศ' || code.startsWith('อ1')) return 7;
     if (name === 'วิทยาศาสตร์และเทคโนโลยี' || code.startsWith('ว1')) return 8;
     if (name === 'ประวัติศาสตร์' || code.startsWith('ป1')) return 9;
+    if (sub.isActivity) return 50;
     return 99;
   };
 
@@ -288,10 +289,18 @@ export const Module2Grading: React.FC<Module2Props> = ({
     return grade === 'อ.1' || grade === 'อ.2' || grade === 'อ.3';
   };
 
-  // Admin add subject modal
+  // Admin add subject / activity modal
   const [isSubjectModalOpen, setIsSubjectModalOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
   const [modalGradeLevel, setModalGradeLevel] = useState<GradeLevel>('ป.1');
+  const [modalItemType, setModalItemType] = useState<'subject' | 'activity'>('subject');
+  const [activityNamePresetInput, setActivityNamePresetInput] = useState<string>('');
+
+  const MODAL_ALLOWED_GRADES: GradeLevel[] = [
+    'อ.1', 'อ.2', 'อ.3',
+    'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+    'ม.1', 'ม.2', 'ม.3'
+  ];
 
   // Kindergarten configuration states in modal
   const [kindergartenSubtopics, setKindergartenSubtopics] = useState<string[]>(['']);
@@ -356,12 +365,21 @@ export const Module2Grading: React.FC<Module2Props> = ({
     score: number | '';
   }[]>([]);
 
-  const handleOpenSubjectModal = (sub?: Subject | null) => {
+  const handleOpenSubjectModal = (sub?: Subject | null, defaultType: 'subject' | 'activity' = 'subject') => {
     if (sub) {
       setEditingSubject(sub);
-      setModalGradeLevel(sub.gradeLevel);
+      const validGrade = MODAL_ALLOWED_GRADES.includes(sub.gradeLevel) ? sub.gradeLevel : 'ป.1';
+      setModalGradeLevel(validGrade);
+      setModalItemType(sub.isActivity ? 'activity' : 'subject');
+      setActivityNamePresetInput(sub.name || '');
 
-      if (isKindergartenGrade(sub.gradeLevel)) {
+      if (sub.isActivity) {
+        setSubjectUnitCountInput('');
+        setSubjectUnitDetails([]);
+        setKindergartenSubtopics(['']);
+        setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
+        setKindergartenRubricCount(3);
+      } else if (isKindergartenGrade(sub.gradeLevel)) {
         // อ.1, อ.2, อ.3: โหลดหัวข้อย่อย และระดับคะแนนคุณภาพ
         const existingSubs = sub.subtopics && sub.subtopics.length > 0 
           ? [...sub.subtopics] 
@@ -376,7 +394,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
         setSubjectUnitCountInput('');
         setSubjectUnitDetails([]);
       } else {
-        // ป.1 - ม.6: โหลดหน่วยการเรียนรู้
+        // ป.1 - ม.3: โหลดหน่วยการเรียนรู้
         const existingDetails = sub.learningUnitDetails || [];
         const existingUnits = sub.learningUnits && sub.learningUnits.length > 0
           ? sub.learningUnits
@@ -403,12 +421,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
       }
     } else {
       setEditingSubject(null);
+      setModalItemType(defaultType);
+      setActivityNamePresetInput('');
       const defaultGradeFromFilter: GradeLevel =
         selectedGradeFilter === 'อนุบาล'
           ? 'อ.1'
           : selectedGradeFilter === 'มัธยม'
           ? 'ม.1'
-          : ['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].includes(selectedGradeFilter)
+          : MODAL_ALLOWED_GRADES.includes(selectedGradeFilter as GradeLevel)
           ? (selectedGradeFilter as GradeLevel)
           : 'ป.1';
       setModalGradeLevel(defaultGradeFromFilter);
@@ -470,17 +490,21 @@ export const Module2Grading: React.FC<Module2Props> = ({
   const [subjectToWithdraw, setSubjectToWithdraw] = useState<Subject | null>(null);
   const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null);
 
-  // Modal for copying subjects from previous year in โครงสร้างรายวิชา
+  // Modal for copying subjects in โครงสร้างรายวิชา
   const [isCopySubjectsModalOpen, setIsCopySubjectsModalOpen] = useState(false);
   const [copyModalSourceYear, setCopyModalSourceYear] = useState(
     academicYears.find(y => y !== currentAcademicYear) || academicYears[0] || '2568'
   );
+  const [copyModalSourceSemester, setCopyModalSourceSemester] = useState<'1' | '2' | 'all'>('1');
+  const [copyModalSourceGrade, setCopyModalSourceGrade] = useState<string>('all');
+  const [selectedCopySubjectIds, setSelectedCopySubjectIds] = useState<string[]>([]);
 
   // Modal for copying assignment template from previous year in scoring tab
   const [isCopyAssignmentModalOpen, setIsCopyAssignmentModalOpen] = useState(false);
   const [selectedTemplateSubject, setSelectedTemplateSubject] = useState<Subject | null>(null);
   const [copyTemplateSourceYear, setCopyTemplateSourceYear] = useState<string>('');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState<string>('all');
+  const [unregisteredGradeFilter, setUnregisteredGradeFilter] = useState<GradeLevel>('ป.1');
 
   // Learning Units state (หน่วยการเรียนรู้ 1, 2, 3...)
   const [selectedUnit, setSelectedUnit] = useState<number | null>(null);
@@ -554,7 +578,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
     ? selectedSubject.learningUnits
     : [1];
 
-  const isSelectedSubjectKindergarten = isKindergartenGrade(selectedSubject?.gradeLevel);
+  const isSelectedSubjectActivity = Boolean(selectedSubject?.isActivity);
+  const isSelectedSubjectKindergarten = !isSelectedSubjectActivity && isKindergartenGrade(selectedSubject?.gradeLevel);
 
   const activeRubricLevels: RubricLevel[] = useMemo(() => {
     if (selectedSubject?.rubricLevels && selectedSubject.rubricLevels.length > 0) {
@@ -1510,6 +1535,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
     characteristics: number;
     competency: number;
     assignmentScores: Record<string, number>;
+    activityResult?: 'ผ่าน' | 'ไม่ผ่าน' | '';
   }>>({});
 
   // Initialize row data when subject or currentSemester changes
@@ -1544,7 +1570,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
         readingWriting: existing ? existing.readingWritingScore : 3,
         characteristics: existing ? existing.desiredCharacteristicsScore : 3,
         competency: existing ? existing.competencyScore : 3,
-        assignmentScores: asgScores
+        assignmentScores: asgScores,
+        activityResult: existing?.activityResult || ''
       };
     });
 
@@ -1579,7 +1606,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
             readingWriting: existing ? existing.readingWritingScore : 3,
             characteristics: existing ? existing.desiredCharacteristicsScore : 3,
             competency: existing ? existing.competencyScore : 3,
-            assignmentScores: asgScores
+            assignmentScores: asgScores,
+            activityResult: existing?.activityResult || ''
           };
         }
       });
@@ -1599,13 +1627,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
         readingWriting: 3, 
         characteristics: 3, 
         competency: 3,
-        assignmentScores: {}
+        assignmentScores: {},
+        activityResult: ''
       };
       
-      const safeCw = Math.min(maxCw, Number(row.coursework) || 0);
-      const safeExam = Math.min(selectedSubject.examScore || 30, Number(row.exam) || 0);
-      const total = Math.min(selectedSubject.totalScore || 100, safeCw + safeExam);
-      const gpa = calculateThaiGrade(total);
+      const safeCw = selectedSubject.isActivity ? 0 : Math.min(maxCw, Number(row.coursework) || 0);
+      const safeExam = selectedSubject.isActivity ? 0 : Math.min(selectedSubject.examScore || 30, Number(row.exam) || 0);
+      const total = selectedSubject.isActivity ? 0 : Math.min(selectedSubject.totalScore || 100, safeCw + safeExam);
+      const gpa = selectedSubject.isActivity ? 0 : calculateThaiGrade(total);
 
       return {
         id: `grd-${s.id}-${selectedSubject.id}-${currentSemester}`,
@@ -1624,10 +1653,64 @@ export const Module2Grading: React.FC<Module2Props> = ({
         gradeGpa: gpa,
         readingWritingScore: Number(row.readingWriting) || 3,
         desiredCharacteristicsScore: Number(row.characteristics) || 3,
-        competencyScore: Number(row.competency) || 3
+        competencyScore: Number(row.competency) || 3,
+        activityResult: row.activityResult || ''
       };
     });
     onSaveBulkGrades(recordsToSave);
+  };
+
+  // Handle Activity Pass/Fail change (ผ่าน / ไม่ผ่าน)
+  const handleActivityResultChange = (studentId: string, result: 'ผ่าน' | 'ไม่ผ่าน' | '') => {
+    if (isMemberLockedReadOnly) {
+      onShowToast('warning', 'ภาคเรียนนี้ถูกล็อก 🔒', `ภาคเรียนที่ ${currentSemester} ถูกล็อกการกรอกผลการประเมินโดยผู้ดูแลระบบ`);
+      return;
+    }
+    if (!canGradeSubject) {
+      onShowToast('warning', 'ต้องลงทะเบียนก่อน', 'สมาชิกต้องลงทะเบียนกิจกรรมนี้ก่อนจึงจะสามารถประเมินผลได้');
+      return;
+    }
+    const currentRow = scoreRows[studentId] || {
+      coursework: 0,
+      exam: 0,
+      readingWriting: 3,
+      characteristics: 3,
+      competency: 3,
+      assignmentScores: {},
+      activityResult: ''
+    };
+    const next = {
+      ...scoreRows,
+      [studentId]: {
+        ...currentRow,
+        activityResult: result
+      }
+    };
+    setScoreRows(next);
+    autoSaveGrades(next);
+  };
+
+  const handleBatchActivityResult = (result: 'ผ่าน' | 'ไม่ผ่าน') => {
+    if (isMemberLockedReadOnly || !canGradeSubject) return;
+    const next = { ...scoreRows };
+    gradeStudents.forEach(s => {
+      const currentRow = next[s.id] || {
+        coursework: 0,
+        exam: 0,
+        readingWriting: 3,
+        characteristics: 3,
+        competency: 3,
+        assignmentScores: {},
+        activityResult: ''
+      };
+      next[s.id] = {
+        ...currentRow,
+        activityResult: result
+      };
+    });
+    setScoreRows(next);
+    autoSaveGrades(next);
+    onShowToast('success', 'บันทึกผลกิจกรรมสำเร็จ 🎉', `ประเมินผล "${result}" ให้กับนักเรียนทุกคนเรียบร้อยแล้ว`);
   };
 
   // Handle direct row score change (e.g. coursework / exam score, ห้ามเกินจำนวนเต็ม)
@@ -2082,10 +2165,11 @@ export const Module2Grading: React.FC<Module2Props> = ({
         readingWriting: 3, 
         characteristics: 3, 
         competency: 3,
-        assignmentScores: {}
+        assignmentScores: {},
+        activityResult: ''
       };
-      const total = Math.min(selectedSubject.totalScore, (Number(row.coursework) || 0) + (Number(row.exam) || 0));
-      const gpa = calculateThaiGrade(total);
+      const total = selectedSubject.isActivity ? 0 : Math.min(selectedSubject.totalScore, (Number(row.coursework) || 0) + (Number(row.exam) || 0));
+      const gpa = selectedSubject.isActivity ? 0 : calculateThaiGrade(total);
 
       return {
         id: `grd-${s.id}-${selectedSubject.id}-${currentSemester}`,
@@ -2098,18 +2182,19 @@ export const Module2Grading: React.FC<Module2Props> = ({
         semester: currentSemester,
         academicYear,
         assignmentScores: row.assignmentScores || {},
-        courseworkScore: Number(row.coursework) || 0,
-        examScore: Number(row.exam) || 0,
+        courseworkScore: selectedSubject.isActivity ? 0 : (Number(row.coursework) || 0),
+        examScore: selectedSubject.isActivity ? 0 : (Number(row.exam) || 0),
         totalScore: total,
         gradeGpa: gpa,
         readingWritingScore: Number(row.readingWriting) || 3,
         desiredCharacteristicsScore: Number(row.characteristics) || 3,
-        competencyScore: Number(row.competency) || 3
+        competencyScore: Number(row.competency) || 3,
+        activityResult: row.activityResult || ''
       };
     });
 
     onSaveBulkGrades(recordsToSave);
-    onShowToast('success', 'บันทึกคะแนนสำเร็จ', `บันทึกคะแนนภาคเรียนที่ ${currentSemester} รายวิชา ${selectedSubject.name} จำนวน ${recordsToSave.length} คน เรียบร้อย`);
+    onShowToast('success', 'บันทึกคะแนนสำเร็จ', `บันทึกคะแนนภาคเรียนที่ ${currentSemester} ${selectedSubject.isActivity ? 'กิจกรรม' : 'รายวิชา'} ${selectedSubject.name} จำนวน ${recordsToSave.length} คน เรียบร้อย`);
   };
 
   // Teacher enroll in subject (Member registers per semester independently)
@@ -2345,54 +2430,110 @@ export const Module2Grading: React.FC<Module2Props> = ({
     setAdminPasswordInput('');
   };
 
-  // Admin: คัดลอกรายวิชาจากปีก่อนหน้ามายังปีการศึกษาปัจจุบัน (ในแท็บโครงสร้างรายวิชา)
-  const handleCopySubjectsFromSourceYear = () => {
-    if (!copyModalSourceYear || copyModalSourceYear === currentAcademicYear) {
-      onShowToast('warning', 'เลือกปีการศึกษาต้นทาง', 'กรุณาเลือกปีการศึกษาต้นทางที่แตกต่างจากปีปัจจุบัน');
+  // รายวิชาที่แสดงใน Pop-up คัดลอกวิชา ตามปีการศึกษา ภาคเรียน และระดับชั้น (อ.1 - ม.3) ที่เลือก
+  const copyableSourceSubjects = useMemo(() => {
+    const filtered = subjects.filter(s => {
+      if (!isSubjectInYear(s, copyModalSourceYear)) return false;
+      const sSem = s.semester || '1';
+      if (copyModalSourceSemester !== 'all' && sSem !== copyModalSourceSemester) return false;
+      if (copyModalSourceGrade !== 'all' && s.gradeLevel !== copyModalSourceGrade) return false;
+      return MODAL_ALLOWED_GRADES.includes(s.gradeLevel as GradeLevel);
+    });
+    return sortSubjectsByGrade(filtered);
+  }, [subjects, copyModalSourceYear, copyModalSourceSemester, copyModalSourceGrade]);
+
+  React.useEffect(() => {
+    if (isCopySubjectsModalOpen) {
+      setSelectedCopySubjectIds(copyableSourceSubjects.map(s => s.id));
+    }
+  }, [isCopySubjectsModalOpen, copyModalSourceYear, copyModalSourceSemester, copyModalSourceGrade]);
+
+  // Admin: คัดลอกรายวิชาที่เลือก หรือคัดลอกทั้งหมด มายังปีการศึกษาและภาคเรียนปัจจุบัน
+  const handleCopySubjectsFromSourceYear = (mode: 'selected' | 'all' = 'selected') => {
+    const targetList =
+      mode === 'all'
+        ? copyableSourceSubjects
+        : copyableSourceSubjects.filter(s => selectedCopySubjectIds.includes(s.id));
+
+    if (targetList.length === 0) {
+      onShowToast('warning', 'ยังไม่ได้เลือกรายวิชา', 'กรุณาเลือกรายวิชาที่ต้องการคัดลอกอย่างน้อย 1 วิชา');
       return;
     }
-    const sourceSubs = subjects.filter(s => isSubjectInYear(s, copyModalSourceYear));
-    if (sourceSubs.length === 0) {
-      onShowToast('info', 'ไม่พบรายวิชา', `ไม่พบรายวิชาในปีการศึกษา ${copyModalSourceYear}`);
-      return;
-    }
 
-    const existingKeysInCurrentYear = new Set(
-      subjects.filter(s => isSubjectInYear(s, currentAcademicYear)).map(s => `${s.code}_${s.semester}`)
-    );
+    const existingSubjectsInCurrentYear = subjects.filter(s => isSubjectInYear(s, currentAcademicYear));
+    const existingComboMap = new Map<string, Subject>();
+    existingSubjectsInCurrentYear.forEach(s => {
+      const key = `${(s.code || '').trim().toUpperCase()}_${(s.name || '').trim()}_${s.gradeLevel}_${s.semester || '1'}`;
+      existingComboMap.set(key, s);
+    });
 
-    const subsToCopy = sourceSubs.filter(s => !existingKeysInCurrentYear.has(`${s.code}_${s.semester}`));
+    const baseTs = Date.now();
+    const subjectsToSave: Subject[] = [];
+    let createdCount = 0;
+    let updatedCount = 0;
 
-    if (subsToCopy.length === 0) {
-      onShowToast('info', 'มีรายวิชาครบแล้ว', `รายวิชาจากปี ${copyModalSourceYear} มีอยู่ในปี ${currentAcademicYear} ครบทุกวิชาแล้ว`);
-      setIsCopySubjectsModalOpen(false);
-      return;
-    }
+    targetList.forEach((s, idx) => {
+      const targetSemester: '1' | '2' =
+        copyModalSourceSemester === 'all' ? ((s.semester === '2' ? '2' : '1')) : currentSemester;
+      const comboKey = `${(s.code || '').trim().toUpperCase()}_${(s.name || '').trim()}_${s.gradeLevel}_${targetSemester}`;
+      const existingMatch = existingComboMap.get(comboKey);
 
-    const newSubjectsToCreate: Subject[] = subsToCopy.map((s, idx) => ({
-      ...s,
-      id: `sub-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-      academicYear: currentAcademicYear,
-      teacherId: '',
-      teacherName: '',
-      assignmentItems: s.assignmentItems ? s.assignmentItems.map(it => ({ ...it })) : []
-    }));
+      if (existingMatch) {
+        // หากเป็นวิชาใบเดียวกันเองในเทอมและปีเดียวกัน ไม่ต้องสร้างซ้ำแต่บันทึกอัปเดตโครงสร้าง
+        const updatedSub: Subject = {
+          ...existingMatch,
+          code: s.code,
+          name: s.name,
+          gradeLevel: s.gradeLevel,
+          hoursPerWeek: s.hoursPerWeek,
+          totalScore: s.totalScore,
+          courseworkScore: s.courseworkScore,
+          examScore: s.examScore,
+          isActivity: s.isActivity,
+          subtopics: s.subtopics ? [...s.subtopics] : existingMatch.subtopics,
+          rubricLevels: s.rubricLevels ? [...s.rubricLevels] : existingMatch.rubricLevels,
+          rubricMaxLevel: s.rubricMaxLevel ?? existingMatch.rubricMaxLevel,
+          learningUnits: s.learningUnits ? [...s.learningUnits] : existingMatch.learningUnits,
+          learningUnitDetails: s.learningUnitDetails ? s.learningUnitDetails.map(d => ({ ...d })) : existingMatch.learningUnitDetails
+        };
+        subjectsToSave.push(updatedSub);
+        updatedCount++;
+      } else {
+        const cloned: Subject = {
+          ...s,
+          id: `${s.isActivity ? 'act' : 'sub'}-${baseTs}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          academicYear: currentAcademicYear,
+          semester: targetSemester,
+          teacherId: '',
+          teacherName: '',
+          assignmentItems: s.assignmentItems
+            ? s.assignmentItems.map((it, aIdx) => ({
+                ...it,
+                id: `asg-${baseTs}-${idx}-${aIdx}`
+              }))
+            : []
+        };
+        existingComboMap.set(comboKey, cloned);
+        subjectsToSave.push(cloned);
+        createdCount++;
+      }
+    });
 
     if (onSaveBulkSubjects) {
-      onSaveBulkSubjects(newSubjectsToCreate);
+      onSaveBulkSubjects(subjectsToSave);
     } else {
-      newSubjectsToCreate.forEach(ns => onSaveSubject(ns));
+      subjectsToSave.forEach(ns => onSaveSubject(ns));
     }
 
     onShowToast(
-      'success', 
-      'คัดลอกรายวิชาสำเร็จ 🎉', 
-      `คัดลอกรายวิชาจากปี ${copyModalSourceYear} มายังปี ${currentAcademicYear} จำนวน ${newSubjectsToCreate.length} วิชาเรียบร้อย (คะแนนว่างเปล่า พร้อมให้สมาชิกลงทะเบียน)`
+      'success',
+      'คัดลอกรายวิชาสำเร็จ 🎉',
+      `คัดลอกรายวิชามายังปีการศึกษา ${currentAcademicYear} ภาคเรียนที่ ${currentSemester} จำนวน ${subjectsToSave.length} วิชาเรียบร้อยแล้ว${createdCount > 0 && updatedCount > 0 ? ` (เพิ่มใหม่ ${createdCount} วิชา, อัปเดต ${updatedCount} วิชา)` : ''}`
     );
     setIsCopySubjectsModalOpen(false);
   };
 
-  // Handle Save Subject (Admin เพิ่มรายวิชาได้)
+  // Handle Save Subject or Activity (Admin เพิ่มรายวิชา/กิจกรรมได้)
   const handleSaveSubjectSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (user.role !== 'admin') {
@@ -2403,13 +2544,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
     const form = e.currentTarget;
     const formData = new FormData(form);
 
+    const isActivityMode = modalItemType === 'activity';
     const gradeLevel = (formData.get('gradeLevel') as GradeLevel) || modalGradeLevel;
     const isPrimary = gradeLevel.startsWith('ป.');
-    const fullScore = Number(formData.get('totalScore') || (isPrimary ? 50 : 100));
-    const coursework = Number(formData.get('courseworkScore') || (isPrimary ? 35 : 70));
-    const exam = Number(formData.get('examScore') || (isPrimary ? 15 : 30));
+    const fullScore = isActivityMode ? 0 : Number(formData.get('totalScore') || (isPrimary ? 50 : 100));
+    const coursework = isActivityMode ? 0 : Number(formData.get('courseworkScore') || (isPrimary ? 35 : 70));
+    const exam = isActivityMode ? 0 : Number(formData.get('examScore') || (isPrimary ? 15 : 30));
     const semChoice = formData.get('semester') as string;
-    const isKindergarten = isKindergartenGrade(gradeLevel);
+    const isKindergarten = !isActivityMode && isKindergartenGrade(gradeLevel);
 
     let cleanedSubtopics: string[] = [];
     let rubricLevelsToSave: RubricLevel[] = [];
@@ -2424,13 +2566,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
       rubricLevelsToSave = kindergartenRubricLevels.slice(0, rubricMax);
     }
 
-    const unitNums = isKindergarten
+    const unitNums = isActivityMode
+      ? []
+      : isKindergarten
       ? cleanedSubtopics.map((_, i) => i + 1)
       : (subjectUnitDetails.length > 0
           ? subjectUnitDetails.map(u => u.unitNumber)
           : (editingSubject?.learningUnits && editingSubject.learningUnits.length > 0 ? editingSubject.learningUnits : [1]));
 
-    const unitDetails = isKindergarten
+    const unitDetails = isActivityMode || isKindergarten
       ? []
       : subjectUnitDetails.map(u => ({
           unitNumber: u.unitNumber,
@@ -2439,41 +2583,46 @@ export const Module2Grading: React.FC<Module2Props> = ({
         }));
 
     // Generate or update initial assignments based on unit details or kindergarten subtopics
-    let initialAssignments: AssignmentItem[] = editingSubject?.assignmentItems ? [...editingSubject.assignmentItems] : [];
-    if (isKindergarten) {
-      initialAssignments = cleanedSubtopics.map((st, i) => {
-        const existing = editingSubject?.assignmentItems?.[i];
-        return {
-          id: existing ? existing.id : `asg-k-${Date.now()}-${i + 1}`,
-          name: st,
-          unitNumber: i + 1,
-          maxScore: rubricMax
-        };
-      });
-    } else if (!editingSubject && unitDetails.length > 0) {
-      initialAssignments = unitDetails.map((ud) => ({
-        id: `asg-${Date.now()}-${ud.unitNumber}`,
-        name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
-        maxScore: ud.score > 0 ? ud.score : 5,
-        unitNumber: ud.unitNumber
-      }));
-    } else if (editingSubject && unitDetails.length > 0) {
-      const existing = [...(editingSubject.assignmentItems || [])];
-      unitDetails.forEach(ud => {
-        const found = existing.find(a => a.unitNumber === ud.unitNumber);
-        if (found) {
-          if (ud.name) found.name = ud.name;
-          if (ud.score > 0) found.maxScore = ud.score;
-        } else {
-          existing.push({
-            id: `asg-${Date.now()}-${ud.unitNumber}`,
-            name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
-            maxScore: ud.score > 0 ? ud.score : 5,
-            unitNumber: ud.unitNumber
-          });
-        }
-      });
-      initialAssignments = existing;
+    let initialAssignments: AssignmentItem[] = isActivityMode
+      ? []
+      : (editingSubject?.assignmentItems ? [...editingSubject.assignmentItems] : []);
+
+    if (!isActivityMode) {
+      if (isKindergarten) {
+        initialAssignments = cleanedSubtopics.map((st, i) => {
+          const existing = editingSubject?.assignmentItems?.[i];
+          return {
+            id: existing ? existing.id : `asg-k-${Date.now()}-${i + 1}`,
+            name: st,
+            unitNumber: i + 1,
+            maxScore: rubricMax
+          };
+        });
+      } else if (!editingSubject && unitDetails.length > 0) {
+        initialAssignments = unitDetails.map((ud) => ({
+          id: `asg-${Date.now()}-${ud.unitNumber}`,
+          name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
+          maxScore: ud.score > 0 ? ud.score : 5,
+          unitNumber: ud.unitNumber
+        }));
+      } else if (editingSubject && unitDetails.length > 0) {
+        const existing = [...(editingSubject.assignmentItems || [])];
+        unitDetails.forEach(ud => {
+          const found = existing.find(a => a.unitNumber === ud.unitNumber);
+          if (found) {
+            if (ud.name) found.name = ud.name;
+            if (ud.score > 0) found.maxScore = ud.score;
+          } else {
+            existing.push({
+              id: `asg-${Date.now()}-${ud.unitNumber}`,
+              name: ud.name ? ud.name : `หน่วยที่ ${ud.unitNumber}`,
+              maxScore: ud.score > 0 ? ud.score : 5,
+              unitNumber: ud.unitNumber
+            });
+          }
+        });
+        initialAssignments = existing;
+      }
     }
 
     const codeVal = String(formData.get('code') || '').trim();
@@ -2490,19 +2639,21 @@ export const Module2Grading: React.FC<Module2Props> = ({
       }
     }
 
+    const defaultHours = isActivityMode ? 1 : 2;
+
     if (semChoice === 'both' && !editingSubject) {
       const baseTs = Date.now();
       const sub1: Subject = {
-        id: `sub-${baseTs}-sem1`,
+        id: `${isActivityMode ? 'act' : 'sub'}-${baseTs}-sem1`,
         code: codeVal,
         name: nameVal,
         gradeLevel: gradeLevel,
-        hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+        hoursPerWeek: Number(formData.get('hoursPerWeek') || defaultHours),
         semester: '1',
         academicYear: currentAcademicYear,
-        totalScore: isKindergarten ? 100 : fullScore,
-        courseworkScore: isKindergarten ? 70 : coursework,
-        examScore: isKindergarten ? 30 : exam,
+        totalScore: isActivityMode ? 0 : (isKindergarten ? 100 : fullScore),
+        courseworkScore: isActivityMode ? 0 : (isKindergarten ? 70 : coursework),
+        examScore: isActivityMode ? 0 : (isKindergarten ? 30 : exam),
         teacherId: '',
         teacherName: '',
         assignmentItems: initialAssignments,
@@ -2510,19 +2661,20 @@ export const Module2Grading: React.FC<Module2Props> = ({
         learningUnitDetails: unitDetails,
         subtopics: isKindergarten ? cleanedSubtopics : undefined,
         rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
-        rubricMaxLevel: isKindergarten ? rubricMax : undefined
+        rubricMaxLevel: isKindergarten ? rubricMax : undefined,
+        isActivity: isActivityMode
       };
       const sub2: Subject = {
-        id: `sub-${baseTs}-sem2`,
+        id: `${isActivityMode ? 'act' : 'sub'}-${baseTs}-sem2`,
         code: codeVal,
         name: nameVal,
         gradeLevel: gradeLevel,
-        hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+        hoursPerWeek: Number(formData.get('hoursPerWeek') || defaultHours),
         semester: '2',
         academicYear: currentAcademicYear,
-        totalScore: isKindergarten ? 100 : fullScore,
-        courseworkScore: isKindergarten ? 70 : coursework,
-        examScore: isKindergarten ? 30 : exam,
+        totalScore: isActivityMode ? 0 : (isKindergarten ? 100 : fullScore),
+        courseworkScore: isActivityMode ? 0 : (isKindergarten ? 70 : coursework),
+        examScore: isActivityMode ? 0 : (isKindergarten ? 30 : exam),
         teacherId: '',
         teacherName: '',
         assignmentItems: initialAssignments.map(a => ({ ...a, id: `${a.id}-sem2` })),
@@ -2530,7 +2682,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
         learningUnitDetails: unitDetails,
         subtopics: isKindergarten ? cleanedSubtopics : undefined,
         rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
-        rubricMaxLevel: isKindergarten ? rubricMax : undefined
+        rubricMaxLevel: isKindergarten ? rubricMax : undefined,
+        isActivity: isActivityMode
       };
       if (onSaveBulkSubjects) {
         onSaveBulkSubjects([sub1, sub2]);
@@ -2546,22 +2699,26 @@ export const Module2Grading: React.FC<Module2Props> = ({
       setKindergartenSubtopics(['']);
       setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
       setKindergartenRubricCount(3);
-      onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${sub1.code ? sub1.code + ' ' : ''}${sub1.name} (ทั้งเทอม 1 และเทอม 2) เรียบร้อยแล้ว`);
+      onShowToast(
+        'success',
+        isActivityMode ? 'บันทึกกิจกรรมสำเร็จ' : 'บันทึกวิชาสำเร็จ',
+        `บันทึก${isActivityMode ? 'กิจกรรม' : 'โครงสร้างรายวิชา'} ${sub1.code ? sub1.code + ' ' : ''}${sub1.name} (ทั้งเทอม 1 และเทอม 2) เรียบร้อยแล้ว`
+      );
       return;
     }
 
     const sem = (semChoice as '1' | '2') || currentSemester;
     const newSub: Subject = {
-      id: editingSubject ? editingSubject.id : 'sub-' + Date.now(),
+      id: editingSubject ? editingSubject.id : `${isActivityMode ? 'act' : 'sub'}-` + Date.now(),
       code: codeVal,
       name: nameVal,
       gradeLevel: gradeLevel,
-      hoursPerWeek: Number(formData.get('hoursPerWeek') || 2),
+      hoursPerWeek: Number(formData.get('hoursPerWeek') || defaultHours),
       semester: sem,
       academicYear: editingSubject?.academicYear || currentAcademicYear,
-      totalScore: isKindergarten ? 100 : fullScore,
-      courseworkScore: isKindergarten ? 70 : coursework,
-      examScore: isKindergarten ? 30 : exam,
+      totalScore: isActivityMode ? 0 : (isKindergarten ? 100 : fullScore),
+      courseworkScore: isActivityMode ? 0 : (isKindergarten ? 70 : coursework),
+      examScore: isActivityMode ? 0 : (isKindergarten ? 30 : exam),
       teacherId: editingSubject?.teacherId || '',
       teacherName: editingSubject?.teacherName || '',
       assignmentItems: initialAssignments,
@@ -2569,7 +2726,8 @@ export const Module2Grading: React.FC<Module2Props> = ({
       learningUnitDetails: unitDetails,
       subtopics: isKindergarten ? cleanedSubtopics : undefined,
       rubricLevels: isKindergarten ? rubricLevelsToSave : undefined,
-      rubricMaxLevel: isKindergarten ? rubricMax : undefined
+      rubricMaxLevel: isKindergarten ? rubricMax : undefined,
+      isActivity: isActivityMode
     };
 
     onSaveSubject(newSub);
@@ -2584,7 +2742,11 @@ export const Module2Grading: React.FC<Module2Props> = ({
     setKindergartenSubtopics(['']);
     setKindergartenRubricLevels(DEFAULT_KINDERGARTEN_RUBRIC_LEVELS);
     setKindergartenRubricCount(3);
-    onShowToast('success', 'บันทึกวิชาสำเร็จ', `บันทึกโครงสร้างรายวิชา ${newSub.code ? newSub.code + ' ' : ''}${newSub.name} (ภาคเรียนที่ ${sem}) เรียบร้อยแล้ว`);
+    onShowToast(
+      'success',
+      isActivityMode ? 'บันทึกกิจกรรมสำเร็จ' : 'บันทึกวิชาสำเร็จ',
+      `บันทึก${isActivityMode ? 'กิจกรรม' : 'โครงสร้างรายวิชา'} ${newSub.code ? newSub.code + ' ' : ''}${newSub.name} (ภาคเรียนที่ ${sem}) เรียบร้อยแล้ว`
+    );
   };
 
   return (
@@ -2844,10 +3006,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 {user.role === 'admin' ? (
                   <>
                     {sortedRegisteredSubjects.length > 0 ? (
-                      <optgroup label={`รายวิชาที่สมาชิกลงทะเบียนแล้ว (ภาค ${currentSemester})`}>
+                      <optgroup label={`รายวิชา/กิจกรรมที่สมาชิกลงทะเบียนแล้ว (ภาค ${currentSemester})`}>
                         {sortedRegisteredSubjects.map(sub => (
                           <option key={sub.id} value={sub.id}>
-                            ชั้น {sub.gradeLevel} : {sub.name} — {sub.teacherName || 'ผู้สอน'}
+                            ชั้น {sub.gradeLevel} : {sub.isActivity ? `[กิจกรรม] ${sub.name}` : sub.name} — {sub.teacherName || 'ผู้สอน'}
                           </option>
                         ))}
                       </optgroup>
@@ -2858,10 +3020,10 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 ) : (
                   <>
                     {sortedMyRegisteredSubjects.length > 0 ? (
-                      <optgroup label={`รายวิชาที่คุณลงทะเบียนสอน (ภาค ${currentSemester})`}>
+                      <optgroup label={`รายวิชา/กิจกรรมที่คุณลงทะเบียนสอน (ภาค ${currentSemester})`}>
                         {sortedMyRegisteredSubjects.map(sub => (
                           <option key={sub.id} value={sub.id}>
-                            ชั้น {sub.gradeLevel} : {sub.name}
+                            ชั้น {sub.gradeLevel} : {sub.isActivity ? `[กิจกรรม] ${sub.name}` : sub.name}
                           </option>
                         ))}
                       </optgroup>
@@ -2915,9 +3077,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 <div className="space-y-1.5 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                      {isSelectedSubjectActivity && (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold">
+                          กิจกรรม
+                        </span>
+                      )}
                       <span>ชั้น {selectedSubject?.gradeLevel} {selectedSubject?.name} ({selectedSubject?.code})</span>
                       {/* ไอคอนคัดลอกตาราง ให้อยู่ด้านหลัง ชื่อวิชา จะได้ประหยัดหน้า */}
-                      {!isAdminReadOnly && (
+                      {!isAdminReadOnly && !isSelectedSubjectActivity && (
                         <button
                           type="button"
                           onClick={() => {
@@ -2958,8 +3125,27 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     </h3>
                   </div>
 
-                  {/* สำหรับ อ.1, อ.2, อ.3: แสดงปุ่มหน้าหัวข้อย่อย เรียง 3 ปุ่มต่อบรรทัดและขนาดเท่ากันอย่างเป็นระเบียบ */}
-                  {isSelectedSubjectKindergarten ? (
+                  {/* สำหรับ กิจกรรม: แสดงเกณฑ์การประเมิน ผ่าน - ไม่ผ่าน และปุ่มลัดให้ผ่านทุกคน */}
+                  {isSelectedSubjectActivity ? (
+                    <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+                      <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-xl flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>เกณฑ์การประเมินกิจกรรม: เลือก <strong>ผ่าน</strong> หรือ <strong>ไม่ผ่าน</strong></span>
+                      </span>
+                      {canGradeSubject && !isAdminReadOnly && !isMemberLockedReadOnly && gradeStudents.length > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleBatchActivityResult('ผ่าน')}
+                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>ให้ &quot;ผ่าน&quot; ทุกคน</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : isSelectedSubjectKindergarten ? (
                     <div className="w-full bg-slate-50/70 border border-slate-200/80 rounded-2xl p-2.5 space-y-2.5">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full">
                         {/* ปุ่มหัวข้อย่อยแต่ละหน้า */}
@@ -3228,7 +3414,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {!isAdminReadOnly && assignmentItems.length === 0 && (
+                  {!isAdminReadOnly && !isSelectedSubjectActivity && assignmentItems.length === 0 && (
                     <button
                       onClick={() => {
                         if (!canGradeSubject) {
@@ -3312,6 +3498,16 @@ export const Module2Grading: React.FC<Module2Props> = ({
                             </td>
                             {semSubs.map(subj => {
                               const gRec = grades.find(g => g.studentId === student.id && g.subjectId === subj.id && g.semester === currentSemester);
+                              if (subj.isActivity) {
+                                const actVal = gRec?.activityResult || '-';
+                                return (
+                                  <td key={subj.id} className="py-2 px-2 text-center font-bold border-r border-slate-100 text-xs bg-emerald-50/20">
+                                    <span className={actVal === 'ผ่าน' ? 'text-emerald-700' : actVal === 'ไม่ผ่าน' ? 'text-rose-600' : 'text-slate-400'}>
+                                      {actVal}
+                                    </span>
+                                  </td>
+                                );
+                              }
                               const scoreVal = gRec?.totalScore !== undefined ? gRec.totalScore : 0;
                               const gradeVal = gRec?.totalScore !== undefined ? calculateThaiGrade(scoreVal, subj.totalScore || 100) : '-';
 
@@ -3673,10 +3869,87 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </div>
             ) : (
               <>
-            {/* มุมมอง Mobile (เฉพาะหน้าจอมือถือ): สลับระหว่าง อ.1-อ.3 (หัวข้อย่อยและภาพรวม) กับ ป.1-ม.6 (ระหว่างภาค/ปลายภาค/รวม) */}
+            {/* มุมมอง Mobile (เฉพาะหน้าจอมือถือ): สลับระหว่าง กิจกรรม (ผ่าน/ไม่ผ่าน), อ.1-อ.3 (หัวข้อย่อยและภาพรวม) กับ ป.1-ม.6 (ระหว่างภาค/ปลายภาค/รวม) */}
             <div className="sm:hidden">
               <div className="overflow-hidden border border-slate-200 rounded-2xl bg-white shadow-2xs w-full">
-                {isSelectedSubjectKindergarten ? (
+                {isSelectedSubjectActivity ? (
+                  <table className="w-full text-left text-xs table-fixed">
+                    <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="py-2.5 px-2.5 font-bold text-slate-800">ชื่อ-สกุลนักเรียน</th>
+                        <th className="py-2.5 px-2 text-center bg-emerald-50/60 w-[145px] shrink-0">
+                          <div className="text-[11px] font-bold text-emerald-950 whitespace-nowrap">ผลการประเมิน</div>
+                          <span className="text-[9px] font-normal text-emerald-700">(ผ่าน / ไม่ผ่าน)</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gradeStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={2} className="py-8 text-center text-slate-400 text-xs">
+                            ยังไม่มีนักเรียนในระดับชั้น {selectedSubject?.gradeLevel}
+                          </td>
+                        </tr>
+                      ) : (
+                        gradeStudents.map((student, idx) => {
+                          const row = scoreRows[student.id];
+                          const actRes = row?.activityResult || '';
+                          return (
+                            <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 px-2 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono font-bold text-[10px] inline-flex items-center justify-center shrink-0">
+                                    {student.rollNumber ?? (idx + 1)}
+                                  </span>
+                                  <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                    {student.photoUrl ? (
+                                      <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <User className="w-3.5 h-3.5 text-slate-400" />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-slate-800 text-xs truncate leading-tight">
+                                      {student.prefix}{student.firstName} {student.lastName}
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2 px-2 text-center bg-emerald-50/20">
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly}
+                                    onClick={() => handleActivityResultChange(student.id, actRes === 'ผ่าน' ? '' : 'ผ่าน')}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                                      actRes === 'ผ่าน'
+                                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
+                                    } ${(!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                                  >
+                                    ผ่าน
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly}
+                                    onClick={() => handleActivityResultChange(student.id, actRes === 'ไม่ผ่าน' ? '' : 'ไม่ผ่าน')}
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-bold border transition-all ${
+                                      actRes === 'ไม่ผ่าน'
+                                        ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                                        : 'bg-white text-slate-600 border-slate-200 hover:bg-rose-50 hover:text-rose-700'
+                                    } ${(!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                                  >
+                                    ไม่ผ่าน
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                ) : isSelectedSubjectKindergarten ? (
                   <table className="w-full text-left text-xs table-fixed">
                     <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
                       <tr>
@@ -3949,7 +4222,103 @@ export const Module2Grading: React.FC<Module2Props> = ({
 
             {/* มุมมอง Desktop (หน้าจอคอมพิวเตอร์ / แท็บเล็ต): แสดงตารางแบบเต็มทุกช่องงาน */}
             <div className="hidden sm:block overflow-x-auto pb-3">
-              {isSelectedSubjectKindergarten ? (
+              {isSelectedSubjectActivity ? (
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-3 w-14 text-center border-r border-slate-200/80">เลขที่</th>
+                      <th className="py-3 px-3 w-28 text-center border-r border-slate-200/80">รหัสประจำตัว</th>
+                      <th className="py-3 px-4 min-w-[200px] border-r border-slate-200/80">ชื่อ - นามสกุล</th>
+                      <th className="py-3 px-4 text-center bg-emerald-50/60 border-r border-slate-200/80 w-64">
+                        <div className="text-xs font-bold text-emerald-950">ผลการประเมินกิจกรรม</div>
+                        <div className="text-[10px] font-normal text-emerald-700">(เลือก ผ่าน / ไม่ผ่าน)</div>
+                      </th>
+                      <th className="py-3 px-3 text-center bg-slate-100 w-36">
+                        <div className="text-xs font-bold text-slate-800">สรุปผล</div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {gradeStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-10 text-center text-slate-400 text-xs">
+                          ยังไม่มีนักเรียนในระดับชั้น {selectedSubject?.gradeLevel}
+                        </td>
+                      </tr>
+                    ) : (
+                      gradeStudents.map((student, idx) => {
+                        const row = scoreRows[student.id];
+                        const actRes = row?.activityResult || '';
+                        return (
+                          <tr key={student.id} className="hover:bg-slate-50/90 transition-colors">
+                            <td className="py-2.5 px-3 text-center font-mono text-slate-500 font-bold border-r border-slate-100">
+                              {student.rollNumber ?? (idx + 1)}
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-mono text-slate-600 border-r border-slate-100">
+                              {student.studentCode || '-'}
+                            </td>
+                            <td className="py-2.5 px-4 font-semibold text-slate-800 border-r border-slate-100">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 border border-slate-200 bg-slate-100 flex items-center justify-center">
+                                  {student.photoUrl ? (
+                                    <img src={student.photoUrl} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <User className="w-3.5 h-3.5 text-slate-400" />
+                                  )}
+                                </div>
+                                <span>{student.prefix}{student.firstName} {student.lastName}</span>
+                              </div>
+                            </td>
+                            <td className="py-2 px-4 text-center bg-emerald-50/20 border-r border-slate-100">
+                              <div className="inline-flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly}
+                                  onClick={() => handleActivityResultChange(student.id, actRes === 'ผ่าน' ? '' : 'ผ่าน')}
+                                  className={`px-4 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                                    actRes === 'ผ่าน'
+                                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs ring-2 ring-emerald-200'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300'
+                                  } ${(!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>ผ่าน</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly}
+                                  onClick={() => handleActivityResultChange(student.id, actRes === 'ไม่ผ่าน' ? '' : 'ไม่ผ่าน')}
+                                  className={`px-4 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 ${
+                                    actRes === 'ไม่ผ่าน'
+                                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs ring-2 ring-rose-200'
+                                      : 'bg-white text-slate-700 border-slate-200 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-300'
+                                  } ${(!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>ไม่ผ่าน</span>
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              {actRes === 'ผ่าน' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold text-xs">
+                                  ผ่าน
+                                </span>
+                              ) : actRes === 'ไม่ผ่าน' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 font-bold text-xs">
+                                  ไม่ผ่าน
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-xs font-medium">ยังไม่ประเมิน</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              ) : isSelectedSubjectKindergarten ? (
                 <table className="w-full text-left text-xs border-collapse">
                   <thead className="bg-slate-100/90 text-slate-700 font-semibold border-b border-slate-200">
                     <tr>
@@ -4711,7 +5080,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </div>
             )}
 
-            {/* Box 2: รายวิชาที่ยังไม่มีสมาชิกลงทะเบียนสอน (แสดงชั้น ป.1 นำหน้าชัดเจน) */}
+            {/* Box 2: รายวิชาที่ยังไม่มีสมาชิกลงทะเบียนสอน (แสดงปุ่มชั้น อ.1 ถึง ม.3 ค่าเริ่มต้น ป.1 ไม่มีปุ่มทุกชั้น) */}
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
               <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -4721,10 +5090,47 @@ export const Module2Grading: React.FC<Module2Props> = ({
                   </h4>
                 </div>
                 <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                  sortedUnregisteredSubjects.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-700'
+                  sortedUnregisteredSubjects.filter(s => s.gradeLevel === unregisteredGradeFilter).length > 0
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-emerald-100 text-emerald-700'
                 }`}>
-                  {sortedUnregisteredSubjects.length} วิชา
+                  ชั้น {unregisteredGradeFilter}: {sortedUnregisteredSubjects.filter(s => s.gradeLevel === unregisteredGradeFilter).length} วิชา
                 </span>
+              </div>
+
+              {/* แถบปุ่มเลือกชั้นเรียน อ.1 ถึง ม.3 (ไม่มีปุ่มทุกชั้น ค่าเริ่มต้น ป.1) */}
+              <div className="px-3 py-2.5 bg-slate-50/60 border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
+                {MODAL_ALLOWED_GRADES.map(grade => {
+                  const gradeCount = sortedUnregisteredSubjects.filter(s => s.gradeLevel === grade).length;
+                  const isActive = unregisteredGradeFilter === grade;
+                  return (
+                    <button
+                      key={grade}
+                      type="button"
+                      onClick={() => setUnregisteredGradeFilter(grade)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
+                        isActive
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                          : gradeCount > 0
+                          ? 'bg-white text-slate-700 border-slate-200 hover:border-amber-300 hover:bg-amber-50/50'
+                          : 'bg-slate-100/70 text-slate-400 border-slate-200/60 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span>{grade}</span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                          isActive
+                            ? 'bg-white/25 text-white'
+                            : gradeCount > 0
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-200/70 text-slate-400'
+                        }`}
+                      >
+                        {gradeCount}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="p-3 divide-y divide-slate-100 flex-1 overflow-y-auto max-h-80">
@@ -4733,49 +5139,56 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     <BookOpen className="w-6 h-6 text-slate-300" />
                     <span>ยังไม่มีรายวิชาที่เปิดในภาคเรียนที่ {currentSemester} (ปีการศึกษา {currentAcademicYear})</span>
                   </div>
-                ) : sortedUnregisteredSubjects.length === 0 ? (
+                ) : sortedUnregisteredSubjects.filter(s => s.gradeLevel === unregisteredGradeFilter).length === 0 ? (
                   <div className="py-8 text-center text-xs text-emerald-600 font-medium flex flex-col items-center gap-2">
                     <CheckCircle className="w-6 h-6 text-emerald-500" />
-                    <span>ทุกรายวิชาในภาคเรียนที่ {currentSemester} มีผู้สอนลงทะเบียนครบแล้ว</span>
+                    <span>รายวิชาชั้น {unregisteredGradeFilter} ในภาคเรียนที่ {currentSemester} มีผู้สอนลงทะเบียนครบแล้ว หรือยังไม่มีรายวิชาในชั้นนี้</span>
                   </div>
                 ) : (
-                  sortedUnregisteredSubjects.map(sub => (
-                    <div key={sub.id} className="py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50 rounded-xl transition-colors">
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-800 flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-200 text-xs">
-                            ชั้น {sub.gradeLevel}
-                          </span>
-                          <span>{sub.name}</span>
-                          <span className="font-mono text-slate-500 text-xs">
-                            ({sub.code})
-                          </span>
-                          <span className="text-[11px] text-slate-400">
-                            • {sub.hoursPerWeek} ชม./สัปดาห์
-                          </span>
+                  sortedUnregisteredSubjects
+                    .filter(s => s.gradeLevel === unregisteredGradeFilter)
+                    .map(sub => (
+                      <div key={sub.id} className="py-3 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50 rounded-xl transition-colors">
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-md border border-amber-200 text-xs">
+                              ชั้น {sub.gradeLevel}
+                            </span>
+                            {sub.isActivity && (
+                              <span className="font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-200 text-[11px]">
+                                กิจกรรม
+                              </span>
+                            )}
+                            <span>{sub.name}</span>
+                            <span className="font-mono text-slate-500 text-xs">
+                              ({sub.code})
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              • {sub.hoursPerWeek} ชม./สัปดาห์
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          {user.role === 'member' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleTeacherEnrollSubject(sub)}
+                              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                              title="คลิกเพื่อลงทะเบียนเป็นผู้สอนวิชานี้เพื่อเริ่มบันทึกคะแนน"
+                            >
+                              <UserCheck className="w-4 h-4" />
+                              <span>ลงทะเบียนสอนวิชานี้</span>
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium flex items-center gap-1">
+                              <Lock className="w-3.5 h-3.5 text-slate-400" />
+                              <span>รอครูลงทะเบียน</span>
+                            </span>
+                          )}
                         </div>
                       </div>
-
-                      <div className="shrink-0 flex items-center gap-1.5">
-                        {user.role === 'member' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleTeacherEnrollSubject(sub)}
-                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                            title="คลิกเพื่อลงทะเบียนเป็นผู้สอนวิชานี้เพื่อเริ่มบันทึกคะแนน"
-                          >
-                            <UserCheck className="w-4 h-4" />
-                            <span>ลงทะเบียนสอนวิชานี้</span>
-                          </button>
-                        ) : (
-                          <span className="text-[11px] text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-medium flex items-center gap-1">
-                            <Lock className="w-3.5 h-3.5 text-slate-400" />
-                            <span>รอครูลงทะเบียน</span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))
+                    ))
                 )}
               </div>
             </div>
@@ -4823,21 +5236,24 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </button>
 
               {/* ปุ่ม คัดลอกวิชา */}
-              {academicYears.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const otherYear = academicYears.find(y => y !== currentAcademicYear) || academicYears[0];
-                    setCopyModalSourceYear(otherYear || '2568');
-                    setIsCopySubjectsModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
-                  title="คัดลอกรายวิชาจากปีการศึกษาอื่นมายังปีปัจจุบัน (คะแนนจะไม่ตามมา)"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>คัดลอกวิชา</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const defaultSourceYear = academicYears.find(y => y !== currentAcademicYear) || currentAcademicYear || '2568';
+                  const defaultGrade = MODAL_ALLOWED_GRADES.includes(selectedGradeFilter as GradeLevel)
+                    ? selectedGradeFilter
+                    : 'all';
+                  setCopyModalSourceYear(defaultSourceYear);
+                  setCopyModalSourceSemester(currentSemester);
+                  setCopyModalSourceGrade(defaultGrade);
+                  setIsCopySubjectsModalOpen(true);
+                }}
+                className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                title="เลือกปีการศึกษา ภาคเรียน และชั้นเพื่อคัดลอกรายวิชา"
+              >
+                <Copy className="w-3.5 h-3.5 text-blue-600" />
+                <span>คัดลอกวิชา</span>
+              </button>
             </div>
 
 
@@ -4919,6 +5335,11 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     <span className="font-bold text-amber-900 bg-amber-100/90 border border-amber-200/80 px-2 py-0.5 rounded-lg text-xs shrink-0">
                       ชั้น {sub.gradeLevel}
                     </span>
+                    {sub.isActivity && (
+                      <span className="font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md text-xs shrink-0">
+                        กิจกรรม
+                      </span>
+                    )}
                     {sub.code && (
                       <span className="font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md text-xs shrink-0">
                         {sub.code}
@@ -4937,9 +5358,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     }`}>
                       ภาค {sub.semester}
                     </span>
-                    <span className="text-[11px] text-slate-600 font-mono shrink-0">
-                      คะแนนเต็ม {sub.totalScore} (ระหว่างภาค {sub.courseworkScore} : สอบ {sub.examScore})
-                    </span>
+                    {sub.isActivity ? (
+                      <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md font-semibold shrink-0">
+                        เกณฑ์ประเมิน: ผ่าน / ไม่ผ่าน
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-600 font-mono shrink-0">
+                        คะแนนเต็ม {sub.totalScore} (ระหว่างภาค {sub.courseworkScore} : สอบ {sub.examScore})
+                      </span>
+                    )}
                   </div>
 
                   {/* Right: Teacher status & Action buttons with delete icon at far right */}
@@ -4998,21 +5425,27 @@ export const Module2Grading: React.FC<Module2Props> = ({
         </div>
       )}
 
-      {/* MODAL: Admin Add/Edit Subject */}
+      {/* MODAL: Admin Add/Edit Subject or Activity */}
       {isSubjectModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-amber-200/80">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
+                  modalItemType === 'activity' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
                   <BookOpen className="w-4 h-4" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-800">
-                    {editingSubject ? 'แก้ไขโครงสร้างรายวิชา' : 'เพิ่มรายวิชาใหม่'}
+                    {editingSubject
+                      ? (modalItemType === 'activity' ? 'แก้ไขกิจกรรม' : 'แก้ไขโครงสร้างรายวิชา')
+                      : (modalItemType === 'activity' ? 'กิจกรรมใหม่' : 'เพิ่มรายวิชาใหม่')}
                   </h3>
                   <p className="text-xs text-slate-500">
-                    กำหนดข้อมูลวิชา สัดส่วนคะแนน และจำนวนหน่วยการเรียนรู้
+                    {modalItemType === 'activity'
+                      ? 'กำหนดรหัสกิจกรรม ระดับชั้น ชม./สัปดาห์ และภาคเรียน (ประเมินผล ผ่าน - ไม่ผ่าน)'
+                      : 'กำหนดข้อมูลวิชา สัดส่วนคะแนน และจำนวนหน่วยการเรียนรู้'}
                   </p>
                 </div>
               </div>
@@ -5025,320 +5458,442 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </button>
             </div>
 
+            {/* แถบสลับหน้า: เพิ่มรายวิชาใหม่ / กิจกรรมใหม่ */}
+            {!editingSubject && (
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setModalItemType('subject')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    modalItemType === 'subject'
+                      ? 'bg-white text-amber-900 shadow-xs border border-amber-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <BookOpen className="w-3.5 h-3.5 text-amber-600" />
+                  <span>เพิ่มรายวิชาใหม่</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalItemType('activity')}
+                  className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                    modalItemType === 'activity'
+                      ? 'bg-white text-emerald-900 shadow-xs border border-emerald-200/80'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>กิจกรรมใหม่</span>
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleSaveSubjectSubmit} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
-                {!isKindergartenGrade(modalGradeLevel) && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">รหัสวิชา *</label>
+              {modalItemType === 'activity' ? (
+                <div key={`activity-form-${editingSubject?.id || 'new'}`} className="space-y-3.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div key="activity-code-field">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">รหัสกิจกรรม *</label>
+                      <input
+                        type="text"
+                        name="code"
+                        required
+                        placeholder="เช่น ก11901"
+                        defaultValue={editingSubject?.code || ''}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+                      />
+                    </div>
+                    <div key="activity-grade-field">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">เลือกชั้น *</label>
+                      <select
+                        name="gradeLevel"
+                        value={modalGradeLevel || 'ป.1'}
+                        onChange={(e) => setModalGradeLevel(e.target.value as GradeLevel)}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium bg-white cursor-pointer"
+                      >
+                        {MODAL_ALLOWED_GRADES.map(g => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div key="activity-name-field">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">ชื่อกิจกรรม *</label>
                     <input
                       type="text"
-                      name="code"
+                      name="name"
                       required
-                      placeholder="เช่น ท11101"
-                      defaultValue={editingSubject?.code || ''}
-                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                      value={activityNamePresetInput ?? ''}
+                      onChange={(e) => setActivityNamePresetInput(e.target.value)}
+                      placeholder="เช่น แนะแนว, ลูกเสือ-เนตรนารี, ชุมนุม, กิจกรรมเพื่อสังคมและสาธารณประโยชน์"
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
                     />
-                  </div>
-                )}
-                <div className={isKindergartenGrade(modalGradeLevel) ? 'col-span-2' : ''}>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">ระดับชั้น *</label>
-                  <select
-                    name="gradeLevel"
-                    value={modalGradeLevel}
-                    onChange={(e) => {
-                      const newGrade = e.target.value as GradeLevel;
-                      setModalGradeLevel(newGrade);
-                      if (isKindergartenGrade(newGrade)) {
-                        if (kindergartenSubtopics.length === 0 || (kindergartenSubtopics.length === 1 && !kindergartenSubtopics[0])) {
-                          setKindergartenSubtopics(['']);
-                        }
-                      }
-                    }}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
-                  >
-                    {['อ.1', 'อ.2', 'อ.3', 'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6', 'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'].map(g => (
-                      <option key={g} value={g}>{g}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">ชื่อรายวิชา *</label>
-                <input
-                  type="text"
-                  name="name"
-                  required
-                  placeholder="เช่น พัฒนาการด้านร่างกาย หรือ ภาษาไทยพื้นฐาน 1"
-                  defaultValue={editingSubject?.name || ''}
-                  className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                />
-              </div>
-
-              {/* สำหรับ อ.1, อ.2, อ.3 เท่านั้น: เพิ่มช่องหัวข้อย่อยด้านล่างชื่อวิชา มา 1 ช่องพร้อมเครื่องหมาย + เพื่อเพิ่มหัวข้อต่อ */}
-              {isKindergartenGrade(modalGradeLevel) && (
-                <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                        <span>หัวข้อย่อย (สำหรับ {modalGradeLevel}) *</span>
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setKindergartenSubtopics([...kindergartenSubtopics, ''])}
-                      className="px-2.5 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-2xs flex items-center gap-1 cursor-pointer transition-all active:scale-95 shrink-0"
-                    >
-                      <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                      <span>เพิ่มหัวข้อย่อย</span>
-                    </button>
-                  </div>
-
-                  {/* รายการช่องกรอกหัวข้อย่อย */}
-                  <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
-                    {kindergartenSubtopics.map((st, sIdx) => (
-                      <div key={sIdx} className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-amber-200/90 text-amber-900 font-mono font-bold text-xs flex items-center justify-center shrink-0">
-                          {sIdx + 1}
-                        </span>
-                        <input
-                          type="text"
-                          value={st}
-                          onChange={(e) => {
-                            const next = [...kindergartenSubtopics];
-                            next[sIdx] = e.target.value;
-                            setKindergartenSubtopics(next);
-                          }}
-                          placeholder={`ระบุชื่อหัวข้อย่อยที่ ${sIdx + 1} (เช่น ด้านร่างกาย, ด้านอารมณ์, การทรงตัว...)`}
-                          className="flex-1 text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
-                        />
-                        {kindergartenSubtopics.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setKindergartenSubtopics(kindergartenSubtopics.filter((_, i) => i !== sIdx));
-                            }}
-                            className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all cursor-pointer shrink-0"
-                            title="ลบหัวข้อย่อยนี้"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* สำหรับ อ.1, อ.2, อ.3: กำหนดระดับคะแนนคุณภาพว่าควรมีกี่ระดับ และในแต่ละระดับควรใช้คำไหน (เริ่มต้น 3 ระดับ: 1=ควรเสริม, 2=ได้บางครั้ง, 3=ปฏิบัติได้) */}
-              {isKindergartenGrade(modalGradeLevel) && (
-                <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/80 space-y-3">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-800 mb-0.5">
-                        ระดับคะแนนคุณภาพ (สำหรับตารางใส่คะแนน)
-                      </label>
-                    </div>
-
-                    {/* ปุ่มเลือกระดับคะแนนว่าควรมีกี่ระดับ */}
-                    <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
-                      {[2, 3, 4, 5].map((cnt) => (
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      <span className="text-[10px] text-slate-400">เลือกด่วน:</span>
+                      {['กิจกรรมแนะแนว', 'ลูกเสือ-เนตรนารี', 'กิจกรรมชุมนุม', 'กิจกรรมเพื่อสังคมและสาธารณประโยชน์'].map(preset => (
                         <button
-                          key={cnt}
+                          key={preset}
                           type="button"
-                          onClick={() => handleRubricCountChange(cnt)}
-                          className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                            kindergartenRubricCount === cnt
-                              ? 'bg-amber-600 text-white shadow-2xs'
-                              : 'text-slate-600 hover:bg-slate-100'
-                          }`}
+                          onClick={() => setActivityNamePresetInput(preset)}
+                          className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200/80 transition-colors cursor-pointer font-medium"
                         >
-                          {cnt} ระดับ{cnt === 3 ? ' (แนะนำ)' : ''}
+                          {preset}
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* ในแต่ละระดับควรใช้คำไหน ในการบอกคะแนนคุณภาพ */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                    {kindergartenRubricLevels.slice(0, kindergartenRubricCount).map((lvl, lIdx) => (
-                      <div key={lvl.level} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                            <span className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-white text-[11px] font-bold ${
-                              lvl.level === 3 ? 'bg-emerald-600' :
-                              lvl.level === 2 ? 'bg-amber-500' :
-                              lvl.level === 1 ? 'bg-rose-500' :
-                              lvl.level === 4 ? 'bg-sky-600' : 'bg-indigo-600'
-                            }`}>
-                              {lvl.level}
-                            </span>
-                            <span>ระดับคะแนน {lvl.level}</span>
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          value={lvl.label}
-                          onChange={(e) => {
-                            const next = [...kindergartenRubricLevels];
-                            next[lIdx] = { ...next[lIdx], label: e.target.value };
-                            setKindergartenRubricLevels(next);
-                          }}
-                          placeholder={`คำอธิบายระดับ ${lvl.level}`}
-                          className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 font-semibold text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">ชม./สัปดาห์</label>
-                  <input
-                    type="number"
-                    name="hoursPerWeek"
-                    defaultValue={editingSubject?.hoursPerWeek || 2}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">ภาคเรียน</label>
-                  <select
-                    name="semester"
-                    defaultValue={editingSubject?.semester || currentSemester}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
-                  >
-                    <option value="1">ภาคเรียนที่ 1</option>
-                    <option value="2">ภาคเรียนที่ 2</option>
-                    {!editingSubject && <option value="both">ทั้ง 2 ภาคเรียน (เทอม 1 และ เทอม 2)</option>}
-                  </select>
-                </div>
-              </div>
-
-              {/* สำหรับ ป.1 - ม.6 เท่านั้น: แสดงสัดส่วนคะแนนเต็ม ระหว่างภาค ปลายภาค */}
-              {!isKindergartenGrade(modalGradeLevel) && (
-                <div className="grid grid-cols-3 gap-3" key={`score-fields-${editingSubject?.id || (modalGradeLevel.startsWith('ป.') ? 'primary' : 'secondary')}`}>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">คะแนนเต็ม</label>
-                    <input
-                      type="number"
-                      name="totalScore"
-                      defaultValue={editingSubject?.totalScore ?? (modalGradeLevel.startsWith('ป.') ? 50 : 100)}
-                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">ระหว่างภาค</label>
-                    <input
-                      type="number"
-                      name="courseworkScore"
-                      defaultValue={editingSubject?.courseworkScore ?? (modalGradeLevel.startsWith('ป.') ? 35 : 70)}
-                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">ปลายภาค (สอบ)</label>
-                    <input
-                      type="number"
-                      name="examScore"
-                      defaultValue={editingSubject?.examScore ?? (modalGradeLevel.startsWith('ป.') ? 15 : 30)}
-                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* สำหรับ ป.1 - ม.6 เท่านั้น: ส่วนกำหนดหน่วยที่ / หน่วยการเรียนรู้ (สำหรับ อ.1, อ.2, อ.3 เอาออกช่องหน่วยทั้งหมด) */}
-              {!isKindergartenGrade(modalGradeLevel) && (
-                <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
-                        <span>หน่วยที่ / จำนวนหน่วยการเรียนรู้</span>
-                      </label>
-                      <p className="text-[11px] text-amber-800/80 mt-0.5">
-                        พิมพ์ตัวเลข (เช่น 1, 2, 3...) ระบบจะแสดงช่องให้กรอกชื่อหน่วยและคะแนนเก็บตามจำนวน
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-xs font-bold text-amber-900">หน่วยที่:</span>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">ชม./สัปดาห์ *</label>
                       <input
                         type="number"
-                        min={0}
-                        max={20}
-                        placeholder="เช่น 2"
-                        value={subjectUnitCountInput}
-                        onChange={(e) => handleUnitCountChange(e.target.value)}
-                        className="w-20 text-xs px-2.5 py-1.5 text-center font-bold font-mono rounded-xl border border-amber-300 bg-white text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-2xs"
+                        name="hoursPerWeek"
+                        min={1}
+                        required
+                        defaultValue={editingSubject?.hoursPerWeek || 1}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">ภาคเรียน *</label>
+                      <select
+                        name="semester"
+                        defaultValue={editingSubject?.semester || currentSemester}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium bg-white cursor-pointer"
+                      >
+                        <option value="1">ภาคเรียนที่ 1</option>
+                        <option value="2">ภาคเรียนที่ 2</option>
+                        {!editingSubject && <option value="both">ทั้ง 2 ภาคเรียน (เทอม 1 และ เทอม 2)</option>}
+                      </select>
                     </div>
                   </div>
 
-                  {/* รายการแสดงช่องกรอกชื่อหน่วย (ไม่บังคับ) และ คะแนนเก็บแต่ละหน่วย */}
-                  {subjectUnitDetails.length > 0 && (
-                    <div className="space-y-2 pt-2 border-t border-amber-200/70 max-h-56 overflow-y-auto pr-1">
-                      {subjectUnitDetails.map((unitItem, uIdx) => (
-                        <div
-                          key={unitItem.unitNumber}
-                          className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs flex items-center gap-2"
-                        >
-                          <span className="w-16 text-center text-[11px] font-bold text-amber-900 bg-amber-100/90 px-2 py-1.5 rounded-lg shrink-0 border border-amber-200/80">
-                            หน่วยที่ {unitItem.unitNumber}
-                          </span>
+                  <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200/80 flex items-center gap-2 text-xs text-emerald-900">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      สมาชิกที่ลงทะเบียนกิจกรรมนี้จะประเมินผลนักเรียนโดยเลือก <strong>ผ่าน</strong> หรือ <strong>ไม่ผ่าน</strong>
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div key={`subject-form-${editingSubject?.id || 'new'}`} className="space-y-3.5">
+                  <div className="grid grid-cols-2 gap-3">
+                    {!isKindergartenGrade(modalGradeLevel) && (
+                      <div key="subject-code-field">
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">รหัสวิชา *</label>
+                        <input
+                          type="text"
+                          name="code"
+                          required
+                          placeholder="เช่น ท11101"
+                          defaultValue={editingSubject?.code || ''}
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                        />
+                      </div>
+                    )}
+                    <div key="subject-grade-field" className={isKindergartenGrade(modalGradeLevel) ? 'col-span-2' : ''}>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">ระดับชั้น *</label>
+                      <select
+                        name="gradeLevel"
+                        value={modalGradeLevel || 'ป.1'}
+                        onChange={(e) => {
+                          const newGrade = e.target.value as GradeLevel;
+                          setModalGradeLevel(newGrade);
+                          if (isKindergartenGrade(newGrade)) {
+                            if (kindergartenSubtopics.length === 0 || (kindergartenSubtopics.length === 1 && !kindergartenSubtopics[0])) {
+                              setKindergartenSubtopics(['']);
+                            }
+                          }
+                        }}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
+                      >
+                        {MODAL_ALLOWED_GRADES.map(g => (
+                          <option key={g} value={g}>{g}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
-                          {/* ชื่อหน่วยการเรียนรู้ (ไม่บังคับ) */}
-                          <div className="flex-1 min-w-0">
+                  <div key="subject-name-field">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">ชื่อรายวิชา *</label>
+                    <input
+                      type="text"
+                      name="name"
+                      required
+                      placeholder="เช่น พัฒนาการด้านร่างกาย หรือ ภาษาไทยพื้นฐาน 1"
+                      defaultValue={editingSubject?.name || ''}
+                      className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    />
+                  </div>
+
+                  {/* สำหรับ อ.1, อ.2, อ.3 เท่านั้น: เพิ่มช่องหัวข้อย่อยด้านล่างชื่อวิชา มา 1 ช่องพร้อมเครื่องหมาย + เพื่อเพิ่มหัวข้อต่อ */}
+                  {isKindergartenGrade(modalGradeLevel) && (
+                    <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                            <span>หัวข้อย่อย (สำหรับ {modalGradeLevel}) *</span>
+                          </label>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setKindergartenSubtopics([...kindergartenSubtopics, ''])}
+                          className="px-2.5 py-1 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-2xs flex items-center gap-1 cursor-pointer transition-all active:scale-95 shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                          <span>เพิ่มหัวข้อย่อย</span>
+                        </button>
+                      </div>
+
+                      {/* รายการช่องกรอกหัวข้อย่อย */}
+                      <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
+                        {kindergartenSubtopics.map((st, sIdx) => (
+                          <div key={sIdx} className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-amber-200/90 text-amber-900 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                              {sIdx + 1}
+                            </span>
                             <input
                               type="text"
-                              placeholder={`ชื่อหน่วยที่ ${unitItem.unitNumber} (ไม่บังคับชื่อหน่วย)`}
-                              value={unitItem.name}
+                              value={st ?? ''}
                               onChange={(e) => {
-                                const next = [...subjectUnitDetails];
-                                next[uIdx] = { ...next[uIdx], name: e.target.value };
-                                setSubjectUnitDetails(next);
+                                const next = [...kindergartenSubtopics];
+                                next[sIdx] = e.target.value;
+                                setKindergartenSubtopics(next);
                               }}
-                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50/60 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                              placeholder={`ระบุชื่อหัวข้อย่อยที่ ${sIdx + 1} (เช่น ด้านร่างกาย, ด้านอารมณ์, การทรงตัว...)`}
+                              className="flex-1 text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-2xs"
                             />
-                          </div>
-
-                          {/* คะแนนเก็บกี่คะแนน */}
-                          <div className="w-28 shrink-0 flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={0}
-                              placeholder="คะแนนเก็บ"
-                              value={unitItem.score}
-                              onChange={(e) => {
-                                const val = e.target.value === '' ? '' : Number(e.target.value);
-                                const next = [...subjectUnitDetails];
-                                next[uIdx] = { ...next[uIdx], score: val };
-                                setSubjectUnitDetails(next);
-                              }}
-                              className="w-full text-xs px-2 py-1.5 text-center font-bold font-mono rounded-lg border border-amber-200 bg-amber-50/40 text-amber-950 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                            <span className="text-[11px] text-slate-600 font-semibold shrink-0">คะแนน</span>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* แสดงสรุปคะแนนเก็บรวมของทุกหน่วย */}
-                      {(() => {
-                        const totalUnitsScore = subjectUnitDetails.reduce((sum, u) => sum + (Number(u.score) || 0), 0);
-                        return (
-                          <div className="flex items-center justify-between text-xs px-1 text-amber-950 font-semibold pt-1">
-                            <span>
-                              รวมคะแนนเก็บทุกหน่วย: <strong className="font-bold text-amber-900 font-mono text-sm">{totalUnitsScore}</strong> คะแนน
-                            </span>
-                            {totalUnitsScore > 0 && (
-                              <span className="text-[11px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md">
-                                คะแนนระหว่างภาค
-                              </span>
+                            {kindergartenSubtopics.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setKindergartenSubtopics(kindergartenSubtopics.filter((_, i) => i !== sIdx));
+                                }}
+                                className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all cursor-pointer shrink-0"
+                                title="ลบหัวข้อย่อยนี้"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             )}
                           </div>
-                        );
-                      })()}
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* สำหรับ อ.1, อ.2, อ.3: กำหนดระดับคะแนนคุณภาพว่าควรมีกี่ระดับ และในแต่ละระดับควรใช้คำไหน (เริ่มต้น 3 ระดับ: 1=ควรเสริม, 2=ได้บางครั้ง, 3=ปฏิบัติได้) */}
+                  {isKindergartenGrade(modalGradeLevel) && (
+                    <div className="bg-amber-50/50 p-3.5 rounded-2xl border border-amber-200/80 space-y-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div>
+                          <label className="block text-xs font-bold text-slate-800 mb-0.5">
+                            ระดับคะแนนคุณภาพ (สำหรับตารางใส่คะแนน)
+                          </label>
+                        </div>
+
+                        {/* ปุ่มเลือกระดับคะแนนว่าควรมีกี่ระดับ */}
+                        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+                          {[2, 3, 4, 5].map((cnt) => (
+                            <button
+                              key={cnt}
+                              type="button"
+                              onClick={() => handleRubricCountChange(cnt)}
+                              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                kindergartenRubricCount === cnt
+                                  ? 'bg-amber-600 text-white shadow-2xs'
+                                  : 'text-slate-600 hover:bg-slate-100'
+                              }`}
+                            >
+                              {cnt} ระดับ{cnt === 3 ? ' (แนะนำ)' : ''}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* ในแต่ละระดับควรใช้คำไหน ในการบอกคะแนนคุณภาพ */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        {kindergartenRubricLevels.slice(0, kindergartenRubricCount).map((lvl, lIdx) => (
+                          <div key={lvl.level} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                                <span className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-white text-[11px] font-bold ${
+                                  lvl.level === 3 ? 'bg-emerald-600' :
+                                  lvl.level === 2 ? 'bg-amber-500' :
+                                  lvl.level === 1 ? 'bg-rose-500' :
+                                  lvl.level === 4 ? 'bg-sky-600' : 'bg-indigo-600'
+                                }`}>
+                                  {lvl.level}
+                                </span>
+                                <span>ระดับคะแนน {lvl.level}</span>
+                              </span>
+                            </div>
+                            <input
+                              type="text"
+                              value={lvl.label ?? ''}
+                              onChange={(e) => {
+                                const next = [...kindergartenRubricLevels];
+                                next[lIdx] = { ...next[lIdx], label: e.target.value };
+                                setKindergartenRubricLevels(next);
+                              }}
+                              placeholder={`คำอธิบายระดับ ${lvl.level}`}
+                              className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 font-semibold text-slate-800 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">ชม./สัปดาห์</label>
+                      <input
+                        type="number"
+                        name="hoursPerWeek"
+                        defaultValue={editingSubject?.hoursPerWeek || 2}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">ภาคเรียน</label>
+                      <select
+                        name="semester"
+                        defaultValue={editingSubject?.semester || currentSemester}
+                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium bg-white cursor-pointer"
+                      >
+                        <option value="1">ภาคเรียนที่ 1</option>
+                        <option value="2">ภาคเรียนที่ 2</option>
+                        {!editingSubject && <option value="both">ทั้ง 2 ภาคเรียน (เทอม 1 และ เทอม 2)</option>}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* สำหรับ ป.1 - ม.3 เท่านั้น: แสดงสัดส่วนคะแนนเต็ม ระหว่างภาค ปลายภาค */}
+                  {!isKindergartenGrade(modalGradeLevel) && (
+                    <div className="grid grid-cols-3 gap-3" key={`score-fields-${editingSubject?.id || (modalGradeLevel.startsWith('ป.') ? 'primary' : 'secondary')}`}>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">คะแนนเต็ม</label>
+                        <input
+                          type="number"
+                          name="totalScore"
+                          defaultValue={editingSubject?.totalScore ?? (modalGradeLevel.startsWith('ป.') ? 50 : 100)}
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">ระหว่างภาค</label>
+                        <input
+                          type="number"
+                          name="courseworkScore"
+                          defaultValue={editingSubject?.courseworkScore ?? (modalGradeLevel.startsWith('ป.') ? 35 : 70)}
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-700 mb-1">ปลายภาค (สอบ)</label>
+                        <input
+                          type="number"
+                          name="examScore"
+                          defaultValue={editingSubject?.examScore ?? (modalGradeLevel.startsWith('ป.') ? 15 : 30)}
+                          className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono font-bold text-amber-900"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* สำหรับ ป.1 - ม.3 เท่านั้น: ส่วนกำหนดหน่วยที่ / หน่วยการเรียนรู้ */}
+                  {!isKindergartenGrade(modalGradeLevel) && (
+                    <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/90 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                            <span>หน่วยที่ / จำนวนหน่วยการเรียนรู้</span>
+                          </label>
+                          <p className="text-[11px] text-amber-800/80 mt-0.5">
+                            พิมพ์ตัวเลข (เช่น 1, 2, 3...) ระบบจะแสดงช่องให้กรอกชื่อหน่วยและคะแนนเก็บตามจำนวน
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-xs font-bold text-amber-900">หน่วยที่:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={20}
+                            placeholder="เช่น 2"
+                            value={subjectUnitCountInput ?? ''}
+                            onChange={(e) => handleUnitCountChange(e.target.value)}
+                            className="w-20 text-xs px-2.5 py-1.5 text-center font-bold font-mono rounded-xl border border-amber-300 bg-white text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-2xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* รายการแสดงช่องกรอกชื่อหน่วย (ไม่บังคับ) และ คะแนนเก็บแต่ละหน่วย */}
+                      {subjectUnitDetails.length > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-amber-200/70 max-h-56 overflow-y-auto pr-1">
+                          {subjectUnitDetails.map((unitItem, uIdx) => (
+                            <div
+                              key={unitItem.unitNumber}
+                              className="bg-white p-2.5 rounded-xl border border-amber-200 shadow-2xs flex items-center gap-2"
+                            >
+                              <span className="w-16 text-center text-[11px] font-bold text-amber-900 bg-amber-100/90 px-2 py-1.5 rounded-lg shrink-0 border border-amber-200/80">
+                                หน่วยที่ {unitItem.unitNumber}
+                              </span>
+
+                              {/* ชื่อหน่วยการเรียนรู้ (ไม่บังคับ) */}
+                              <div className="flex-1 min-w-0">
+                                <input
+                                  type="text"
+                                  placeholder={`ชื่อหน่วยที่ ${unitItem.unitNumber} (ไม่บังคับชื่อหน่วย)`}
+                                  value={unitItem.name ?? ''}
+                                  onChange={(e) => {
+                                    const next = [...subjectUnitDetails];
+                                    next[uIdx] = { ...next[uIdx], name: e.target.value };
+                                    setSubjectUnitDetails(next);
+                                  }}
+                                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50/60 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium"
+                                />
+                              </div>
+
+                              {/* คะแนนเก็บกี่คะแนน */}
+                              <div className="w-28 shrink-0 flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder="คะแนนเก็บ"
+                                  value={unitItem.score ?? ''}
+                                  onChange={(e) => {
+                                    const val = e.target.value === '' ? '' : Number(e.target.value);
+                                    const next = [...subjectUnitDetails];
+                                    next[uIdx] = { ...next[uIdx], score: val };
+                                    setSubjectUnitDetails(next);
+                                  }}
+                                  className="w-full text-xs px-2 py-1.5 text-center font-bold font-mono rounded-lg border border-amber-200 bg-amber-50/40 text-amber-950 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                />
+                                <span className="text-[11px] text-slate-600 font-semibold shrink-0">คะแนน</span>
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* แสดงสรุปคะแนนเก็บรวมของทุกหน่วย */}
+                          {(() => {
+                            const totalUnitsScore = subjectUnitDetails.reduce((sum, u) => sum + (Number(u.score) || 0), 0);
+                            return (
+                              <div className="flex items-center justify-between text-xs px-1 text-amber-950 font-semibold pt-1">
+                                <span>
+                                  รวมคะแนนเก็บทุกหน่วย: <strong className="font-bold text-amber-900 font-mono text-sm">{totalUnitsScore}</strong> คะแนน
+                                </span>
+                                {totalUnitsScore > 0 && (
+                                  <span className="text-[11px] text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                                    คะแนนระหว่างภาค
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -5354,9 +5909,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 active:scale-95 rounded-xl shadow-xs transition-all cursor-pointer"
+                  className={`px-5 py-2 text-xs font-bold text-white active:scale-95 rounded-xl shadow-xs transition-all cursor-pointer ${
+                    modalItemType === 'activity'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
                 >
-                  {editingSubject ? 'บันทึกการแก้ไข' : 'บันทึกวิชา'}
+                  {editingSubject
+                    ? 'บันทึกการแก้ไข'
+                    : (modalItemType === 'activity' ? 'บันทึกกิจกรรม' : 'บันทึกวิชา')}
                 </button>
               </div>
             </form>
@@ -6313,75 +6874,279 @@ export const Module2Grading: React.FC<Module2Props> = ({
         </div>
       )}
 
-      {/* MODAL: คัดลอกรายวิชาจากปีก่อนหน้า (ในแท็บโครงสร้างรายวิชา) */}
+      {/* MODAL: คัดลอกรายวิชา (เลือกปีการศึกษา ภาคเรียน ชั้น อ.1 ถึง ม.3 เลือกบางวิชาหรือคัดลอกทั้งหมด) */}
       {isCopySubjectsModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
-                  <BookOpen className="w-5 h-5 text-blue-700" />
+                  <Copy className="w-5 h-5 text-blue-700" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-800">
-                    คัดลอกรายวิชาจากปีก่อนหน้า
+                    คัดลอกรายวิชา / กิจกรรม
                   </h3>
                   <p className="text-xs text-slate-500">
-                    นำเข้ารายวิชามายังปีการศึกษา {currentAcademicYear}
+                    นำเข้ารายวิชามายัง <strong className="text-slate-700">ปีการศึกษา {currentAcademicYear} ภาคเรียนที่ {currentSemester}</strong>
                   </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setIsCopySubjectsModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  เลือกปีการศึกษาต้นทาง:
-                </label>
-                <select
-                  value={copyModalSourceYear}
-                  onChange={(e) => setCopyModalSourceYear(e.target.value)}
-                  className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer"
+            {/* ตัวเลือกกรองต้นทาง: ปีการศึกษา, ภาคเรียน, ชั้น อ.1 ถึง ม.3 */}
+            <div className="space-y-3 shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* 1. เลือกปีการศึกษา */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ปีการศึกษาต้นทาง
+                  </label>
+                  <select
+                    value={copyModalSourceYear}
+                    onChange={(e) => setCopyModalSourceYear(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    {academicYears.map(yr => (
+                      <option key={yr} value={yr}>
+                        ปีการศึกษา {yr} {yr === currentAcademicYear ? '(ปีปัจจุบัน)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. เลือกภาคเรียน */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ภาคเรียนต้นทาง
+                  </label>
+                  <select
+                    value={copyModalSourceSemester}
+                    onChange={(e) => setCopyModalSourceSemester(e.target.value as '1' | '2' | 'all')}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="1">ภาคเรียนที่ 1</option>
+                    <option value="2">ภาคเรียนที่ 2</option>
+                    <option value="all">ทั้ง 2 ภาคเรียน (เทอม 1 และ 2)</option>
+                  </select>
+                </div>
+
+                {/* 3. เลือกระดับชั้น (อ.1 ถึง ม.3) */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    ระดับชั้น (อ.1 - ม.3)
+                  </label>
+                  <select
+                    value={copyModalSourceGrade}
+                    onChange={(e) => setCopyModalSourceGrade(e.target.value)}
+                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="all">ทุกชั้น (อ.1 - ม.3)</option>
+                    {MODAL_ALLOWED_GRADES.map(g => (
+                      <option key={g} value={g}>
+                        ชั้น {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* ปุ่มลัดเลือกชั้น อ.1 ถึง ม.3 */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  onClick={() => setCopyModalSourceGrade('all')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all cursor-pointer ${
+                    copyModalSourceGrade === 'all'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
                 >
-                  {academicYears.filter(yr => yr !== currentAcademicYear).map(yr => (
-                    <option key={yr} value={yr}>
-                      ปีการศึกษา {yr} ({subjects.filter(s => isSubjectInYear(s, yr)).length} รายวิชา)
-                    </option>
-                  ))}
-                </select>
+                  ทุกชั้น
+                </button>
+                {MODAL_ALLOWED_GRADES.map(g => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setCopyModalSourceGrade(g)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all cursor-pointer ${
+                      copyModalSourceGrade === g
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* แถบสรุปรายการและปุ่มเลือกทั้งหมด / ยกเลิกเลือกทั้งหมด */}
+            <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-slate-50 rounded-xl border border-slate-200/80 shrink-0">
+              <div className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  พบทั้งหมด <strong className="text-blue-700">{copyableSourceSubjects.length}</strong> วิชา
+                </span>
+                <span className="text-slate-300">|</span>
+                <span className="text-amber-800">
+                  เลือกแล้ว <strong>{selectedCopySubjectIds.length}</strong> วิชา
+                </span>
               </div>
 
-              <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 space-y-1.5">
-                <p className="font-bold flex items-center gap-1 text-amber-800">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  <span>กติกาการคัดลอก:</span>
-                </p>
-                <p>• ระบบจะคัดลอกเฉพาะ <strong>โครงสร้างรายวิชา</strong> (รหัส, ชื่อวิชา, ระดับชั้น, คาบเรียน, สัดส่วนคะแนน) เท่านั้น</p>
-                <p>• <strong>คะแนนห้ามคัดลอกตามเด็ดขาด</strong> เพื่อให้สมาชิกลงทะเบียนและเริ่มบันทึกคะแนนใหม่ในปี {currentAcademicYear}</p>
-                <p>• <strong>ชื่อครูผู้สอนจะถูกรีเซ็ต</strong> เพื่อเปิดให้สมาชิกสามารถลงทะเบียนสอนใหม่ได้</p>
+              {copyableSourceSubjects.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCopySubjectIds(copyableSourceSubjects.map(s => s.id))}
+                    className="px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    เลือกทั้งหมด
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCopySubjectIds([])}
+                    className="px-2.5 py-1 text-[11px] font-bold text-slate-600 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    ล้างที่เลือก
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* รายการวิชาที่สามารถติ๊กเลือกคัดลอกได้ */}
+            <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100 bg-white">
+              {copyableSourceSubjects.length === 0 ? (
+                <div className="py-12 px-4 text-center text-xs text-slate-400 space-y-1.5">
+                  <BookOpen className="w-7 h-7 mx-auto text-slate-300" />
+                  <div className="font-semibold text-slate-500">
+                    ไม่พบรายวิชาในปีการศึกษา {copyModalSourceYear} {copyModalSourceSemester !== 'all' ? `ภาคเรียนที่ ${copyModalSourceSemester}` : ''} {copyModalSourceGrade !== 'all' ? `ชั้น ${copyModalSourceGrade}` : ''}
+                  </div>
+                  <div className="text-[11px]">
+                    ลองเปลี่ยนปีการศึกษา ภาคเรียน หรือระดับชั้นด้านบนเพื่อดูรายวิชาอื่น
+                  </div>
+                </div>
+              ) : (
+                copyableSourceSubjects.map(sub => {
+                  const isChecked = selectedCopySubjectIds.includes(sub.id);
+                  const targetSem = copyModalSourceSemester === 'all' ? (sub.semester || currentSemester) : currentSemester;
+                  const alreadyExists = subjects.some(
+                    ex =>
+                      isSubjectInYear(ex, currentAcademicYear) &&
+                      (ex.semester || '1') === targetSem &&
+                      ex.gradeLevel === sub.gradeLevel &&
+                      (ex.code || '').trim().toUpperCase() === (sub.code || '').trim().toUpperCase() &&
+                      (ex.name || '').trim() === (sub.name || '').trim()
+                  );
+
+                  return (
+                    <label
+                      key={sub.id}
+                      className={`px-3.5 py-2.5 flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                        isChecked ? 'bg-blue-50/50 hover:bg-blue-50/80' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            setSelectedCopySubjectIds(prev =>
+                              prev.includes(sub.id) ? prev.filter(id => id !== sub.id) : [...prev, sub.id]
+                            );
+                          }}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                        />
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <span className="font-bold text-amber-900 bg-amber-100/90 border border-amber-200 px-2 py-0.5 rounded-md text-[11px] shrink-0">
+                            ชั้น {sub.gradeLevel}
+                          </span>
+                          {sub.isActivity && (
+                            <span className="font-bold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-md text-[10px] shrink-0">
+                              กิจกรรม
+                            </span>
+                          )}
+                          {sub.code && (
+                            <span className="font-mono font-bold text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-md text-[11px] shrink-0">
+                              {sub.code}
+                            </span>
+                          )}
+                          <span className="font-bold text-slate-800 text-xs truncate">
+                            {sub.name}
+                          </span>
+                          <span className="text-[11px] text-slate-500 shrink-0">
+                            • {sub.hoursPerWeek} ชม./สัปดาห์
+                          </span>
+                          {copyModalSourceSemester === 'all' && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 shrink-0">
+                              ภาค {sub.semester || '1'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-2">
+                        {sub.isActivity ? (
+                          <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                            ผ่าน / ไม่ผ่าน
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-mono text-slate-500 hidden sm:inline">
+                            เต็ม {sub.totalScore} ({sub.courseworkScore}:{sub.examScore})
+                          </span>
+                        )}
+                        {alreadyExists && (
+                          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                            มีแล้ว
+                          </span>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            {/* ปุ่มยืนยันด้านล่าง: ยกเลิก / คัดลอกที่เลือก / คัดลอกทั้งหมด */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100 shrink-0">
+              <div className="text-[11px] text-slate-500">
+                * คัดลอกเฉพาะโครงสร้างวิชา (ไม่คัดลอกคะแนน และรีเซ็ตครูผู้สอน)
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-2 ml-auto">
                 <button
                   type="button"
                   onClick={() => setIsCopySubjectsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
                 >
                   ยกเลิก
                 </button>
+
                 <button
                   type="button"
-                  onClick={handleCopySubjectsFromSourceYear}
-                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                  disabled={selectedCopySubjectIds.length === 0}
+                  onClick={() => handleCopySubjectsFromSourceYear('selected')}
+                  className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                 >
-                  <BookOpen className="w-4 h-4" />
-                  <span>คัดลอกรายวิชามาใช้</span>
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  <span>คัดลอกวิชาที่เลือก ({selectedCopySubjectIds.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={copyableSourceSubjects.length === 0}
+                  onClick={() => handleCopySubjectsFromSourceYear('all')}
+                  className="px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>คัดลอกทั้งหมด ({copyableSourceSubjects.length})</span>
                 </button>
               </div>
             </div>
@@ -7004,8 +7769,28 @@ export const Module2Grading: React.FC<Module2Props> = ({
               </div>
             </div>
 
-            {/* แถบสรุปคะแนนสด (ระหว่างภาค / ปลายภาค / รวม หรือ พัฒนาการอนุบาล) */}
-            {isSelectedSubjectKindergarten ? (() => {
+            {/* แถบสรุปคะแนนสด (กิจกรรม / ระหว่างภาค-ปลายภาค-รวม / พัฒนาการอนุบาล) */}
+            {isSelectedSubjectActivity ? (() => {
+              const row = scoreRows[currentGradingStudent.id];
+              const actRes = row?.activityResult || '';
+              return (
+                <div className="bg-emerald-50/80 border-b border-emerald-200/90 px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`font-bold text-xs px-3 py-1.5 rounded-xl shadow-xs ${
+                      actRes === 'ผ่าน' ? 'bg-emerald-600 text-white' :
+                      actRes === 'ไม่ผ่าน' ? 'bg-rose-600 text-white' :
+                      'bg-slate-200 text-slate-700'
+                    }`}>
+                      {actRes || 'ยังไม่ประเมิน'}
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-emerald-950">ผลการประเมินกิจกรรม</div>
+                      <div className="text-[10px] text-emerald-700">เกณฑ์การประเมิน: ผ่าน / ไม่ผ่าน</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })() : isSelectedSubjectKindergarten ? (() => {
               const overall = getStudentOverallRubric(currentGradingStudent.id);
               return (
                 <div className="bg-emerald-50/80 border-b border-emerald-200/90 px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
@@ -7088,7 +7873,37 @@ export const Module2Grading: React.FC<Module2Props> = ({
                 </div>
               )}
 
-              {isSelectedSubjectKindergarten ? (
+              {isSelectedSubjectActivity ? (
+                <div className="space-y-3 py-4">
+                  <div className="text-xs font-bold text-slate-700 text-center">
+                    เลือกผลการประเมินกิจกรรมสำหรับนักเรียนคนนี้
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(['ผ่าน', 'ไม่ผ่าน'] as const).map(resOpt => {
+                      const curRes = scoreRows[currentGradingStudent.id]?.activityResult || '';
+                      const isSelected = curRes === resOpt;
+                      return (
+                        <button
+                          key={resOpt}
+                          type="button"
+                          disabled={!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly}
+                          onClick={() => handleActivityResultChange(currentGradingStudent.id, isSelected ? '' : resOpt)}
+                          className={`p-4 rounded-2xl border text-center font-bold text-sm transition-all flex flex-col items-center justify-center gap-1.5 ${
+                            isSelected
+                              ? resOpt === 'ผ่าน'
+                                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-300'
+                                : 'bg-rose-600 text-white border-rose-700 shadow-sm ring-2 ring-rose-300'
+                              : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                          } ${(!canGradeSubject || isAdminReadOnly || isMemberLockedReadOnly) ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+                        >
+                          {resOpt === 'ผ่าน' ? <CheckCircle2 className="w-6 h-6" /> : <X className="w-6 h-6" />}
+                          <span>{resOpt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : isSelectedSubjectKindergarten ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700">

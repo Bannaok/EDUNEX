@@ -2641,14 +2641,28 @@ export const StorageService = {
     // One-time per-tenant migration to populate the 9 standard Primary subjects (ป.1 - ป.6)
     // and upgrade legacy initial subjects while allowing subsequent user edits/deletions
     const migrationKey = resolveTenantKey('ams_primary_subjects_default_v2');
-    let isMigrated = false;
-    try {
-      isMigrated = (nativeGetItem ? nativeGetItem(migrationKey) : localStorage.getItem(migrationKey)) === 'true';
-    } catch {
-      isMigrated = false;
+    let isMigrated = Boolean(memoryCache.get(migrationKey));
+    if (!isMigrated) {
+      try {
+        isMigrated = (nativeGetItem ? nativeGetItem(migrationKey) : localStorage.getItem(migrationKey)) === 'true';
+      } catch {
+        isMigrated = false;
+      }
     }
 
     if (!isMigrated) {
+      // Mark migrated immediately in memory & storage to prevent any re-entrant recursion
+      memoryCache.set(migrationKey, true);
+      try {
+        if (nativeSetItem) {
+          nativeSetItem(migrationKey, 'true');
+        } else {
+          localStorage.setItem(migrationKey, 'true');
+        }
+      } catch {
+        // ignore
+      }
+
       const legacyNames = new Set([
         'ภาษาไทยพื้นฐาน 1',
         'คณิตศาสตร์ 1',
@@ -2688,11 +2702,15 @@ export const StorageService = {
         if (s.academicYear) yearsSet.add(String(s.academicYear).trim());
       });
       try {
-        const savedYears = this.getAcademicYears();
-        if (Array.isArray(savedYears)) {
-          savedYears.forEach(y => {
+        const rawSavedYears = getLocal<string[]>(KEYS.ACADEMIC_YEARS, ['2568', '2569']);
+        if (Array.isArray(rawSavedYears)) {
+          rawSavedYears.forEach(y => {
             if (y) yearsSet.add(String(y).trim());
           });
+        }
+        const schoolInfo = this.getSchoolInfo();
+        if (schoolInfo?.academicYear) {
+          yearsSet.add(String(schoolInfo.academicYear).trim());
         }
       } catch {
         // ignore
@@ -2715,16 +2733,6 @@ export const StorageService = {
           result.push(defSub);
           changed = true;
         }
-      }
-
-      try {
-        if (nativeSetItem) {
-          nativeSetItem(migrationKey, 'true');
-        } else {
-          localStorage.setItem(migrationKey, 'true');
-        }
-      } catch {
-        // ignore
       }
 
       if (changed) {
@@ -3682,17 +3690,20 @@ export const StorageService = {
 
   // Academic Years Management (Developer feature: can delete academic year and wipe its data)
   getAcademicYears(): string[] {
-    const list = getLocal<string[]>(KEYS.ACADEMIC_YEARS, ['2568', '2569']);
+    const rawList = getLocal<string[]>(KEYS.ACADEMIC_YEARS, ['2568', '2569']);
+    const list = Array.isArray(rawList) ? [...rawList] : ['2568', '2569'];
     const schoolInfo = this.getSchoolInfo();
     if (schoolInfo.academicYear && !list.includes(schoolInfo.academicYear)) {
       list.push(schoolInfo.academicYear);
     }
-    const subs = this.getSubjects();
-    subs.forEach(s => {
-      if (s.academicYear && !list.includes(s.academicYear)) {
-        list.push(s.academicYear);
-      }
-    });
+    const rawSubs = getLocal<Subject[]>(KEYS.SUBJECTS, EXPANDED_INITIAL_SUBJECTS);
+    if (Array.isArray(rawSubs)) {
+      rawSubs.forEach(s => {
+        if (s && s.academicYear && !isSubjectDeletedClient(s) && !list.includes(s.academicYear)) {
+          list.push(s.academicYear);
+        }
+      });
+    }
     list.sort((a, b) => Number(a) - Number(b));
     return list;
   },

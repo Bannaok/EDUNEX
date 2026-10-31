@@ -296,6 +296,7 @@ export interface Subject {
   rubricLevels?: RubricLevel[]; // สำหรับ อ.1, อ.2, อ.3 ระดับคะแนนคุณภาพ (เช่น 1: ควรเสริม, 2: ได้บางครั้ง, 3: ปฏิบัติได้)
   rubricMaxLevel?: number; // จำนวนระดับคะแนนคุณภาพ (ค่าเริ่มต้น 3)
   hasCustomAssignments?: boolean;
+  isActivity?: boolean; // กิจกรรมพัฒนาผู้เรียน (ประเมินผล ผ่าน / ไม่ผ่าน)
 }
 
 export interface GradeRecord {
@@ -316,6 +317,7 @@ export interface GradeRecord {
   readingWritingScore: number; // 0=ไม่ผ่าน, 1=ผ่าน, 2=ดี, 3=ดีเยี่ยม
   desiredCharacteristicsScore: number; // 0-3
   competencyScore: number; // 0-3
+  activityResult?: 'ผ่าน' | 'ไม่ผ่าน' | ''; // ผลการประเมินกิจกรรม (ผ่าน / ไม่ผ่าน)
 }
 
 export interface SchoolDayItem {

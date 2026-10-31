@@ -313,7 +313,14 @@ export const get100SchoolDaysForTerm = (
   try {
     const allConfigs = StorageService.getAttendanceConfigsByTerm();
     const termKey = `${semester}_${academicYear}`;
-    const cfg = allConfigs[termKey] || StorageService.getAttendanceConfig();
+    const fallbackCfg = StorageService.getAttendanceConfig();
+    const cfg =
+      allConfigs[termKey] ||
+      (fallbackCfg &&
+      (!fallbackCfg.semester || String(fallbackCfg.semester) === String(semester)) &&
+      (!fallbackCfg.academicYear || String(fallbackCfg.academicYear) === String(academicYear))
+        ? fallbackCfg
+        : undefined);
 
     if (cfg && Array.isArray(cfg.schoolDays) && cfg.schoolDays.length > 0) {
       const activeDays = cfg.schoolDays.filter(d => !d.isHoliday);
@@ -335,8 +342,11 @@ export const get100SchoolDaysForTerm = (
       }
     }
 
-    // Default fallback if no admin config set: Generate 100 Mon-Fri days
-    const startStr = cfg?.startDate && cfg.startDate !== '' ? cfg.startDate : '2026-05-18';
+    // Default fallback if no admin config set: Generate 100 Mon-Fri days per semester
+    const numYr = parseInt((academicYear || '').trim(), 10);
+    const adYr = !isNaN(numYr) ? (numYr > 2400 ? numYr - 543 : numYr) : 2026;
+    const defaultStartStr = String(semester) === '2' ? `${adYr}-11-02` : `${adYr}-05-18`;
+    const startStr = cfg?.startDate && cfg.startDate !== '' ? cfg.startDate : defaultStartStr;
     const start = new Date(startStr + 'T00:00:00');
     const days: { date: string; dayNumber: number; label: string }[] = [];
     const shortThaiMonths = [

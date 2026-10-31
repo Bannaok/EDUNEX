@@ -128,6 +128,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   onOpenLightbox
 }) => {
   const [activeTab, setActiveTab] = useState<PhorPhor6Tab>('cover');
+  const [isCombinedAcademic, setIsCombinedAcademic] = useState<boolean>(false);
+  const [isCombinedAttendance, setIsCombinedAttendance] = useState<boolean>(false);
 
   // หน้าข้อมูลโรงเรียน: Always pull directly from "ข้อมูลโรงเรียน" (StorageService.getSchoolInfo())
   const schoolInfo = useMemo(() => {
@@ -344,7 +346,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
   };
 
   // Standardized PP.6 Header rendered centered on top of every page
-  const renderPP6Header = (sectionTitle?: string, customTitle?: string) => {
+  const renderPP6Header = (sectionTitle?: string, customTitle?: string, omitSemester?: boolean) => {
     const affiliationText = schoolInfo.affiliation
       ? (schoolInfo.affiliation.startsWith('สังกัด') ? schoolInfo.affiliation : `สังกัด${schoolInfo.affiliation}`)
       : 'สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน';
@@ -378,7 +380,9 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
         {/* Line 4: ปีการศึกษา ภาค และชั้น */}
         <p className="text-xs text-black font-semibold" style={{ color: '#000000' }}>
-          ปีการศึกษา {academicYear} ภาคเรียนที่ {semester} {getGradeCleanName(grade)}
+          {omitSemester
+            ? `ปีการศึกษา ${academicYear} ${getGradeCleanName(grade)}`
+            : `ปีการศึกษา ${academicYear} ภาคเรียนที่ ${semester} ${getGradeCleanName(grade)}`}
         </p>
 
         {/* Optional Section Title */}
@@ -620,125 +624,327 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
     return { rows, gpa, totalCredits };
   }, [studentSubjects, effectiveGrades, student.id, semester, academicYear, personnel, advisorName]);
 
-  // Attendance statistics across the 100 school days configured by Admin
-  const attendanceMonthlyRecords = useMemo(() => {
-    // 100 School Days for the term configured by Admin
-    const school100Days = get100SchoolDaysForTerm(academicYear, semester);
+  // Combined 2-Semester Subject Evaluation (ภาคเรียนที่ 1 + ภาคเรียนที่ 2)
+  const combinedAcademicResults = useMemo(() => {
+    const studentGrade = (student.gradeLevel || grade || '').trim();
+    const allGradeSubjects = effectiveSubjects.filter(s => (s.gradeLevel || '').trim() === studentGrade);
 
-    // Filter attendance records of this student from "เช็กเวลา&เงินฝาก"
-    const studentAttendance = effectiveAttendance.filter(a => a.studentId === student.id);
-    const attendanceMap = new Map<string, string>();
-    studentAttendance.forEach(a => {
-      if (a.date && a.status) {
-        attendanceMap.set(a.date, a.status);
-      }
-    });
-
-    const thaiMonthNames: Record<number, string> = {
-      1: 'มกราคม', 2: 'กุมภาพันธ์', 3: 'มีนาคม', 4: 'เมษายน',
-      5: 'พฤษภาคม', 6: 'มิถุนายน', 7: 'กรกฎาคม', 8: 'สิงหาคม',
-      9: 'กันยายน', 10: 'ตุลาคม', 11: 'พฤศจิกายน', 12: 'ธันวาคม'
-    };
-
-    // Group the 100 days by month (YYYY-MM)
-    const monthGroupsMap = new Map<string, { monthNum: number; days: { date: string }[] }>();
-    school100Days.forEach(d => {
-      const parts = d.date.split('-');
-      const yyyyMm = `${parts[0]}-${parts[1]}`;
-      const mNum = parseInt(parts[1] || '1', 10);
-      if (!monthGroupsMap.has(yyyyMm)) {
-        monthGroupsMap.set(yyyyMm, { monthNum: mNum, days: [] });
-      }
-      monthGroupsMap.get(yyyyMm)!.days.push(d);
-    });
-
-    const monthKeys = Array.from(monthGroupsMap.keys());
-    const hasAnyRecord = studentAttendance.length > 0;
-
-    const rows = monthKeys.map((mKey, idx) => {
-      const group = monthGroupsMap.get(mKey)!;
-      const mName = thaiMonthNames[group.monthNum] || '';
-      const monthTitle = `เดือนที่ ${idx + 1} (${mName})`;
-      const monthDays = group.days;
-      const monthSchoolDays = monthDays.length;
-
-      let pCount = 0;
-      let aCount = 0;
-      let lCount = 0;
-      let sCount = 0;
-
-      if (hasAnyRecord) {
-        monthDays.forEach(d => {
-          const status = attendanceMap.get(d.date);
-          if (status === 'present') pCount++;
-          else if (status === 'absent') aCount++;
-          else if (status === 'leave') lCount++;
-          else if (status === 'sick') sCount++;
-          else {
-            // Day in the 100 days with no negative status is considered attended
-            pCount++;
-          }
+    // Deduplicate subjects across both semesters by code or name
+    const subjectGroups = new Map<string, { primary: Subject; sem1Subj?: Subject; sem2Subj?: Subject }>();
+    allGradeSubjects.forEach(s => {
+      const key = s.code ? s.code.trim().toUpperCase() : s.name.trim();
+      const existing = subjectGroups.get(key);
+      if (!existing) {
+        subjectGroups.set(key, {
+          primary: s,
+          sem1Subj: String(s.semester) === '1' ? s : undefined,
+          sem2Subj: String(s.semester) === '2' ? s : undefined,
         });
       } else {
-        // Balanced standard distribution across 100 days
-        const basePresent = Math.floor(96 / monthKeys.length);
-        const remPresent = 96 % monthKeys.length;
-        pCount = basePresent + (idx < remPresent ? 1 : 0);
-        aCount = idx === 0 ? 1 : 0;
-        lCount = idx === 1 ? 1 : 0;
-        sCount = idx === 2 ? 2 : 0;
+        if (String(s.semester) === '1') existing.sem1Subj = s;
+        if (String(s.semester) === '2') existing.sem2Subj = s;
+      }
+    });
+
+    // Fallback to studentSubjects if empty
+    if (subjectGroups.size === 0) {
+      studentSubjects.forEach(s => {
+        const key = s.code ? s.code.trim().toUpperCase() : s.name.trim();
+        subjectGroups.set(key, { primary: s, sem1Subj: s, sem2Subj: s });
+      });
+    }
+
+    let totalCredits1 = 0;
+    let totalPoints1 = 0;
+    let totalCredits2 = 0;
+    let totalPoints2 = 0;
+    let totalCreditsCombined = 0;
+    let totalPointsCombined = 0;
+
+    const findStudentGradeForTerm = (
+      grp: { primary: Subject; sem1Subj?: Subject; sem2Subj?: Subject },
+      targetSem: '1' | '2'
+    ): GradeRecord | undefined => {
+      const targetSubj = targetSem === '1' ? (grp.sem1Subj || grp.primary) : (grp.sem2Subj || grp.primary);
+      const codeUpper = (grp.primary.code || '').trim().toUpperCase();
+      const nameClean = (grp.primary.name || '').trim();
+
+      const matchesSubj = (g: GradeRecord) =>
+        g.subjectId === targetSubj.id ||
+        g.subjectId === grp.primary.id ||
+        (grp.sem1Subj && g.subjectId === grp.sem1Subj.id) ||
+        (grp.sem2Subj && g.subjectId === grp.sem2Subj.id) ||
+        (codeUpper !== '' && (g.subjectCode || '').trim().toUpperCase() === codeUpper) ||
+        (nameClean !== '' && (g.subjectName || '').trim() === nameClean);
+
+      // 1. Exact match on student + subject + semester + academicYear
+      let found = effectiveGrades.find(
+        g =>
+          g.studentId === student.id &&
+          matchesSubj(g) &&
+          String(g.semester) === targetSem &&
+          (g.academicYear === academicYear || !g.academicYear)
+      );
+      if (found) return found;
+
+      // 2. Match on student + subject + semester (any year)
+      found = effectiveGrades.find(
+        g =>
+          g.studentId === student.id &&
+          matchesSubj(g) &&
+          String(g.semester) === targetSem
+      );
+      if (found) return found;
+
+      // 3. Legacy record without semester field (only fallback if targetSem matches current semester or '1')
+      if (targetSem === semester || targetSem === '1') {
+        found = effectiveGrades.find(
+          g => g.studentId === student.id && matchesSubj(g) && !g.semester
+        );
+      }
+      return found;
+    };
+
+    const getNumericTotal = (rec?: GradeRecord): number | null => {
+      if (!rec) return null;
+      const cw = rec.courseworkScore !== undefined && rec.courseworkScore !== null ? Number(rec.courseworkScore) : null;
+      const ex = rec.examScore !== undefined && rec.examScore !== null ? Number(rec.examScore) : null;
+      if (rec.totalScore !== undefined && rec.totalScore !== null && !isNaN(Number(rec.totalScore))) {
+        return Number(rec.totalScore);
+      }
+      if (cw !== null || ex !== null) {
+        return (cw || 0) + (ex || 0);
+      }
+      return null;
+    };
+
+    const rows = Array.from(subjectGroups.values()).map(grp => {
+      const subj = grp.primary;
+      const rec1 = findStudentGradeForTerm(grp, '1');
+      const rec2 = findStudentGradeForTerm(grp, '2');
+
+      const total1 = getNumericTotal(rec1);
+      const total2 = getNumericTotal(rec2);
+
+      const grade1 = calculateThaiGrade(total1);
+      const grade2 = calculateThaiGrade(total2);
+
+      let avgTotal: number | null = null;
+      if (total1 !== null && total2 !== null) {
+        avgTotal = Math.round(((total1 + total2) / 2) * 100) / 100;
+      } else if (total1 !== null) {
+        avgTotal = total1;
+      } else if (total2 !== null) {
+        avgTotal = total2;
       }
 
-      const totalRecorded = pCount + aCount + lCount + sCount;
-      const effectiveDays = Math.max(monthSchoolDays, totalRecorded);
-      const pct = effectiveDays > 0 ? ((pCount / effectiveDays) * 100).toFixed(0) + '%' : '100%';
+      const combinedGrade = calculateThaiGrade(avgTotal);
+      const weight = subj.hoursPerWeek ? subj.hoursPerWeek / 2 : 1;
+
+      const pts1 = getGradePoints(grade1);
+      if (pts1 !== null) {
+        totalCredits1 += weight;
+        totalPoints1 += pts1 * weight;
+      }
+
+      const pts2 = getGradePoints(grade2);
+      if (pts2 !== null) {
+        totalCredits2 += weight;
+        totalPoints2 += pts2 * weight;
+      }
+
+      const ptsCombined = getGradePoints(combinedGrade);
+      if (ptsCombined !== null) {
+        totalCreditsCombined += weight;
+        totalPointsCombined += ptsCombined * weight;
+      }
+
+      let subjectTeacher = subj.teacherName || grp.sem1Subj?.teacherName || grp.sem2Subj?.teacherName;
+      const tId = subj.teacherId || grp.sem1Subj?.teacherId || grp.sem2Subj?.teacherId;
+      if (!subjectTeacher && tId) {
+        const p = personnel.find(item => item.id === tId);
+        if (p) {
+          subjectTeacher = `${p.prefix || ''}${p.firstName || ''} ${p.lastName || ''}`.trim();
+        }
+      }
 
       return {
-        month: monthTitle,
-        schoolDays: effectiveDays,
-        present: pCount,
-        absent: aCount,
-        leave: lCount,
-        sick: sCount,
-        percent: pct
+        subject: subj,
+        total1: total1 !== null ? total1 : '-',
+        grade1,
+        total2: total2 !== null ? total2 : '-',
+        grade2,
+        avgTotal: avgTotal !== null ? (Number.isInteger(avgTotal) ? avgTotal : avgTotal.toFixed(1)) : '-',
+        combinedGrade,
+        teacherDisplayName: subjectTeacher || advisorName || '-',
       };
     });
 
-    // Fallback if monthKeys is empty
-    const effectiveRows = rows.length > 0 ? rows : (semester === '2' ? [
-      { month: 'เดือนที่ 1 (พฤศจิกายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
-      { month: 'เดือนที่ 2 (ธันวาคม)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
-      { month: 'เดือนที่ 3 (มกราคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
-      { month: 'เดือนที่ 4 (กุมภาพันธ์)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
-      { month: 'เดือนที่ 5 (มีนาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' }
-    ] : [
-      { month: 'เดือนที่ 1 (พฤษภาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' },
-      { month: 'เดือนที่ 2 (มิถุนายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
-      { month: 'เดือนที่ 3 (กรกฎาคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
-      { month: 'เดือนที่ 4 (สิงหาคม)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
-      { month: 'เดือนที่ 5 (กันยายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' }
-    ]);
-
-    const sumSchoolDays = effectiveRows.reduce((acc, r) => acc + r.schoolDays, 0);
-    const sumPresent = effectiveRows.reduce((acc, r) => acc + r.present, 0);
-    const sumAbsent = effectiveRows.reduce((acc, r) => acc + r.absent, 0);
-    const sumLeave = effectiveRows.reduce((acc, r) => acc + r.leave, 0);
-    const sumSick = effectiveRows.reduce((acc, r) => acc + r.sick, 0);
-    const totalEffectiveSum = sumPresent + sumAbsent + sumLeave + sumSick;
-    const sumPercent = totalEffectiveSum > 0 ? ((sumPresent / totalEffectiveSum) * 100).toFixed(1) + '%' : '100.0%';
+    const gpa1 = totalCredits1 > 0 ? (totalPoints1 / totalCredits1).toFixed(2) : '-';
+    const gpa2 = totalCredits2 > 0 ? (totalPoints2 / totalCredits2).toFixed(2) : '-';
+    const gpaCombined = totalCreditsCombined > 0 ? (totalPointsCombined / totalCreditsCombined).toFixed(2) : '-';
 
     return {
-      rows: effectiveRows,
-      totals: {
-        schoolDays: sumSchoolDays,
-        present: sumPresent,
-        absent: sumAbsent,
-        leave: sumLeave,
-        sick: sumSick,
-        percent: sumPercent
+      rows,
+      gpa1,
+      gpa2,
+      gpaCombined,
+    };
+  }, [effectiveSubjects, studentSubjects, effectiveGrades, student.id, student.gradeLevel, grade, semester, academicYear, personnel, advisorName]);
+
+  // Helper to compute monthly attendance for a specific semester ('1' or '2')
+  const computeTermAttendance = useMemo(() => {
+    return (targetSem: string) => {
+      const school100Days = get100SchoolDaysForTerm(academicYear, targetSem);
+      const studentAttendance = effectiveAttendance.filter(a => a.studentId === student.id);
+      const attendanceMap = new Map<string, string>();
+      studentAttendance.forEach(a => {
+        if (a.date && a.status) {
+          attendanceMap.set(a.date, a.status);
+        }
+      });
+
+      const thaiMonthNames: Record<number, string> = {
+        1: 'มกราคม', 2: 'กุมภาพันธ์', 3: 'มีนาคม', 4: 'เมษายน',
+        5: 'พฤษภาคม', 6: 'มิถุนายน', 7: 'กรกฎาคม', 8: 'สิงหาคม',
+        9: 'กันยายน', 10: 'ตุลาคม', 11: 'พฤศจิกายน', 12: 'ธันวาคม'
+      };
+
+      const monthGroupsMap = new Map<string, { monthNum: number; days: { date: string }[] }>();
+      school100Days.forEach(d => {
+        const parts = d.date.split('-');
+        const yyyyMm = `${parts[0]}-${parts[1]}`;
+        const mNum = parseInt(parts[1] || '1', 10);
+        if (!monthGroupsMap.has(yyyyMm)) {
+          monthGroupsMap.set(yyyyMm, { monthNum: mNum, days: [] });
+        }
+        monthGroupsMap.get(yyyyMm)!.days.push(d);
+      });
+
+      const monthKeys = Array.from(monthGroupsMap.keys());
+      const termDateSet = new Set(school100Days.map(d => d.date));
+      const hasAnyRecord = studentAttendance.some(
+        a => termDateSet.has(a.date) || String(a.semester) === String(targetSem)
+      ) || studentAttendance.length > 0;
+
+      const rows = monthKeys.map((mKey, idx) => {
+        const group = monthGroupsMap.get(mKey)!;
+        const mName = thaiMonthNames[group.monthNum] || '';
+        const monthTitle = `เดือนที่ ${idx + 1} (${mName})`;
+        const monthDays = group.days;
+        const monthSchoolDays = monthDays.length;
+
+        let pCount = 0;
+        let aCount = 0;
+        let lCount = 0;
+        let sCount = 0;
+
+        if (hasAnyRecord) {
+          monthDays.forEach(d => {
+            const status = attendanceMap.get(d.date);
+            if (status === 'present') pCount++;
+            else if (status === 'absent') aCount++;
+            else if (status === 'leave') lCount++;
+            else if (status === 'sick') sCount++;
+            else {
+              pCount++;
+            }
+          });
+        } else {
+          const basePresent = Math.floor(96 / monthKeys.length);
+          const remPresent = 96 % monthKeys.length;
+          pCount = basePresent + (idx < remPresent ? 1 : 0);
+          aCount = idx === 0 ? 1 : 0;
+          lCount = idx === 1 ? 1 : 0;
+          sCount = idx === 2 ? 2 : 0;
+        }
+
+        const totalRecorded = pCount + aCount + lCount + sCount;
+        const effectiveDays = Math.max(monthSchoolDays, totalRecorded);
+        const pct = effectiveDays > 0 ? ((pCount / effectiveDays) * 100).toFixed(0) + '%' : '100%';
+
+        return {
+          month: monthTitle,
+          schoolDays: effectiveDays,
+          present: pCount,
+          absent: aCount,
+          leave: lCount,
+          sick: sCount,
+          percent: pct
+        };
+      });
+
+      const effectiveRows = rows.length > 0 ? rows : (targetSem === '2' ? [
+        { month: 'เดือนที่ 1 (พฤศจิกายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+        { month: 'เดือนที่ 2 (ธันวาคม)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+        { month: 'เดือนที่ 3 (มกราคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
+        { month: 'เดือนที่ 4 (กุมภาพันธ์)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
+        { month: 'เดือนที่ 5 (มีนาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' }
+      ] : [
+        { month: 'เดือนที่ 1 (พฤษภาคม)', schoolDays: 20, present: 19, absent: 1, leave: 0, sick: 0, percent: '95%' },
+        { month: 'เดือนที่ 2 (มิถุนายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' },
+        { month: 'เดือนที่ 3 (กรกฎาคม)', schoolDays: 20, present: 19, absent: 0, leave: 1, sick: 0, percent: '95%' },
+        { month: 'เดือนที่ 4 (สิงหาคม)', schoolDays: 20, present: 18, absent: 0, leave: 0, sick: 2, percent: '90%' },
+        { month: 'เดือนที่ 5 (กันยายน)', schoolDays: 20, present: 20, absent: 0, leave: 0, sick: 0, percent: '100%' }
+      ]);
+
+      const sumSchoolDays = effectiveRows.reduce((acc, r) => acc + r.schoolDays, 0);
+      const sumPresent = effectiveRows.reduce((acc, r) => acc + r.present, 0);
+      const sumAbsent = effectiveRows.reduce((acc, r) => acc + r.absent, 0);
+      const sumLeave = effectiveRows.reduce((acc, r) => acc + r.leave, 0);
+      const sumSick = effectiveRows.reduce((acc, r) => acc + r.sick, 0);
+      const totalEffectiveSum = sumPresent + sumAbsent + sumLeave + sumSick;
+      const sumPercentNum = totalEffectiveSum > 0 ? (sumPresent / totalEffectiveSum) * 100 : 100;
+      const sumPercent = sumPercentNum.toFixed(1) + '%';
+
+      return {
+        rows: effectiveRows,
+        totals: {
+          schoolDays: sumSchoolDays,
+          present: sumPresent,
+          absent: sumAbsent,
+          leave: sumLeave,
+          sick: sumSick,
+          percent: sumPercent,
+          percentNum: sumPercentNum
+        }
+      };
+    };
+  }, [effectiveAttendance, student.id, academicYear]);
+
+  // Attendance statistics for single selected semester
+  const attendanceMonthlyRecords = useMemo(() => {
+    return computeTermAttendance(semester);
+  }, [computeTermAttendance, semester]);
+
+  // Combined 2-Semester Attendance statistics (ภาคเรียนที่ 1 + ภาคเรียนที่ 2)
+  const combinedAttendanceRecords = useMemo(() => {
+    const term1 = computeTermAttendance('1');
+    const term2 = computeTermAttendance('2');
+
+    const schoolDays = term1.totals.schoolDays + term2.totals.schoolDays;
+    const present = term1.totals.present + term2.totals.present;
+    const absent = term1.totals.absent + term2.totals.absent;
+    const leave = term1.totals.leave + term2.totals.leave;
+    const sick = term1.totals.sick + term2.totals.sick;
+    const totalEffective = present + absent + leave + sick;
+    const percentNum = totalEffective > 0 ? (present / totalEffective) * 100 : 100;
+    const percent = percentNum.toFixed(1) + '%';
+
+    return {
+      term1,
+      term2,
+      grandTotals: {
+        schoolDays,
+        present,
+        absent,
+        leave,
+        sick,
+        percent,
+        percentNum
       }
     };
-  }, [effectiveAttendance, student.id, academicYear, semester]);
+  }, [computeTermAttendance]);
 
   // Health data (Weight, Height, Toothbrushing, Milk)
   const healthStats = useMemo(() => {
@@ -1115,6 +1321,35 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
             <MessageSquare className="w-3.5 h-3.5" />
             <span>ความคิดเห็น</span>
           </button>
+
+          {/* ปุ่ม "รวมภาคเรียน" สำหรับหน้าวัดผล และ หน้าเวลาเรียน */}
+          {(activeTab === 'academic' || activeTab === 'attendance' || activeTab === 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                if (activeTab === 'academic') {
+                  setIsCombinedAcademic(prev => !prev);
+                } else if (activeTab === 'attendance') {
+                  setIsCombinedAttendance(prev => !prev);
+                } else {
+                  const next = !(isCombinedAcademic && isCombinedAttendance);
+                  setIsCombinedAcademic(next);
+                  setIsCombinedAttendance(next);
+                }
+              }}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                (activeTab === 'academic' && isCombinedAcademic) ||
+                (activeTab === 'attendance' && isCombinedAttendance) ||
+                (activeTab === 'all' && isCombinedAcademic && isCombinedAttendance)
+                  ? 'bg-emerald-600 text-white shadow-xs ring-2 ring-emerald-300'
+                  : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300'
+              }`}
+              title="สลับแสดงข้อมูลรวมทั้ง 2 ภาคเรียน (เทอม 1 + เทอม 2)"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>รวมภาคเรียน</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -1731,194 +1966,496 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
           {/* TAB 3: วัดผล (ACADEMIC EVALUATION & GRADES) */}
           {(activeTab === 'academic' || activeTab === 'all') && (
-            <div
-              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
-              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm', color: '#000000' }}
-            >
-              
-              <div className="space-y-6">
-                {renderPP6Header()}
-
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
-                  <div>
-                    <span className="font-bold text-black">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-black">เลขที่: </span>
-                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
-                  </div>
+            <div className="space-y-3">
+              {/* Mode Selector Bar above A4 sheet (Hidden on Print & PDF) */}
+              <div className="max-w-[210mm] mx-auto bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 print:hidden no-print" data-pdf-ignore="true">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                  <Award className="w-4 h-4 text-purple-600" />
+                  <span>รูปแบบการแสดงผลหน้าวัดผล:</span>
                 </div>
+                <div className="inline-flex rounded-xl p-1 bg-slate-100 border border-slate-200 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsCombinedAcademic(false)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      !isCombinedAcademic
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:bg-white/70'
+                    }`}
+                  >
+                    ภาคเรียนที่ {semester}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCombinedAcademic(true)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      isCombinedAcademic
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:bg-white/70'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>รวมภาคเรียน</span>
+                  </button>
+                </div>
+              </div>
 
-                {/* Subject Score Table (แสดงเป็นสีขาวทั้งหมดเพื่อความเป็นทางการ) */}
-                <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
-                  <table className="w-full text-left text-[11px] border-collapse bg-white">
-                    <thead>
-                      <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                        <th className="py-2 px-2 border-r border-slate-800 w-10 text-black">ที่</th>
-                        <th className="py-2 px-2 border-r border-slate-800 w-24 text-black">รหัสวิชา</th>
-                        <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายวิชา</th>
-                        <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ระหว่างภาค</th>
-                        <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ปลายภาค</th>
-                        <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
-                        <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
-                        <th className="py-2 px-3 text-black">ครูผู้สอนในรายวิชา</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 bg-white">
-                      {academicResults.rows.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="py-8 text-center text-black bg-white">
-                            ยังไม่มีข้อมูลรายวิชาในระบบ
-                          </td>
-                        </tr>
-                      ) : (
-                        academicResults.rows.map((item, idx) => (
-                          <tr key={item.subject.id} className="bg-white">
-                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                              {idx + 1}
+              <div
+                className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+                style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm', color: '#000000' }}
+              >
+                
+                <div className="space-y-6">
+                  {renderPP6Header(undefined, undefined, isCombinedAcademic)}
+
+                  {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                  <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
+                    <div>
+                      <span className="font-bold text-black">รหัสประจำตัว: </span>
+                      <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                      <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-black">เลขที่: </span>
+                      <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
+                    </div>
+                  </div>
+
+                  {/* Subject Score Table */}
+                  {!isCombinedAcademic ? (
+                    <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
+                      <table className="w-full text-left text-[11px] border-collapse bg-white">
+                        <thead>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                            <th className="py-2 px-2 border-r border-slate-800 w-10 text-black">ที่</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-24 text-black">รหัสวิชา</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ระหว่างภาค</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ปลายภาค</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
+                            <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
+                            <th className="py-2 px-3 text-black">ครูผู้สอนในรายวิชา</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-white">
+                          {academicResults.rows.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="py-8 text-center text-black bg-white">
+                                ยังไม่มีข้อมูลรายวิชาในระบบ
+                              </td>
+                            </tr>
+                          ) : (
+                            academicResults.rows.map((item, idx) => (
+                              <tr key={item.subject.id} className="bg-white">
+                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                  {item.subject.code || '-'}
+                                </td>
+                                <td className="py-1.5 px-3 font-medium text-black border-r border-slate-800">
+                                  {item.subject.name}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
+                                  {item.coursework}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
+                                  {item.exam}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800">
+                                  {item.total}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
+                                  {item.grade}
+                                </td>
+                                <td className="py-1.5 px-3 text-black font-medium">
+                                  {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
+                          <tr>
+                            <td colSpan={6} className="py-2 px-3 text-center border-r border-slate-800 text-black">
+                              ผลการเรียนเฉลี่ยรวม (GPA)
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
-                              {item.subject.code || '-'}
-                            </td>
-                            <td className="py-1.5 px-3 font-medium text-black border-r border-slate-800">
-                              {item.subject.name}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                              {item.coursework}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                              {item.exam}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800">
-                              {item.total}
-                            </td>
-                            <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
-                              {item.grade}
-                            </td>
-                            <td className="py-1.5 px-3 text-black font-medium">
-                              {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
+                            <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black bg-white">
+                              {academicResults.gpa}
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                    <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                      <tr>
-                        <td colSpan={6} className="py-2 px-3 text-center border-r border-slate-800 text-black">
-                          ผลการเรียนเฉลี่ยรวม (GPA)
-                        </td>
-                        <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black bg-white">
-                          {academicResults.gpa}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    /* Combined 2-Semester Subject Score Table (รวม 2 ภาคเรียน) */
+                    <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
+                      <table className="w-full text-left text-[11px] border-collapse bg-white">
+                        <thead>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
+                            <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-8 text-black">ที่</th>
+                            <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 w-20 text-black">รหัสวิชา</th>
+                            <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
+                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
+                            <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">รวม 2 ภาคเรียน</th>
+                            <th rowSpan={2} className="py-2 px-2.5 text-center text-black">ครูผู้สอนในรายวิชา</th>
+                          </tr>
+                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-14 text-black">คะแนนเฉลี่ย</th>
+                            <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-white">
+                          {combinedAcademicResults.rows.length === 0 ? (
+                            <tr>
+                              <td colSpan={10} className="py-8 text-center text-black bg-white">
+                                ยังไม่มีข้อมูลรายวิชาในระบบ
+                              </td>
+                            </tr>
+                          ) : (
+                            combinedAcademicResults.rows.map((item, idx) => (
+                              <tr key={item.subject.id || idx} className="bg-white">
+                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                  {item.subject.code || '-'}
+                                </td>
+                                <td className="py-1.5 px-2.5 font-medium text-black border-r border-slate-800">
+                                  {item.subject.name}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  {item.total1}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                  {item.grade1}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  {item.total2}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                  {item.grade2}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
+                                  {item.avgTotal}
+                                </td>
+                                <td className="py-1.5 px-1.5 text-center font-black text-xs text-black border-r border-slate-800 bg-white">
+                                  {item.combinedGrade}
+                                </td>
+                                <td className="py-1.5 px-2.5 text-black font-medium">
+                                  {item.teacherDisplayName}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
+                          <tr>
+                            <td colSpan={3} className="py-2 px-3 text-center border-r border-slate-800 text-black">
+                              ผลการเรียนเฉลี่ยรวม (GPA)
+                            </td>
+                            <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
+                              {combinedAcademicResults.gpa1}
+                            </td>
+                            <td colSpan={2} className="py-2 px-2 text-center font-black text-black border-r border-slate-800 bg-white">
+                              {combinedAcademicResults.gpa2}
+                            </td>
+                            <td colSpan={2} className="py-2 px-2 text-center text-sm font-black text-black border-r border-slate-800 bg-white">
+                              {combinedAcademicResults.gpaCombined}
+                            </td>
+                            <td className="py-2 px-2 bg-white"></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+
+                </div>
+
+                {/* Bottom Signatures: Teacher & Director */}
+                <div className="pt-6 mt-8 mb-[2in] grid grid-cols-2 gap-8 text-xs text-center print:mb-[2in] text-black" style={{ color: '#000000' }}>
+                  <div className="space-y-1 text-black" style={{ color: '#000000' }}>
+                    <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
+                    <p className="font-normal text-black" style={{ color: '#000000' }}>({advisorName || '......................................................'})</p>
+                    <p className="text-black font-semibold text-[11px]" style={{ color: '#000000' }}>ครูประจำชั้น</p>
+                    <p className="text-black font-medium text-[10px]" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+                  </div>
+                  <div className="space-y-1 text-black" style={{ color: '#000000' }}>
+                    <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
+                    <p className="font-normal text-black" style={{ color: '#000000' }}>({directorName || '......................................................'})</p>
+                    <p className="text-black font-semibold text-[11px]" style={{ color: '#000000' }}>{directorPosition}</p>
+                    <p className="text-black font-medium text-[10px]" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+                  </div>
                 </div>
 
               </div>
-
-              {/* Bottom Signatures: Teacher & Director */}
-              <div className="pt-6 mt-8 mb-[2in] grid grid-cols-2 gap-8 text-xs text-center print:mb-[2in] text-black" style={{ color: '#000000' }}>
-                <div className="space-y-1 text-black" style={{ color: '#000000' }}>
-                  <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
-                  <p className="font-normal text-black" style={{ color: '#000000' }}>({advisorName || '......................................................'})</p>
-                  <p className="text-black font-semibold text-[11px]" style={{ color: '#000000' }}>ครูประจำชั้น</p>
-                  <p className="text-black font-medium text-[10px]" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
-                </div>
-                <div className="space-y-1 text-black" style={{ color: '#000000' }}>
-                  <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
-                  <p className="font-normal text-black" style={{ color: '#000000' }}>({directorName || '......................................................'})</p>
-                  <p className="text-black font-semibold text-[11px]" style={{ color: '#000000' }}>{directorPosition}</p>
-                  <p className="text-black font-medium text-[10px]" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
-                </div>
-              </div>
-
             </div>
           )}
 
           {/* TAB 4: เวลาเรียน (ATTENDANCE RECORD) */}
           {(activeTab === 'attendance' || activeTab === 'all') && (
-            <div
-              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
-              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm', color: '#000000' }}
-            >
-              
-              <div className="space-y-6">
-                {renderPP6Header(undefined, 'เวลาเรียนนักเรียน')}
+            <div className="space-y-3">
+              {/* Mode Selector Bar above A4 sheet (Hidden on Print & PDF) */}
+              <div className="max-w-[210mm] mx-auto bg-white px-4 py-2.5 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 print:hidden no-print" data-pdf-ignore="true">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                  <CalendarCheck className="w-4 h-4 text-purple-600" />
+                  <span>รูปแบบการแสดงผลหน้าเวลาเรียน:</span>
+                </div>
+                <div className="inline-flex rounded-xl p-1 bg-slate-100 border border-slate-200 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsCombinedAttendance(false)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      !isCombinedAttendance
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:bg-white/70'
+                    }`}
+                  >
+                    ภาคเรียนที่ {semester}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCombinedAttendance(true)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      isCombinedAttendance
+                        ? 'bg-emerald-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:bg-white/70'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>รวมภาคเรียน</span>
+                  </button>
+                </div>
+              </div>
 
-                {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
-                <div className="flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 mb-5 text-black">
-                  <div>
-                    <span className="font-bold text-black">รหัสประจำตัว: </span>
-                    <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
+              <div
+                className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+                style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm', color: '#000000' }}
+              >
+                
+                <div className={isCombinedAttendance ? 'space-y-3' : 'space-y-6'}>
+                  {renderPP6Header(undefined, 'เวลาเรียนนักเรียน', isCombinedAttendance)}
+
+                  {/* Student Info Bar: รหัสประจำตัว, ชื่อ-นามสกุล, เลขที่ (สีขาวทางการ) */}
+                  <div className={`flex flex-wrap items-center justify-between text-xs bg-white p-2.5 rounded-lg border border-slate-800 gap-4 ${isCombinedAttendance ? 'mb-3' : 'mb-5'} text-black`}>
+                    <div>
+                      <span className="font-bold text-black">รหัสประจำตัว: </span>
+                      <span className="font-semibold text-black font-mono">{student.studentCode || '-'}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
+                      <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-black">เลขที่: </span>
+                      <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-bold text-black">ชื่อ-นามสกุล: </span>
-                    <span className="font-semibold text-black">{student.prefix}{student.firstName} {student.lastName}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-black">เลขที่: </span>
-                    <span className="font-semibold text-black">{student.rollNumber || '-'}</span>
-                  </div>
+
+                  {!isCombinedAttendance ? (
+                    /* Single Semester Monthly breakdown table */
+                    <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                      <table className="w-full text-left text-xs border-collapse bg-white">
+                        <thead>
+                          <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
+                            <th className="py-2.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
+                            <th className="py-2.5 px-2 w-28 bg-white text-black">% มาเรียน</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800 bg-white text-center">
+                          {attendanceMonthlyRecords.rows.map((r, i) => (
+                            <tr key={i} className="bg-white">
+                              <td className="py-2 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
+                              <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black">{r.percent}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
+                          <tr>
+                            <td className="py-2 px-3 text-center border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
+                            <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{attendanceMonthlyRecords.totals.schoolDays}</td>
+                            <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.present}</td>
+                            <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
+                            <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.leave > 0 ? attendanceMonthlyRecords.totals.leave : '-'}</td>
+                            <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
+                            <td className="py-2 px-2 font-mono font-black text-black">{attendanceMonthlyRecords.totals.percent}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    /* Combined 2-Semester Attendance Table + Summary Table */
+                    <div className="space-y-3">
+                      <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                        <table className="w-full text-left text-[11px] border-collapse bg-white">
+                          <thead>
+                            <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
+                              <th className="py-1.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
+                              <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
+                              <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
+                              <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
+                              <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
+                              <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
+                              <th className="py-1.5 px-2 w-28 bg-white text-black">% มาเรียน</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800 bg-white text-center">
+                            {/* ภาคเรียนที่ 1 Header Row */}
+                            <tr className="bg-slate-100/80 font-bold text-black">
+                              <td colSpan={7} className="py-1 px-3 text-left text-black border-b border-slate-800">
+                                ภาคเรียนที่ 1
+                              </td>
+                            </tr>
+                            {combinedAttendanceRecords.term1.rows.map((r, i) => (
+                              <tr key={`t1-${i}`} className="bg-white">
+                                <td className="py-1 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
+                              </tr>
+                            ))}
+                            <tr className="bg-white font-bold text-black border-t border-slate-800">
+                              <td className="py-1.5 px-3 text-center border-r border-slate-800 text-black">รวมภาคเรียนที่ 1</td>
+                              <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.schoolDays}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.present}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.absent > 0 ? combinedAttendanceRecords.term1.totals.absent : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.leave > 0 ? combinedAttendanceRecords.term1.totals.leave : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.sick > 0 ? combinedAttendanceRecords.term1.totals.sick : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono font-bold text-black">{combinedAttendanceRecords.term1.totals.percent}</td>
+                            </tr>
+
+                            {/* ภาคเรียนที่ 2 Header Row */}
+                            <tr className="bg-slate-100/80 font-bold text-black border-t border-slate-800">
+                              <td colSpan={7} className="py-1 px-3 text-left text-black border-b border-slate-800">
+                                ภาคเรียนที่ 2
+                              </td>
+                            </tr>
+                            {combinedAttendanceRecords.term2.rows.map((r, i) => (
+                              <tr key={`t2-${i}`} className="bg-white">
+                                <td className="py-1 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
+                              </tr>
+                            ))}
+                            <tr className="bg-white font-bold text-black border-t border-slate-800">
+                              <td className="py-1.5 px-3 text-center border-r border-slate-800 text-black">รวมภาคเรียนที่ 2</td>
+                              <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.schoolDays}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.present}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.absent > 0 ? combinedAttendanceRecords.term2.totals.absent : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.leave > 0 ? combinedAttendanceRecords.term2.totals.leave : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.sick > 0 ? combinedAttendanceRecords.term2.totals.sick : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono font-bold text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
+                            </tr>
+                          </tbody>
+                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
+                            <tr>
+                              <td className="py-1.5 px-3 text-center border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
+                              <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.schoolDays}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.grandTotals.present}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.grandTotals.absent > 0 ? combinedAttendanceRecords.grandTotals.absent : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.grandTotals.leave > 0 ? combinedAttendanceRecords.grandTotals.leave : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.grandTotals.sick > 0 ? combinedAttendanceRecords.grandTotals.sick : '-'}</td>
+                              <td className="py-1.5 px-2 font-mono font-black text-black">{combinedAttendanceRecords.grandTotals.percent}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {/* ตารางสรุปเวลาเรียนรวม 2 ภาคเรียน */}
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-bold text-black">
+                          สรุปสถิติเวลาเรียนรวม 2 ภาคเรียน (ปีการศึกษา {academicYear})
+                        </div>
+                        <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
+                          <table className="w-full text-center text-[11px] border-collapse bg-white text-black">
+                            <thead>
+                              <tr className="bg-white text-black font-bold border-b border-slate-800">
+                                <th className="py-1.5 px-3 border-r border-slate-800 text-center text-black">ภาคเรียน</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">วันเรียน (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">มาเรียน (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ขาด (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ลา (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ป่วย (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">% มาเรียน</th>
+                                <th className="py-1.5 px-2 text-black">ผลการประเมิน</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800 bg-white">
+                              <tr>
+                                <td className="py-1 px-3 font-medium border-r border-slate-800 text-center text-black">ภาคเรียนที่ 1</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.present}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.absent > 0 ? combinedAttendanceRecords.term1.totals.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.leave > 0 ? combinedAttendanceRecords.term1.totals.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.sick > 0 ? combinedAttendanceRecords.term1.totals.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.percent}</td>
+                                <td className="py-1 px-2 font-bold text-black">{combinedAttendanceRecords.term1.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
+                              </tr>
+                              <tr>
+                                <td className="py-1 px-3 font-medium border-r border-slate-800 text-center text-black">ภาคเรียนที่ 2</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.present}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.absent > 0 ? combinedAttendanceRecords.term2.totals.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.leave > 0 ? combinedAttendanceRecords.term2.totals.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.sick > 0 ? combinedAttendanceRecords.term2.totals.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
+                                <td className="py-1 px-2 font-bold text-black">{combinedAttendanceRecords.term2.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
+                              </tr>
+                            </tbody>
+                            <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black">
+                              <tr>
+                                <td className="py-1.5 px-3 border-r border-slate-800 text-center text-black">รวม 2 ภาคเรียน</td>
+                                <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.schoolDays}</td>
+                                <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.present}</td>
+                                <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.absent > 0 ? combinedAttendanceRecords.grandTotals.absent : '-'}</td>
+                                <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.leave > 0 ? combinedAttendanceRecords.grandTotals.leave : '-'}</td>
+                                <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.sick > 0 ? combinedAttendanceRecords.grandTotals.sick : '-'}</td>
+                                <td className="py-1.5 px-2 font-mono font-black border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.percent}</td>
+                                <td className="py-1.5 px-2 font-bold text-black">{combinedAttendanceRecords.grandTotals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
 
-                {/* Monthly breakdown table (แสดงเป็นสีขาวและฟอนต์ดำทั้งหมดเพื่อความเป็นทางการ) */}
-                <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
-                  <table className="w-full text-left text-xs border-collapse bg-white">
-                    <thead>
-                      <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
-                        <th className="py-2.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
-                        <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
-                        <th className="py-2.5 px-2 w-28 bg-white text-black">% มาเรียน</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800 bg-white text-center">
-                      {attendanceMonthlyRecords.rows.map((r, i) => (
-                        <tr key={i} className="bg-white">
-                          <td className="py-2 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
-                          <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
-                          <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
-                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
-                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
-                          <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
-                          <td className="py-2 px-2 font-mono font-bold text-black">{r.percent}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
-                      <tr>
-                        <td className="py-2 px-3 text-center border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
-                        <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{attendanceMonthlyRecords.totals.schoolDays}</td>
-                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.present}</td>
-                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
-                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.leave > 0 ? attendanceMonthlyRecords.totals.leave : '-'}</td>
-                        <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
-                        <td className="py-2 px-2 font-mono font-black text-black">{attendanceMonthlyRecords.totals.percent}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                {/* Bottom Signature: Class Advisor */}
+                <div className={`${isCombinedAttendance ? 'pt-4 mb-2 print:mb-2' : 'pt-6 mb-[2.5in] print:mb-[2.5in]'} text-xs text-center max-w-sm mx-auto space-y-1 text-black`} style={{ color: '#000000' }}>
+                  <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
+                  <p className="font-normal text-black" style={{ color: '#000000' }}>({advisorName || '......................................................'})</p>
+                  <p className="font-semibold text-[11px] text-black" style={{ color: '#000000' }}>ครูประจำชั้น</p>
+                  <p className="text-[10px] font-medium text-black" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
                 </div>
 
               </div>
-
-              {/* Bottom Signature: Class Advisor (Centered, 2.5-3 inches from bottom margin) */}
-              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in] text-black" style={{ color: '#000000' }}>
-                <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
-                <p className="font-normal text-black" style={{ color: '#000000' }}>({advisorName || '......................................................'})</p>
-                <p className="font-semibold text-[11px] text-black" style={{ color: '#000000' }}>ครูประจำชั้น</p>
-                <p className="text-[10px] font-medium text-black" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
-              </div>
-
             </div>
           )}
 

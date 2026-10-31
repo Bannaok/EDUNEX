@@ -1153,7 +1153,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                                 type="button"
                                 onClick={() => setActiveSessionMode({ id: sess.id, mode: 'view' })}
                                 className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-700 text-slate-700 hover:text-white border border-slate-200 transition-all cursor-pointer shadow-2xs"
-                                title="ดูข้อมูล (โหมดอ่านอย่างเดียว)"
+                                title="ดูข้อมูล"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
@@ -1243,7 +1243,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                             className="w-full py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer border border-slate-200"
                           >
                             <Eye className="w-4 h-4 text-slate-600" />
-                            <span>ดูข้อมูล (อ่านอย่างเดียว)</span>
+                            <span>ดูข้อมูล</span>
                           </button>
 
                           <button
@@ -1325,12 +1325,6 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
-                    )}
-
-                    {isViewOnly && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-700 rounded">
-                        (โหมดดูอย่างเดียว)
-                      </span>
                     )}
                   </div>
                 </div>
@@ -2280,16 +2274,16 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
               )}
 
               {/* A4 Portrait Printable Paper Sheet */}
-              <div id="milk-teeth-pdf-sheet" className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-300 shadow-inner space-y-5 max-w-[210mm] mx-auto text-slate-900 print:border-none print:shadow-none print:p-0">
+              <div id="milk-teeth-pdf-sheet" className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-inner space-y-5 max-w-[210mm] mx-auto text-black print:border-none print:shadow-none print:p-0">
                 {/* Header */}
                 <div className="text-center space-y-1 pb-3 border-b-2 border-slate-800">
-                  <h2 className="text-base sm:text-lg font-black text-slate-900">
+                  <h2 className="text-base sm:text-lg font-black text-black">
                     {schoolInfo?.schoolName || 'โรงเรียนวัดผลประเมินพัฒนาการ'}
                   </h2>
-                  <h3 className="text-sm font-bold text-slate-800">
+                  <h3 className="text-sm font-bold text-black">
                     {previewReportType === 'milk' ? 'แบบบันทึกสรุปการดื่มนมโรงเรียน' : 'แบบบันทึกสรุปการแปรงฟันหลังอาหาร'}
                   </h3>
-                  <p className="text-xs font-semibold text-slate-600">
+                  <p className="text-xs font-semibold text-black">
                     {activeMonthGroup?.monthTitle || ''} • ภาคเรียนที่ {selectedSemester} ปีการศึกษา {selectedAcademicYear}
                     {effectiveMilkTeethGrade !== 'ALL' ? ` • ระดับชั้น ${effectiveMilkTeethGrade}` : ' • ระดับชั้นทั้งหมด'}
                   </p>
@@ -2297,26 +2291,26 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
 
                 {/* Matrix Table */}
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-[11px] border-collapse border border-slate-400">
+                  <table className="w-full text-left text-[11px] border-collapse border border-slate-800 text-black">
                     <thead>
-                      <tr className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400">
-                        <th className="py-2 px-1.5 text-center border-r border-slate-400 w-9">เลขที่</th>
-                        <th className="py-2 px-2 border-r border-slate-400 min-w-[130px]">ชื่อ - นามสกุล</th>
+                      <tr className="bg-white text-black font-bold border-b border-slate-800">
+                        <th className="py-2 px-1.5 text-center border-r border-slate-800 w-9 text-black bg-white">เลขที่</th>
+                        <th className="py-2 px-2 border-r border-slate-800 min-w-[130px] text-black bg-white">ชื่อ - นามสกุล</th>
                         {monthDays.map((dayItem) => {
                           const dateNum = dayItem.date.split('-')[2] || '';
                           return (
-                            <th key={dayItem.date} className="py-2 px-1 text-center border-r border-slate-400 font-mono text-[10px] min-w-[22px]" title={dayItem.label}>
+                            <th key={dayItem.date} className="py-2 px-1 text-center border-r border-slate-800 font-mono text-[10px] min-w-[22px] text-black bg-white" title={dayItem.label}>
                               {dateNum}
                             </th>
                           );
                         })}
-                        <th className="py-2 px-1.5 text-center w-12 font-bold">สรุป</th>
+                        <th className="py-2 px-1.5 text-center w-12 font-bold text-black bg-white">สรุป</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-300">
+                    <tbody className="divide-y divide-slate-800 bg-white text-black">
                       {previewMilkTeethStudents.length === 0 ? (
                         <tr>
-                          <td colSpan={monthDays.length + 3} className="py-8 text-center text-slate-400 font-medium">
+                          <td colSpan={monthDays.length + 3} className="py-8 text-center text-black font-medium">
                             ไม่พบรายชื่อนักเรียน
                           </td>
                         </tr>
@@ -2325,11 +2319,11 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                           let checkedCount = 0;
 
                           return (
-                            <tr key={st.id} className="even:bg-slate-50/50">
-                              <td className="py-1.5 px-1 text-center border-r border-slate-300 font-mono font-semibold">
+                            <tr key={st.id} className="bg-white text-black">
+                              <td className="py-1.5 px-1 text-center border-r border-slate-800 font-mono font-semibold text-black">
                                 {st.rollNumber ?? (idx + 1)}
                               </td>
-                              <td className="py-1.5 px-2 border-r border-slate-300 font-semibold whitespace-nowrap">
+                              <td className="py-1.5 px-2 border-r border-slate-800 font-semibold whitespace-nowrap text-black">
                                 {st.prefix}{st.firstName} {st.lastName}
                               </td>
                               {monthDays.map((dayItem) => {
@@ -2344,7 +2338,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                                 if (isChecked) checkedCount++;
 
                                 return (
-                                  <td key={dayItem.date} className="py-1.5 px-1 text-center border-r border-slate-300 font-bold">
+                                  <td key={dayItem.date} className="py-1.5 px-1 text-center border-r border-slate-800 font-bold">
                                     {isChecked ? (
                                       <span className="text-emerald-700 font-extrabold text-xs">✓</span>
                                     ) : (
@@ -2353,7 +2347,7 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                                   </td>
                                 );
                               })}
-                              <td className="py-1.5 px-1 text-center font-bold text-slate-900 font-mono">
+                              <td className="py-1.5 px-1 text-center font-bold text-black font-mono">
                                 {checkedCount}
                               </td>
                             </tr>
@@ -2365,19 +2359,19 @@ export const Module1ClassroomAdmin: React.FC<Module1Props> = ({
                 </div>
 
                 {/* Official Signatures Section */}
-                <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs text-slate-800 print:pt-6">
+                <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs text-black print:pt-6">
                   <div className="space-y-8">
                     <div>
                       ลงชื่อ ...........................................................
-                      <div className="mt-1 font-semibold">( ........................................................... )</div>
-                      <div className="text-slate-500 mt-0.5">ครูผู้บันทึก</div>
+                      <div className="mt-1 font-semibold text-black">( ........................................................... )</div>
+                      <div className="text-black mt-0.5">ครูผู้บันทึก</div>
                     </div>
                   </div>
                   <div className="space-y-8">
                     <div>
                       ลงชื่อ ...........................................................
-                      <div className="mt-1 font-semibold">( {directorName} )</div>
-                      <div className="text-slate-500 mt-0.5">{directorPosition}</div>
+                      <div className="mt-1 font-semibold text-black">( {directorName} )</div>
+                      <div className="text-black mt-0.5">{directorPosition}</div>
                     </div>
                   </div>
                 </div>

@@ -468,20 +468,20 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         <div className="border border-slate-800">
           <table className="w-full text-left text-[10px] border-collapse text-black">
             <thead>
-              <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
-                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <tr className="bg-amber-300 text-black font-bold border-b border-slate-800 leading-normal">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                   ที่
                 </th>
-                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                   รหัสประจำตัว
                 </th>
-                <th className="py-1.5 px-2 border-r border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black">
+                <th className="py-1.5 px-2 border-r border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black bg-amber-300">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Indicator Columns */}
                 {table.indicators.map((ind) => (
-                  <th key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center bg-white text-black align-middle">
+                  <th key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center bg-amber-300 text-black align-middle">
                     <div className="font-bold text-[9.5px] leading-snug mx-auto text-black">
                       {ind.name}
                     </div>
@@ -491,10 +491,10 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                   </th>
                 ))}
 
-                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-13 bg-white text-black font-bold align-middle">
+                <th className="py-1.5 px-1 border-r border-slate-800 text-center w-13 bg-amber-300 text-black font-bold align-middle">
                   รวม ({maxScore})
                 </th>
-                <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
+                <th className="py-1.5 px-1 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                   ระดับคุณภาพ
                 </th>
               </tr>
@@ -546,8 +546,8 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
             </tbody>
 
             <tfoot>
-              <tr className="bg-white font-bold border-t-2 border-slate-800 text-black text-[9.5px] leading-normal">
-                <td colSpan={3} className="py-1.5 px-2 border-r border-slate-800 text-right font-bold align-middle text-black">
+              <tr className="bg-amber-100 font-bold border-t-2 border-slate-800 text-black text-[9.5px] leading-normal">
+                <td colSpan={3} className="py-1.5 px-2 border-r border-slate-800 text-right font-bold align-middle text-black bg-amber-100">
                   คะแนนเฉลี่ย:
                 </td>
                 {table.indicators.map((ind) => {
@@ -560,12 +560,12 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     }
                   });
                   return (
-                    <td key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-medium text-black align-middle">
+                    <td key={ind.id} className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-medium text-black align-middle bg-amber-100">
                       {count > 0 ? (total / count).toFixed(1) : ''}
                     </td>
                   );
                 })}
-                <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-bold bg-white text-black align-middle">
+                <td className="py-1.5 px-1 border-r border-slate-800 text-center font-mono font-bold bg-amber-100 text-black align-middle">
                   {(() => {
                     let total = 0, count = 0;
                     classStudents.forEach(s => {
@@ -578,7 +578,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                     return count > 0 ? (total / count).toFixed(1) : '';
                   })()}
                 </td>
-                <td className="py-1.5 px-1 text-center text-[9px] text-black align-middle font-bold">
+                <td className="py-1.5 px-1 text-center text-[9px] text-black align-middle font-bold bg-amber-100">
                   รวม {classStudents.length} คน
                 </td>
               </tr>
@@ -613,54 +613,54 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
         <div className="border border-slate-800">
           <table className="w-full text-left text-[10px] border-collapse text-black">
             <thead>
-              <tr className="text-black font-bold leading-normal">
-                <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <tr className="bg-amber-300 text-black font-bold leading-normal">
+                <th rowSpan={2} className="py-1.5 px-1 bg-amber-300 border-r border-b border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   ที่
                 </th>
-                <th rowSpan={2} className="py-1.5 px-1 bg-white border-r border-b border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+                <th rowSpan={2} className="py-1.5 px-1 bg-amber-300 border-r border-b border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
                   รหัสประจำตัว
                 </th>
-                <th rowSpan={2} className="py-1.5 px-2 bg-white border-r border-b border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black">
+                <th rowSpan={2} className="py-1.5 px-2 bg-amber-300 border-r border-b border-slate-800 w-40 shrink-0 text-[10px] align-middle text-black">
                   ชื่อ - นามสกุล
                 </th>
 
                 {/* Column การอ่าน */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-amber-300 text-black font-bold align-middle">
                   การอ่าน ({rMax})
                 </th>
 
                 {/* Column คิดวิเคราะห์ */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-amber-300 text-black font-bold align-middle">
                   คิดวิเคราะห์ ({tMax})
                 </th>
 
                 {/* Column การเขียน */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-amber-300 text-black font-bold align-middle">
                   การเขียน ({wMax})
                 </th>
 
                 {/* Column รวม */}
-                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-white text-black font-bold align-middle">
+                <th colSpan={2} className="py-1.5 px-1 border-r border-b border-slate-800 text-center bg-amber-300 text-black font-bold align-middle">
                   รวม ({totalMax})
                 </th>
 
-                <th rowSpan={2} className="py-1.5 px-1 border-b border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+                <th rowSpan={2} className="py-1.5 px-1 border-b border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                   สรุปผล
                 </th>
               </tr>
 
-              <tr className="text-black font-bold text-[8.5px] leading-normal">
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
+              <tr className="bg-amber-300 text-black font-bold text-[8.5px] leading-normal">
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 bg-white border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-12 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 bg-amber-300 border-r border-b border-slate-800 text-center w-14 align-middle text-black">คุณภาพ</th>
 
-                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-12 bg-white align-middle text-black">ปริมาณ</th>
-                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-14 bg-white align-middle text-black">คุณภาพ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-12 bg-amber-300 align-middle text-black">ปริมาณ</th>
+                <th className="py-1.5 px-0.5 border-r border-b border-slate-800 text-center w-14 bg-amber-300 align-middle text-black">คุณภาพ</th>
               </tr>
             </thead>
 
@@ -750,20 +750,20 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       <div className="border border-slate-800">
         <table className="w-full text-left text-[10px] border-collapse text-black">
           <thead>
-            <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+            <tr className="bg-amber-300 text-black font-bold border-b border-slate-800 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                 ที่
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                 รหัสประจำตัว
               </th>
-              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black">
+              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black bg-amber-300">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 8 Core Characteristics - Equal Width & Wrapping Full Titles */}
               {CHARACTERISTICS_GROUPS.map((grp) => (
-                <th key={grp.id} className="py-1.5 px-0.5 border-r border-slate-800 text-center w-[9%] bg-white text-black font-bold align-middle" title={grp.title}>
+                <th key={grp.id} className="py-1.5 px-0.5 border-r border-slate-800 text-center w-[9%] bg-amber-300 text-black font-bold align-middle" title={grp.title}>
                   <div className="text-[9px] font-bold text-black leading-snug">ข้อ {grp.number}</div>
                   <div className="text-[8px] font-semibold leading-snug whitespace-normal break-words text-black mt-0.5">
                     {grp.title.replace(/^\d+\)\s*/, '')}
@@ -771,7 +771,7 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
                 </th>
               ))}
 
-              <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 สรุปผล
               </th>
             </tr>
@@ -1081,35 +1081,35 @@ export const ThreeReportsModal: React.FC<ThreeReportsModalProps> = ({
       <div className="border border-slate-800">
         <table className="w-full text-left text-[10px] border-collapse text-black">
           <thead>
-            <tr className="bg-white text-black font-bold border-b border-slate-800 leading-normal">
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black">
+            <tr className="bg-amber-300 text-black font-bold border-b border-slate-800 leading-normal">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-7 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                 ที่
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 shrink-0 font-mono text-[9.5px] align-middle text-black bg-amber-300">
                 รหัสประจำตัว
               </th>
-              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black">
+              <th className="py-1.5 px-2 border-r border-slate-800 w-36 shrink-0 text-[10px] align-middle text-black bg-amber-300">
                 ชื่อ - นามสกุล
               </th>
 
               {/* 5 Competencies */}
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 1. การสื่อสาร
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 2. การคิด
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 3. แก้ปัญหา
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 4. ทักษะชีวิต
               </th>
-              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 border-r border-slate-800 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 5. เทคโนโลยี
               </th>
 
-              <th className="py-1.5 px-1 text-center w-16 bg-white text-black font-bold align-middle">
+              <th className="py-1.5 px-1 text-center w-16 bg-amber-300 text-black font-bold align-middle">
                 สรุปผล
               </th>
             </tr>

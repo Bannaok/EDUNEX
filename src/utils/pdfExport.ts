@@ -528,23 +528,60 @@ export const exportSheetsToPdf = async ({
           el.style.textOverflow = 'clip';
         }
 
-        // Prevent html2canvas from painting <tr> backgrounds or borders across rowSpan cells
+        // Prevent html2canvas from painting <tr> backgrounds or losing <tr> borders behind opaque <td> backgrounds
         const allRows = Array.from(clonedSheet.querySelectorAll<HTMLTableRowElement>('tr'));
         for (const tr of allRows) {
           const trComputed = clonedDoc.defaultView?.getComputedStyle(tr);
-          const trBg = trComputed?.backgroundColor;
+          if (!trComputed) continue;
+
+          const trBg = trComputed.backgroundColor;
           const hasOpaqueTrBg =
             trBg && trBg !== 'rgba(0, 0, 0, 0)' && trBg !== 'transparent';
-          if (hasOpaqueTrBg) {
+
+          const btWidth = parseFloat(trComputed.borderTopWidth || '0');
+          const trBorderTop =
+            btWidth > 0 && trComputed.borderTopStyle !== 'none'
+              ? `${trComputed.borderTopWidth} ${trComputed.borderTopStyle} ${trComputed.borderTopColor}`
+              : '';
+
+          const bbWidth = parseFloat(trComputed.borderBottomWidth || '0');
+          const trBorderBottom =
+            bbWidth > 0 && trComputed.borderBottomStyle !== 'none'
+              ? `${trComputed.borderBottomWidth} ${trComputed.borderBottomStyle} ${trComputed.borderBottomColor}`
+              : '';
+
+          if (hasOpaqueTrBg || trBorderTop || trBorderBottom) {
             const cells = Array.from(tr.children) as HTMLElement[];
             for (const cell of cells) {
               const cellComputed = clonedDoc.defaultView?.getComputedStyle(cell);
-              const cellBg = cellComputed?.backgroundColor;
-              if (!cellBg || cellBg === 'rgba(0, 0, 0, 0)' || cellBg === 'transparent') {
-                cell.style.backgroundColor = trBg;
+              if (hasOpaqueTrBg) {
+                const cellBg = cellComputed?.backgroundColor;
+                if (!cellBg || cellBg === 'rgba(0, 0, 0, 0)' || cellBg === 'transparent') {
+                  cell.style.backgroundColor = trBg;
+                }
+              }
+              if (trBorderTop) {
+                const cellBt = parseFloat(cellComputed?.borderTopWidth || '0');
+                if (cellBt === 0 || cellComputed?.borderTopStyle === 'none') {
+                  cell.style.borderTop = trBorderTop;
+                }
+              }
+              if (trBorderBottom) {
+                const cellBb = parseFloat(cellComputed?.borderBottomWidth || '0');
+                if (cellBb === 0 || cellComputed?.borderBottomStyle === 'none') {
+                  cell.style.borderBottom = trBorderBottom;
+                }
               }
             }
-            tr.style.backgroundColor = 'transparent';
+            if (hasOpaqueTrBg) {
+              tr.style.backgroundColor = 'transparent';
+            }
+            if (trBorderTop) {
+              tr.style.borderTop = 'none';
+            }
+            if (trBorderBottom) {
+              tr.style.borderBottom = 'none';
+            }
           }
         }
 

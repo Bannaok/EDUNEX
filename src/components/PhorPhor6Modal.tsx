@@ -1588,11 +1588,12 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                 <div className="border border-slate-800 rounded-xs overflow-hidden">
                   <table className="w-full text-left text-xs border-collapse">
                     <tbody>
-                      {gradeRowsList.map((gRow) => {
+                      {gradeRowsList.map((gRow, idx) => {
                         const isCurrent = gRow.levelCode === grade;
+                        const rowBorderB = idx < gradeRowsList.length - 1 ? 'border-b border-slate-800' : '';
                         return (
-                          <tr key={gRow.levelCode} className="border-b border-slate-800 last:border-b-0">
-                            <td className="p-2 space-y-1 align-top">
+                          <tr key={gRow.levelCode} className="bg-white">
+                            <td className={`p-2 space-y-1 align-top ${rowBorderB}`}>
                               <div className="flex flex-wrap items-center justify-between text-xs">
                                 <div>
                                   <span className="font-bold text-slate-900">ปีการศึกษา</span>
@@ -2112,57 +2113,61 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <div className="border border-slate-800 rounded-lg overflow-hidden mb-5 bg-white">
                       <table className="w-full text-left text-[11px] border-collapse bg-white">
                         <thead>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                            <th className="py-2 px-2 border-r border-slate-800 w-10 text-black">ที่</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-24 text-black">รหัสวิชา</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายวิชา</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ระหว่างภาค</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-16 text-black">ปลายภาค</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
+                          <tr className="bg-white text-black font-bold text-center">
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-10 text-black">ที่</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-24 text-black">รหัสวิชา</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 text-center text-black">รายวิชา</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-16 text-black">ระหว่างภาค</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-16 text-black">ปลายภาค</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-16 bg-white text-black font-bold">รวม</th>
                             {!isPrimaryGrade && (
-                              <th className="py-2 px-2 border-r border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
+                              <th className="py-2 px-2 border-r border-b border-slate-800 w-16 bg-white text-black font-black">เกรด</th>
                             )}
-                            <th className="py-2 px-3 text-black">ครูผู้สอนในรายวิชา</th>
+                            <th className="py-2 px-3 border-b border-slate-800 text-black">ครูผู้สอนในรายวิชา</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 bg-white">
+                        <tbody className="bg-white">
                           {academicResults.rows.length === 0 ? (
                             <tr>
-                              <td colSpan={isPrimaryGrade ? 7 : 8} className="py-8 text-center text-black bg-white">
+                              <td colSpan={isPrimaryGrade ? 7 : 8} className={`py-8 text-center text-black bg-white ${!isPrimaryGrade ? 'border-b border-slate-800' : ''}`}>
                                 ยังไม่มีข้อมูลรายวิชาในระบบ
                               </td>
                             </tr>
                           ) : (
-                            academicResults.rows.map((item, idx) => (
-                              <tr key={item.subject.id} className="bg-white">
-                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                                  {idx + 1}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
-                                  {item.subject.code || '-'}
-                                </td>
-                                <td className="py-1.5 px-3 font-medium text-black border-r border-slate-800">
-                                  {item.subject.name}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                                  {item.coursework}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono text-black border-r border-slate-800">
-                                  {item.exam}
-                                </td>
-                                <td className="py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800">
-                                  {item.total}
-                                </td>
-                                {!isPrimaryGrade && (
-                                  <td className="py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black">
-                                    {item.grade}
+                            academicResults.rows.map((item, idx) => {
+                              const hasBottomBorder = !isPrimaryGrade || idx < academicResults.rows.length - 1;
+                              const rowBorderB = hasBottomBorder ? 'border-b border-slate-800' : '';
+                              return (
+                                <tr key={item.subject.id} className="bg-white">
+                                  <td className={`py-1.5 px-2 text-center font-mono text-black border-r border-slate-800 ${rowBorderB}`}>
+                                    {idx + 1}
                                   </td>
-                                )}
-                                <td className="py-1.5 px-3 text-black font-medium">
-                                  {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
-                                </td>
-                              </tr>
-                            ))
+                                  <td className={`py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800 ${rowBorderB}`}>
+                                    {item.subject.code || '-'}
+                                  </td>
+                                  <td className={`py-1.5 px-3 font-medium text-black border-r border-slate-800 ${rowBorderB}`}>
+                                    {item.subject.name}
+                                  </td>
+                                  <td className={`py-1.5 px-2 text-center font-mono text-black border-r border-slate-800 ${rowBorderB}`}>
+                                    {item.coursework}
+                                  </td>
+                                  <td className={`py-1.5 px-2 text-center font-mono text-black border-r border-slate-800 ${rowBorderB}`}>
+                                    {item.exam}
+                                  </td>
+                                  <td className={`py-1.5 px-2 text-center font-mono font-bold text-black bg-white border-r border-slate-800 ${rowBorderB}`}>
+                                    {item.total}
+                                  </td>
+                                  {!isPrimaryGrade && (
+                                    <td className={`py-1.5 px-2 text-center font-bold text-xs border-r border-slate-800 bg-white text-black ${rowBorderB}`}>
+                                      {item.grade}
+                                    </td>
+                                  )}
+                                  <td className={`py-1.5 px-3 text-black font-medium ${rowBorderB}`}>
+                                    {item.teacherDisplayName || item.subject.teacherName || advisorName || '-'}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                           {!isPrimaryGrade && (
                             <tr className="bg-white font-bold text-black text-xs">
@@ -2199,41 +2204,41 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                               <th className="py-1 px-1.5 border-r border-b border-slate-800 text-black">ครูผู้สอน</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-800 bg-white">
+                          <tbody className="bg-white">
                             {combinedAcademicResults.rows.length === 0 ? (
                               <tr>
-                                <td colSpan={9} className="py-8 text-center text-black bg-white">
+                                <td colSpan={9} className="py-8 text-center text-black bg-white border-b border-slate-800">
                                   ยังไม่มีข้อมูลรายวิชาในระบบ
                                 </td>
                               </tr>
                             ) : (
                               combinedAcademicResults.rows.map((item, idx) => (
                                 <tr key={item.subject.id || idx} className="bg-white">
-                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-b border-slate-800">
                                     {idx + 1}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-mono font-semibold text-black border-r border-b border-slate-800">
                                     {item.subject.code || '-'}
                                   </td>
-                                  <td className="py-1.5 px-2 font-medium text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-2 font-medium text-black border-r border-b border-slate-800">
                                     {item.subject.name}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-b border-slate-800">
                                     {item.total1}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px] border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px] border-r border-b border-slate-800">
                                     {item.teacher1DisplayName}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1 text-center font-mono text-black border-r border-b border-slate-800">
                                     {item.total2}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px] border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-black font-medium text-[10px] border-r border-b border-slate-800">
                                     {item.teacher2DisplayName}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
+                                  <td className="py-1.5 px-1 text-center font-mono font-bold text-black border-r border-b border-slate-800 bg-white">
                                     {item.avgTotal}
                                   </td>
-                                  <td className="py-1.5 px-1 text-center font-black text-xs text-black bg-white">
+                                  <td className="py-1.5 px-1 text-center font-black text-xs text-black border-b border-slate-800 bg-white">
                                     {item.combinedGrade}
                                   </td>
                                 </tr>
@@ -2270,44 +2275,44 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                               <th className="py-1 px-1.5 border-r border-b border-slate-800 w-11 text-black">เกรด</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-800 bg-white">
+                          <tbody className="bg-white">
                             {combinedAcademicResults.rows.length === 0 ? (
                               <tr>
-                                <td colSpan={10} className="py-8 text-center text-black bg-white">
+                                <td colSpan={10} className="py-8 text-center text-black bg-white border-b border-slate-800">
                                   ยังไม่มีข้อมูลรายวิชาในระบบ
                                 </td>
                               </tr>
                             ) : (
                               combinedAcademicResults.rows.map((item, idx) => (
                                 <tr key={item.subject.id || idx} className="bg-white">
-                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-b border-slate-800">
                                     {idx + 1}
                                   </td>
-                                  <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-2 text-center font-mono font-semibold text-black border-r border-b border-slate-800">
                                     {item.subject.code || '-'}
                                   </td>
-                                  <td className="py-1.5 px-2.5 font-medium text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-2.5 font-medium text-black border-r border-b border-slate-800">
                                     {item.subject.name}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-b border-slate-800">
                                     {item.total1}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-b border-slate-800">
                                     {item.grade1}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-mono text-black border-r border-b border-slate-800">
                                     {item.total2}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-slate-800">
+                                  <td className="py-1.5 px-1.5 text-center font-bold text-black border-r border-b border-slate-800">
                                     {item.grade2}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-mono font-bold text-black border-r border-slate-800 bg-white">
+                                  <td className="py-1.5 px-1.5 text-center font-mono font-bold text-black border-r border-b border-slate-800 bg-white">
                                     {item.avgTotal}
                                   </td>
-                                  <td className="py-1.5 px-1.5 text-center font-black text-xs text-black border-r border-slate-800 bg-white">
+                                  <td className="py-1.5 px-1.5 text-center font-black text-xs text-black border-r border-b border-slate-800 bg-white">
                                     {item.combinedGrade}
                                   </td>
-                                  <td className="py-1.5 px-2.5 text-black font-medium">
+                                  <td className="py-1.5 px-2.5 text-black font-medium border-b border-slate-800">
                                     {item.teacherDisplayName}
                                   </td>
                                 </tr>
@@ -2421,26 +2426,26 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                       <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
-                            <th className="py-2.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
-                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
-                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
-                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
-                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
-                            <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
-                            <th className="py-2.5 px-2 w-28 bg-white text-black">% มาเรียน</th>
+                          <tr className="bg-white text-black font-bold text-center">
+                            <th className="py-2.5 px-3 text-center border-r border-b border-slate-800 text-black">เดือน</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-b border-slate-800 text-black">วันเรียน</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">มา</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ขาด</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ลา</th>
+                            <th className="py-2.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ป่วย</th>
+                            <th className="py-2.5 px-2 w-28 border-b border-slate-800 bg-white text-black">% มาเรียน</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 bg-white text-center">
+                        <tbody className="bg-white text-center">
                           {attendanceMonthlyRecords.rows.map((r, i) => (
                             <tr key={i} className="bg-white">
-                              <td className="py-2 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
-                              <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
-                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
-                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
-                              <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-black">{r.percent}</td>
+                              <td className="py-2 px-3 text-left font-medium border-r border-b border-slate-800 text-black">{r.month}</td>
+                              <td className="py-2 px-2 font-mono border-r border-b border-slate-800 text-black">{r.schoolDays}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-b border-slate-800">{r.present}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-b border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-b border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                              <td className="py-2 px-2 font-mono text-black border-r border-b border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                              <td className="py-2 px-2 font-mono font-bold text-black border-b border-slate-800">{r.percent}</td>
                             </tr>
                           ))}
                           <tr className="bg-white font-bold text-center text-black">
@@ -2466,26 +2471,26 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                           <table className="w-full text-left text-[11px] border-collapse bg-white">
                             <thead>
-                              <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
-                                <th className="py-1.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
-                                <th className="py-1.5 px-2 w-28 bg-white text-black text-center">% มาเรียน</th>
+                              <tr className="bg-white text-black font-bold text-center">
+                                <th className="py-1.5 px-3 text-center border-r border-b border-slate-800 text-black">เดือน</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black">วันเรียน</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">มา</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ขาด</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ลา</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ป่วย</th>
+                                <th className="py-1.5 px-2 w-28 border-b border-slate-800 bg-white text-black text-center">% มาเรียน</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800 bg-white text-center">
+                            <tbody className="bg-white text-center">
                               {combinedAttendanceRecords.term1.rows.map((r, i) => (
                                 <tr key={`t1-${i}`} className="bg-white">
-                                  <td className="py-1 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
-                                  <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
-                                  <td className="py-1 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
-                                  <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
+                                  <td className="py-1 px-3 text-left font-medium border-r border-b border-slate-800 text-black">{r.month}</td>
+                                  <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{r.schoolDays}</td>
+                                  <td className="py-1 px-2 font-mono font-bold text-black border-r border-b border-slate-800">{r.present}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                                  <td className="py-1 px-2 font-mono font-bold text-black border-b border-slate-800">{r.percent}</td>
                                 </tr>
                               ))}
                               <tr className="bg-white font-bold text-center text-black">
@@ -2510,26 +2515,26 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                           <table className="w-full text-left text-[11px] border-collapse bg-white">
                             <thead>
-                              <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
-                                <th className="py-1.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ลา</th>
-                                <th className="py-1.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ป่วย</th>
-                                <th className="py-1.5 px-2 w-28 bg-white text-black text-center">% มาเรียน</th>
+                              <tr className="bg-white text-black font-bold text-center">
+                                <th className="py-1.5 px-3 text-center border-r border-b border-slate-800 text-black">เดือน</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black">วันเรียน</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">มา</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ขาด</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ลา</th>
+                                <th className="py-1.5 px-2 w-20 border-r border-b border-slate-800 text-black bg-white">ป่วย</th>
+                                <th className="py-1.5 px-2 w-28 border-b border-slate-800 bg-white text-black text-center">% มาเรียน</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800 bg-white text-center">
+                            <tbody className="bg-white text-center">
                               {combinedAttendanceRecords.term2.rows.map((r, i) => (
                                 <tr key={`t2-${i}`} className="bg-white">
-                                  <td className="py-1 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
-                                  <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
-                                  <td className="py-1 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
-                                  <td className="py-1 px-2 font-mono text-black border-r border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
-                                  <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
+                                  <td className="py-1 px-3 text-left font-medium border-r border-b border-slate-800 text-black">{r.month}</td>
+                                  <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{r.schoolDays}</td>
+                                  <td className="py-1 px-2 font-mono font-bold text-black border-r border-b border-slate-800">{r.present}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.leave > 0 ? r.leave : '-'}</td>
+                                  <td className="py-1 px-2 font-mono text-black border-r border-b border-slate-800">{r.sick > 0 ? r.sick : '-'}</td>
+                                  <td className="py-1 px-2 font-mono font-bold text-black border-b border-slate-800">{r.percent}</td>
                                 </tr>
                               ))}
                               <tr className="bg-white font-bold text-center text-black">
@@ -2554,37 +2559,37 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                           <table className="w-full text-center text-[11px] border-collapse bg-white text-black">
                             <thead>
-                              <tr className="bg-white text-black font-bold border-b border-slate-800">
-                                <th className="py-1.5 px-3 border-r border-slate-800 text-center text-black">ภาคเรียน</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">วันเรียน (วัน)</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">มาเรียน (วัน)</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ขาด (วัน)</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ลา (วัน)</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">ป่วย (วัน)</th>
-                                <th className="py-1.5 px-2 border-r border-slate-800 text-black">% มาเรียน</th>
-                                <th className="py-1.5 px-2 text-black">ผลการประเมิน</th>
+                              <tr className="bg-white text-black font-bold">
+                                <th className="py-1.5 px-3 border-r border-b border-slate-800 text-center text-black">ภาคเรียน</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">วันเรียน (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">มาเรียน (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">ขาด (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">ลา (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">ป่วย (วัน)</th>
+                                <th className="py-1.5 px-2 border-r border-b border-slate-800 text-black">% มาเรียน</th>
+                                <th className="py-1.5 px-2 border-b border-slate-800 text-black">ผลการประเมิน</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-800 bg-white">
+                            <tbody className="bg-white">
                               <tr>
-                                <td className="py-1 px-3 font-medium border-r border-slate-800 text-center text-black">ภาคเรียนที่ 1</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.schoolDays}</td>
-                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.present}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.absent > 0 ? combinedAttendanceRecords.term1.totals.absent : '-'}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.leave > 0 ? combinedAttendanceRecords.term1.totals.leave : '-'}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.sick > 0 ? combinedAttendanceRecords.term1.totals.sick : '-'}</td>
-                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.percent}</td>
-                                <td className="py-1 px-2 font-bold text-black">{combinedAttendanceRecords.term1.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
+                                <td className="py-1 px-3 font-medium border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.present}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.absent > 0 ? combinedAttendanceRecords.term1.totals.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.leave > 0 ? combinedAttendanceRecords.term1.totals.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.sick > 0 ? combinedAttendanceRecords.term1.totals.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.percent}</td>
+                                <td className="py-1 px-2 font-bold border-b border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
                               </tr>
                               <tr>
-                                <td className="py-1 px-3 font-medium border-r border-slate-800 text-center text-black">ภาคเรียนที่ 2</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.schoolDays}</td>
-                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.present}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.absent > 0 ? combinedAttendanceRecords.term2.totals.absent : '-'}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.leave > 0 ? combinedAttendanceRecords.term2.totals.leave : '-'}</td>
-                                <td className="py-1 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.sick > 0 ? combinedAttendanceRecords.term2.totals.sick : '-'}</td>
-                                <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
-                                <td className="py-1 px-2 font-bold text-black">{combinedAttendanceRecords.term2.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
+                                <td className="py-1 px-3 font-medium border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.schoolDays}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.present}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.absent > 0 ? combinedAttendanceRecords.term2.totals.absent : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.leave > 0 ? combinedAttendanceRecords.term2.totals.leave : '-'}</td>
+                                <td className="py-1 px-2 font-mono border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.sick > 0 ? combinedAttendanceRecords.term2.totals.sick : '-'}</td>
+                                <td className="py-1 px-2 font-mono font-bold border-r border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
+                                <td className="py-1 px-2 font-bold border-b border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
                               </tr>
                               <tr className="bg-white font-bold text-black">
                                 <td className="py-1.5 px-3 border-r border-slate-800 text-center text-black">รวม 2 ภาคเรียน</td>
@@ -2653,28 +2658,31 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                       <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                            <th className="py-2 px-2 border-r border-slate-800 w-14 text-black">ครั้งที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">วันที่</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">น้ำหนัก (กก.)</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">ส่วนสูง (ซม.)</th>
-                            <th className="py-2 px-2 border-r border-slate-800 w-20 text-black">BMI</th>
-                            <th className="py-2 px-3 w-32 text-black">ผลการประเมิน</th>
+                          <tr className="bg-white text-black font-bold text-center">
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-14 text-black">ครั้งที่</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 text-center text-black">วันที่</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-28 text-black">น้ำหนัก (กก.)</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-28 text-black">ส่วนสูง (ซม.)</th>
+                            <th className="py-2 px-2 border-r border-b border-slate-800 w-20 text-black">BMI</th>
+                            <th className="py-2 px-3 border-b border-slate-800 w-32 text-black">ผลการประเมิน</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 text-center bg-white">
-                          {weightHeightRecords.map((item) => (
-                            <tr key={item.no} className="bg-white">
-                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.no}</td>
-                              <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">{item.date}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.weight}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.height}</td>
-                              <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.bmi}</td>
-                              <td className="py-2 px-3 font-bold text-black">
-                                {item.bmiStatus}
-                              </td>
-                            </tr>
-                          ))}
+                        <tbody className="text-center bg-white">
+                          {weightHeightRecords.map((item, idx) => {
+                            const rowBorderB = idx < weightHeightRecords.length - 1 ? 'border-b border-slate-800' : '';
+                            return (
+                              <tr key={item.no} className="bg-white">
+                                <td className={`py-2 px-2 font-mono font-bold text-black border-r border-slate-800 ${rowBorderB}`}>{item.no}</td>
+                                <td className={`py-2 px-3 text-center font-medium text-black border-r border-slate-800 ${rowBorderB}`}>{item.date}</td>
+                                <td className={`py-2 px-2 font-mono font-bold text-black border-r border-slate-800 ${rowBorderB}`}>{item.weight}</td>
+                                <td className={`py-2 px-2 font-mono font-bold text-black border-r border-slate-800 ${rowBorderB}`}>{item.height}</td>
+                                <td className={`py-2 px-2 font-mono font-bold text-black border-r border-slate-800 ${rowBorderB}`}>{item.bmi}</td>
+                                <td className={`py-2 px-3 font-bold text-black ${rowBorderB}`}>
+                                  {item.bmiStatus}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2688,15 +2696,15 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                       <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                            <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายการบันทึก</th>
-                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
-                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่ดื่ม</th>
-                            <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
+                          <tr className="bg-white text-black font-bold text-center">
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-12 text-black">ที่</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 text-center text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-28 text-black">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-28 text-black">วันที่ดื่ม</th>
+                            <th className="py-2 px-3 border-b border-slate-800 w-32 text-black">ร้อยละ (%)</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 text-center bg-white">
+                        <tbody className="text-center bg-white">
                           <tr className="bg-white">
                             <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
                             <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">ดื่มนม</td>
@@ -2717,15 +2725,15 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <div className="border border-slate-800 rounded-lg overflow-hidden bg-white">
                       <table className="w-full text-left text-xs border-collapse bg-white">
                         <thead>
-                          <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                            <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายการบันทึก</th>
-                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
-                            <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่แปรง</th>
-                            <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
+                          <tr className="bg-white text-black font-bold text-center">
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-12 text-black">ที่</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 text-center text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-28 text-black">วันทั้งหมด</th>
+                            <th className="py-2 px-3 border-r border-b border-slate-800 w-28 text-black">วันที่แปรง</th>
+                            <th className="py-2 px-3 border-b border-slate-800 w-32 text-black">ร้อยละ (%)</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-800 text-center bg-white">
+                        <tbody className="text-center bg-white">
                           <tr className="bg-white">
                             <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
                             <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">แปรงฟัน</td>

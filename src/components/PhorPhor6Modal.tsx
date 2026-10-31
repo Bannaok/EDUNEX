@@ -350,7 +350,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
       : 'สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน';
 
     return (
-      <div className="border-b-2 border-slate-800 pb-3 mb-4 text-center space-y-1">
+      <div className="border-b-2 border-black pb-3 mb-4 text-center space-y-1 text-black" style={{ color: '#000000' }}>
         {/* Line 1: School Logo centered at top (Enlarged) */}
         <div className="flex justify-center mb-2">
           {schoolInfo.logoUrl ? (
@@ -367,23 +367,23 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
         </div>
 
         {/* Line 2: Title */}
-        <h2 className="text-sm sm:text-base font-bold text-black tracking-wide">
+        <h2 className="text-sm sm:text-base font-bold text-black tracking-wide" style={{ color: '#000000' }}>
           {customTitle || 'แบบบันทึกผลการพัฒนาคุณภาพผู้เรียนรายบุคคล'}
         </h2>
 
         {/* Line 3: โรงเรียน สังกัด */}
-        <p className="text-xs font-semibold text-black">
+        <p className="text-xs font-bold text-black" style={{ color: '#000000' }}>
           {fullSchoolName} {affiliationText}
         </p>
 
         {/* Line 4: ปีการศึกษา ภาค และชั้น */}
-        <p className="text-xs text-black font-medium">
+        <p className="text-xs text-black font-semibold" style={{ color: '#000000' }}>
           ปีการศึกษา {academicYear} ภาคเรียนที่ {semester} {getGradeCleanName(grade)}
         </p>
 
         {/* Optional Section Title */}
         {sectionTitle && (
-          <p className="text-xs font-bold text-black pt-1 border-t border-slate-200/60 mt-1">
+          <p className="text-xs font-bold text-black pt-1 border-t border-black mt-1" style={{ color: '#000000' }}>
             {sectionTitle}
           </p>
         )}
@@ -1845,8 +1845,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           {/* TAB 4: เวลาเรียน (ATTENDANCE RECORD) */}
           {(activeTab === 'attendance' || activeTab === 'all') && (
             <div
-              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
-              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm', color: '#000000' }}
             >
               
               <div className="space-y-6">
@@ -1873,7 +1873,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                   <table className="w-full text-left text-xs border-collapse bg-white">
                     <thead>
                       <tr className="bg-white text-black font-bold text-center border-b border-slate-800">
-                        <th className="py-2.5 px-3 text-left border-r border-slate-800 text-black">เดือน</th>
+                        <th className="py-2.5 px-3 text-center border-r border-slate-800 text-black">เดือน</th>
                         <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black">วันเรียน</th>
                         <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">มา</th>
                         <th className="py-2.5 px-2 w-20 border-r border-slate-800 text-black bg-white">ขาด</th>
@@ -1885,7 +1885,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     <tbody className="divide-y divide-slate-800 bg-white text-center">
                       {attendanceMonthlyRecords.rows.map((r, i) => (
                         <tr key={i} className="bg-white">
-                          <td className="py-2 px-3 text-left font-medium border-r border-slate-800 text-black">{r.month}</td>
+                          <td className="py-2 px-3 text-center font-medium border-r border-slate-800 text-black">{r.month}</td>
                           <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{r.schoolDays}</td>
                           <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{r.present}</td>
                           <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{r.absent > 0 ? r.absent : '-'}</td>
@@ -1897,7 +1897,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                     </tbody>
                     <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
                       <tr>
-                        <td className="py-2 px-3 text-left border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
+                        <td className="py-2 px-3 text-center border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
                         <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{attendanceMonthlyRecords.totals.schoolDays}</td>
                         <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.present}</td>
                         <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.absent > 0 ? attendanceMonthlyRecords.totals.absent : '-'}</td>
@@ -1912,11 +1912,11 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
               </div>
 
               {/* Bottom Signature: Class Advisor (Centered, 2.5-3 inches from bottom margin) */}
-              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in] text-black">
-                <p className="text-black">ลงชื่อ ..............................................................</p>
-                <p className="font-normal text-black">({advisorName || '......................................................'})</p>
-                <p className="font-semibold text-[11px] text-black">ครูประจำชั้น</p>
-                <p className="text-[10px] text-black">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+              <div className="pt-6 mb-[2.5in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[2.5in] text-black" style={{ color: '#000000' }}>
+                <p className="text-black font-medium" style={{ color: '#000000' }}>ลงชื่อ ..............................................................</p>
+                <p className="font-normal text-black" style={{ color: '#000000' }}>({advisorName || '......................................................'})</p>
+                <p className="font-semibold text-[11px] text-black" style={{ color: '#000000' }}>ครูประจำชั้น</p>
+                <p className="text-[10px] font-medium text-black" style={{ color: '#000000' }}>วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
 
             </div>
@@ -1925,7 +1925,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
           {/* TAB 5: สุขภาพ (น้ำหนัก, แปรงฟัน, ดื่มนม) */}
           {(activeTab === 'health' || activeTab === 'all') && (
             <div
-              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-slate-900 shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
+              className="a4-pp6-page bg-white border border-slate-300 rounded-lg py-6 sm:py-8 max-w-[210mm] min-h-[297mm] mx-auto text-black shadow-xl print:border-none print:shadow-none print:m-0 print:break-before-page flex flex-col justify-between"
               style={{ width: '210mm', maxWidth: '210mm', paddingLeft: '20mm', paddingRight: '15mm' }}
             >
               
@@ -1960,7 +1960,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <thead>
                           <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
                             <th className="py-2 px-2 border-r border-slate-800 w-14 text-black">ครั้งที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">วันที่</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">วันที่</th>
                             <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">น้ำหนัก (กก.)</th>
                             <th className="py-2 px-2 border-r border-slate-800 w-28 text-black">ส่วนสูง (ซม.)</th>
                             <th className="py-2 px-2 border-r border-slate-800 w-20 text-black">BMI</th>
@@ -1971,7 +1971,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                           {weightHeightRecords.map((item) => (
                             <tr key={item.no} className="bg-white">
                               <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.no}</td>
-                              <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">{item.date}</td>
+                              <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">{item.date}</td>
                               <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.weight}</td>
                               <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.height}</td>
                               <td className="py-2 px-2 font-mono font-bold text-black border-r border-slate-800">{item.bmi}</td>
@@ -1995,7 +1995,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <thead>
                           <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
                             <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายการบันทึก</th>
                             <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
                             <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่ดื่ม</th>
                             <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
@@ -2004,7 +2004,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <tbody className="divide-y divide-slate-800 text-center bg-white">
                           <tr className="bg-white">
                             <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
-                            <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">ดื่มนม</td>
+                            <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">ดื่มนม</td>
                             <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.milkTotal}</td>
                             <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.milkFull}</td>
                             <td className="py-2 px-3 font-mono font-bold text-black">{healthStats.milkRate}%</td>
@@ -2024,7 +2024,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <thead>
                           <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
                             <th className="py-2 px-3 border-r border-slate-800 w-12 text-black">ที่</th>
-                            <th className="py-2 px-3 border-r border-slate-800 text-left text-black">รายการบันทึก</th>
+                            <th className="py-2 px-3 border-r border-slate-800 text-center text-black">รายการบันทึก</th>
                             <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันทั้งหมด</th>
                             <th className="py-2 px-3 border-r border-slate-800 w-28 text-black">วันที่แปรง</th>
                             <th className="py-2 px-3 w-32 text-black">ร้อยละ (%)</th>
@@ -2033,7 +2033,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                         <tbody className="divide-y divide-slate-800 text-center bg-white">
                           <tr className="bg-white">
                             <td className="py-2 px-3 font-mono border-r border-slate-800 text-black">1</td>
-                            <td className="py-2 px-3 text-left font-medium text-black border-r border-slate-800">แปรงฟัน</td>
+                            <td className="py-2 px-3 text-center font-medium text-black border-r border-slate-800">แปรงฟัน</td>
                             <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.teethTotal}</td>
                             <td className="py-2 px-3 font-mono font-bold text-black border-r border-slate-800">{healthStats.teethClean}</td>
                             <td className="py-2 px-3 font-mono font-bold text-black">{healthStats.teethRate}%</td>
@@ -2048,10 +2048,10 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
 
               {/* Bottom Signature: Class Advisor (Centered, 3 inches from bottom margin) */}
               <div className="pt-6 mb-[3in] text-xs text-center max-w-sm mx-auto space-y-1 print:mb-[3in] text-black">
-                <p className="text-black">ลงชื่อ ..............................................................</p>
+                <p className="text-black font-medium">ลงชื่อ ..............................................................</p>
                 <p className="font-normal text-black">({advisorName || '......................................................'})</p>
                 <p className="text-black font-semibold text-[11px]">ครูประจำชั้น</p>
-                <p className="text-black text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
+                <p className="text-black font-medium text-[10px]">วันที่ ...... เดือน ........................ พ.ศ. ...........</p>
               </div>
 
             </div>

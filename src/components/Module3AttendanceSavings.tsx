@@ -8,7 +8,8 @@ import {
   UserSession, 
   SchoolInfo,
   GradeLevel,
-  AttendanceStatus 
+  AttendanceStatus,
+  MemberAccount
 } from '../types';
 import { StorageService } from '../services/storage';
 import { 
@@ -336,6 +337,7 @@ interface Module3Props {
   savings: SavingsRecord[];
   attendanceConfig: AttendanceDayConfig;
   schoolInfo?: SchoolInfo;
+  members?: MemberAccount[];
   onSaveBulkAttendance: (records: AttendanceRecord[]) => void;
   onSaveSavingsRecord: (record: Omit<SavingsRecord, 'balanceAfter'>) => { record: SavingsRecord; updated: SavingsRecord[] };
   onDeleteSavingsRecord?: (id: string) => void;
@@ -351,6 +353,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   savings,
   attendanceConfig,
   schoolInfo,
+  members,
   onSaveBulkAttendance,
   onSaveSavingsRecord,
   onDeleteSavingsRecord,
@@ -361,16 +364,47 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   // Navigation tabs: 'main' (บันทึกเวลาเรียน & ออมทรัพย์) or 'school_days' (วันทำการ)
   const [activeTab, setActiveTab] = useState<'main' | 'school_days'>('main');
 
-  // Selected date & grade level (synced from settings/user profile)
+  // Members list & Homeroom teacher registered grade levels
+  const allMembers = useMemo(() => members || StorageService.getMembers(), [members]);
+
+  const homeroomMembers = useMemo(() => {
+    return allMembers.filter(m => m.role === 'member' && m.gradeLevel);
+  }, [allMembers]);
+
+  const registeredHomeroomGrades = useMemo(() => {
+    const gradesSet = new Set<GradeLevel>();
+    homeroomMembers.forEach(m => {
+      if (m.gradeLevel) gradesSet.add(m.gradeLevel);
+    });
+    const gradeOrder: GradeLevel[] = [
+      'อ.1', 'อ.2', 'อ.3',
+      'ป.1', 'ป.2', 'ป.3', 'ป.4', 'ป.5', 'ป.6',
+      'ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'
+    ];
+    return gradeOrder.filter(g => gradesSet.has(g));
+  }, [homeroomMembers]);
+
+  // Selected date & grade level (synced from settings/user profile or homeroom teacher list)
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const initialGrade = (user.assignedGrade as GradeLevel) || 'ป.1';
+  const initialGrade = useMemo(() => {
+    if (user.role === 'admin') {
+      if (registeredHomeroomGrades.length > 0) return registeredHomeroomGrades[0];
+      return 'ป.1' as GradeLevel;
+    }
+    return (user.assignedGrade as GradeLevel) || 'ป.1';
+  }, [user.role, user.assignedGrade, registeredHomeroomGrades]);
+
   const [selectedGrade, setSelectedGrade] = useState<GradeLevel>(initialGrade);
 
   React.useEffect(() => {
-    if (user.assignedGrade) {
+    if (user.role === 'admin') {
+      if (registeredHomeroomGrades.length > 0 && !registeredHomeroomGrades.includes(selectedGrade)) {
+        setSelectedGrade(registeredHomeroomGrades[0]);
+      }
+    } else if (user.assignedGrade) {
       setSelectedGrade(user.assignedGrade as GradeLevel);
     }
-  }, [user.assignedGrade]);
+  }, [user.role, user.assignedGrade, registeredHomeroomGrades]);
 
   // Attendance states for each student
   const [attendanceStates, setAttendanceStates] = useState<Record<string, { status: AttendanceStatus | ''; note: string }>>({});
@@ -662,7 +696,6 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   }, [currentTermKey, configsByTerm]);
 
   // Compute submission status for a date
-  const allMembers = useMemo(() => StorageService.getMembers(), []);
   const getSubmissionStatusForDate = (dateStr: string) => {
     const gradesWithStudents = Array.from(new Set(students.map(s => s.gradeLevel)));
     if (gradesWithStudents.length === 0) {
@@ -706,8 +739,9 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
   const activeSchoolDays = useMemo(() => activeTermDays.filter(d => !d.isHoliday), [activeTermDays]);
   const activeSchoolDayDatesSet = useMemo(() => new Set(activeSchoolDays.map(d => d.date)), [activeSchoolDays]);
   const isSelectedDateSchoolDay = activeSchoolDayDatesSet.has(selectedDate);
-  // สมาชิกจะสามารถเช็กเวลาเรียนและฝากเงินตามที่ Admin กำหนด 100 วันเท่านั้น วันอื่นๆ จะเช็กเวลากับฝากเงินไม่ได้
-  const isAllowedToRecord = isSelectedDateSchoolDay;
+  // สมาชิกจะสามารถเช็กเวลาเรียนและฝากเงินตามที่ Admin กำหนด 100 วันเท่านั้น ส่วน Admin จะเป็นมุมมองอ่านอย่างเดียว (ไม่สามารถกรอกหรือแก้ไขได้)
+  const isReadOnly = user.role === 'admin';
+  const isAllowedToRecord = isSelectedDateSchoolDay && !isReadOnly;
 
   // ฟังก์ชันสำหรับ Admin กดปุ่ม "เลือก" ในหน้า 100 วัน เพื่อกำหนดให้ไปแสดงในปฏิทินเช็กเวลา&เงินฝากของสมาชิก
   const handleSelectActiveTermForMembers = () => {
@@ -2021,6 +2055,29 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
       {/* ======================================================== */}
       {activeTab === 'main' && (
         <div className="space-y-3">
+          {/* Admin Class Selector: Clean, space-saving single scrollable row without dark bar or extra text */}
+          {user.role === 'admin' && registeredHomeroomGrades.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar">
+              {registeredHomeroomGrades.map(grade => {
+                const isSelected = selectedGrade === grade;
+                return (
+                  <button
+                    key={grade}
+                    type="button"
+                    onClick={() => setSelectedGrade(grade)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold font-mono transition-all shrink-0 cursor-pointer shadow-2xs border ${
+                      isSelected
+                        ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-200'
+                        : 'bg-white hover:bg-emerald-50 text-slate-700 border-slate-200/90 hover:border-emerald-300'
+                    }`}
+                  >
+                    {grade}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Controls Bar: 4 Buttons evenly spanning 1 full bar (ปฏิทิน, มา, ประวัติ, รวม) */}
           <div className="bg-white p-2 sm:p-3 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
             <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full sm:w-auto items-center">
@@ -2269,7 +2326,7 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
                     ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed opacity-50'
                     : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200 cursor-pointer active:scale-95'
                 }`}
-                title={!isAllowedToRecord ? 'ไม่สามารถเช็กเวลาเรียนได้ (ไม่ใช่วันเรียนที่กำหนด)' : 'มาเรียนทั้งหมด (ตั้งค่าทุกคนเป็นมาเรียน)'}
+                title={!isAllowedToRecord ? 'ไม่สามารถเช็กเวลาเรียนได้ (อ่านอย่างเดียว / วันหยุด)' : 'มาเรียนทั้งหมด (ตั้งค่าทุกคนเป็นมาเรียน)'}
               >
                 <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${!isAllowedToRecord ? 'text-slate-400' : 'text-emerald-600'}`} />
                 <span className="whitespace-nowrap text-[11px] sm:text-xs">มา</span>
@@ -2330,14 +2387,25 @@ export const Module3AttendanceSavings: React.FC<Module3Props> = ({
           {/* Table: Attendance + Savings (Mobile clean 2-column view, Desktop full multi-column view) */}
           <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
             <div className="px-4 py-2.5 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between text-xs font-bold text-slate-800">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-200 font-mono">
                   ชั้น {selectedGrade}
                 </span>
+                {(() => {
+                  const teacher = homeroomMembers.find(m => m.gradeLevel === selectedGrade);
+                  return teacher ? (
+                    <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-800 rounded-lg text-[11px] font-bold border border-indigo-200/80 flex items-center gap-1">
+                      <User className="w-3 h-3 text-indigo-600 shrink-0" />
+                      <span>ครูประจำชั้น: {teacher.fullName}</span>
+                    </span>
+                  ) : null;
+                })()}
                 <span className="px-2 py-0.5 bg-sky-100 text-sky-800 rounded-lg text-[11px] font-bold border border-sky-200 font-mono">
                   ภาคเรียนที่ {activeSemester}/{activeAcademicYear}
                 </span>
-                <span className="text-slate-700 font-medium hidden sm:inline">บันทึกเวลาเรียนและเงินฝากประจำวัน</span>
+                <span className="text-slate-700 font-medium hidden sm:inline">
+                  {user.role === 'admin' ? 'แสดงข้อมูลการเช็กเวลาเรียนและเงินฝากประจำวัน (อ่านอย่างเดียว)' : 'บันทึกเวลาเรียนและเงินฝากประจำวัน'}
+                </span>
               </div>
               <div className="text-xs text-slate-500 font-medium">
                 นักเรียนทั้งหมด: <strong className="text-slate-800">{gradeStudents.length} คน</strong>

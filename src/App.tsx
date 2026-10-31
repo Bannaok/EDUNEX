@@ -808,6 +808,7 @@ export default function App() {
             attendance={attendance}
             savings={savings}
             attendanceConfig={attendanceConfig}
+            members={tenantMembers}
             onSaveBulkAttendance={handleSaveBulkAttendance}
             onSaveSavingsRecord={handleSaveSavingsRecord}
             onDeleteSavingsRecord={handleDeleteSavingsRecord}

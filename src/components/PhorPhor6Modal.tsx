@@ -64,17 +64,16 @@ export type PhorPhor6Tab =
   | 'comments' 
   | 'all';
 
-export const calculateThaiGrade = (score: number | null | undefined, maxScore: number = 100): string => {
-  if (score === null || score === undefined || isNaN(score)) return '-';
-  const effectiveMax = maxScore && maxScore > 0 ? maxScore : 100;
-  const normalized = score > effectiveMax && effectiveMax < 100 ? score : (score / effectiveMax) * 100;
-  if (normalized >= 80) return '4';
-  if (normalized >= 75) return '3.5';
-  if (normalized >= 70) return '3';
-  if (normalized >= 65) return '2.5';
-  if (normalized >= 60) return '2';
-  if (normalized >= 55) return '1.5';
-  if (normalized >= 50) return '1';
+export const calculateThaiGrade = (score: number | null | undefined, _maxScore: number = 100): string => {
+  if (score === null || score === undefined || isNaN(Number(score))) return '-';
+  const numScore = Number(score);
+  if (numScore >= 80) return '4';
+  if (numScore >= 75) return '3.5';
+  if (numScore >= 70) return '3';
+  if (numScore >= 65) return '2.5';
+  if (numScore >= 60) return '2';
+  if (numScore >= 55) return '1.5';
+  if (numScore >= 50) return '1';
   return '0';
 };
 
@@ -2165,10 +2164,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                               </tr>
                             ))
                           )}
-                        </tbody>
-                        {!isPrimaryGrade && (
-                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                            <tr>
+                          {!isPrimaryGrade && (
+                            <tr className="bg-white font-bold text-black text-xs">
                               <td colSpan={6} className="py-2 px-3 text-center border-r border-slate-800 text-black">
                                 ผลการเรียนเฉลี่ยรวม (GPA)
                               </td>
@@ -2176,8 +2173,8 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 {academicResults.gpa}
                               </td>
                             </tr>
-                          </tfoot>
-                        )}
+                          )}
+                        </tbody>
                       </table>
                     </div>
                   ) : (
@@ -2186,20 +2183,20 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                       {isPrimaryGrade ? (
                         <table className="w-full text-left text-[11px] border-collapse bg-white">
                           <thead>
-                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                              <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 w-7 text-black">ที่</th>
-                              <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-16 text-black">รหัสวิชา</th>
-                              <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                            <tr className="bg-white text-black font-bold text-center">
+                              <th rowSpan={2} className="py-2 px-1 border-r border-b border-slate-800 w-7 text-black">ที่</th>
+                              <th rowSpan={2} className="py-2 px-1.5 border-r border-b border-slate-800 w-16 text-black">รหัสวิชา</th>
+                              <th rowSpan={2} className="py-2 px-2 border-r border-b border-slate-800 text-center text-black">รายวิชา</th>
                               <th colSpan={2} className="py-1.5 px-1.5 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
                               <th colSpan={2} className="py-1.5 px-1.5 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
-                              <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-16 text-black">รวมคะแนน</th>
-                              <th rowSpan={2} className="py-2 px-1 border-r border-slate-800 w-10 text-black">เกรด</th>
+                              <th rowSpan={2} className="py-2 px-1.5 border-r border-b border-slate-800 w-16 text-black">รวมคะแนน</th>
+                              <th rowSpan={2} className="py-2 px-1 border-b border-slate-800 w-10 text-black">เกรด</th>
                             </tr>
-                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
-                              <th className="py-1 px-1 border-r border-slate-800 w-14 text-black">คะแนน</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 text-black">ครูผู้สอน</th>
-                              <th className="py-1 px-1 border-r border-slate-800 w-14 text-black">คะแนน</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 text-black">ครูผู้สอน</th>
+                            <tr className="bg-white text-black font-bold text-center text-[10px]">
+                              <th className="py-1 px-1 border-r border-b border-slate-800 w-14 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 text-black">ครูผู้สอน</th>
+                              <th className="py-1 px-1 border-r border-b border-slate-800 w-14 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 text-black">ครูผู้สอน</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800 bg-white">
@@ -2242,9 +2239,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 </tr>
                               ))
                             )}
-                          </tbody>
-                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                            <tr>
+                            <tr className="bg-white font-bold text-black text-xs">
                               <td colSpan={7} className="py-2 px-3 text-center border-r border-slate-800 text-black font-bold">
                                 เกรดเฉลี่ย
                               </td>
@@ -2252,27 +2247,27 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 {combinedAcademicResults.gpaCombined}
                               </td>
                             </tr>
-                          </tfoot>
+                          </tbody>
                         </table>
                       ) : (
                         <table className="w-full text-left text-[11px] border-collapse bg-white">
                           <thead>
-                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center">
-                              <th rowSpan={2} className="py-2 px-1.5 border-r border-slate-800 w-8 text-black">ที่</th>
-                              <th rowSpan={2} className="py-2 px-2 border-r border-slate-800 w-20 text-black">รหัสวิชา</th>
-                              <th rowSpan={2} className="py-2 px-2.5 border-r border-slate-800 text-center text-black">รายวิชา</th>
+                            <tr className="bg-white text-black font-bold text-center">
+                              <th rowSpan={2} className="py-2 px-1.5 border-r border-b border-slate-800 w-8 text-black">ที่</th>
+                              <th rowSpan={2} className="py-2 px-2 border-r border-b border-slate-800 w-20 text-black">รหัสวิชา</th>
+                              <th rowSpan={2} className="py-2 px-2.5 border-r border-b border-slate-800 text-center text-black">รายวิชา</th>
                               <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 1</th>
                               <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">ภาคเรียนที่ 2</th>
                               <th colSpan={2} className="py-1.5 px-2 border-r border-b border-slate-800 text-center text-black">รวม 2 ภาคเรียน</th>
-                              <th rowSpan={2} className="py-2 px-2.5 text-center text-black">ครูผู้สอนในรายวิชา</th>
+                              <th rowSpan={2} className="py-2 px-2.5 border-b border-slate-800 text-center text-black">ครูผู้สอนในรายวิชา</th>
                             </tr>
-                            <tr className="bg-white text-black font-bold border-b border-slate-800 text-center text-[10px]">
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-12 text-black">คะแนน</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-14 text-black">คะแนนเฉลี่ย</th>
-                              <th className="py-1 px-1.5 border-r border-slate-800 w-11 text-black">เกรด</th>
+                            <tr className="bg-white text-black font-bold text-center text-[10px]">
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-12 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-11 text-black">เกรด</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-12 text-black">คะแนน</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-11 text-black">เกรด</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-14 text-black">คะแนนเฉลี่ย</th>
+                              <th className="py-1 px-1.5 border-r border-b border-slate-800 w-11 text-black">เกรด</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800 bg-white">
@@ -2318,9 +2313,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 </tr>
                               ))
                             )}
-                          </tbody>
-                          <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black text-xs">
-                            <tr>
+                            <tr className="bg-white font-bold text-black text-xs">
                               <td colSpan={3} className="py-2 px-3 text-center border-r border-slate-800 text-black">
                                 ผลการเรียนเฉลี่ยรวม (GPA)
                               </td>
@@ -2335,7 +2328,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                               </td>
                               <td className="py-2 px-2 bg-white"></td>
                             </tr>
-                          </tfoot>
+                          </tbody>
                         </table>
                       )}
                     </div>
@@ -2450,9 +2443,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                               <td className="py-2 px-2 font-mono font-bold text-black">{r.percent}</td>
                             </tr>
                           ))}
-                        </tbody>
-                        <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-center text-black">
-                          <tr>
+                          <tr className="bg-white font-bold text-center text-black">
                             <td className="py-2 px-3 text-center border-r border-slate-800 text-black">รวมตลอดภาคเรียน</td>
                             <td className="py-2 px-2 font-mono border-r border-slate-800 text-black">{attendanceMonthlyRecords.totals.schoolDays}</td>
                             <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.present}</td>
@@ -2461,7 +2452,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                             <td className="py-2 px-2 font-mono text-black border-r border-slate-800">{attendanceMonthlyRecords.totals.sick > 0 ? attendanceMonthlyRecords.totals.sick : '-'}</td>
                             <td className="py-2 px-2 font-mono font-black text-black">{attendanceMonthlyRecords.totals.percent}</td>
                           </tr>
-                        </tfoot>
+                        </tbody>
                       </table>
                     </div>
                   ) : (
@@ -2497,9 +2488,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                   <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
                                 </tr>
                               ))}
-                            </tbody>
-                            <tfoot className="bg-white font-bold border-t border-slate-800 text-center text-black">
-                              <tr>
+                              <tr className="bg-white font-bold text-center text-black">
                                 <td className="py-1.5 px-3 text-center border-r border-slate-800 text-black">รวมภาคเรียนที่ 1</td>
                                 <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term1.totals.schoolDays}</td>
                                 <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.present}</td>
@@ -2508,7 +2497,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term1.totals.sick > 0 ? combinedAttendanceRecords.term1.totals.sick : '-'}</td>
                                 <td className="py-1.5 px-2 font-mono font-bold text-black">{combinedAttendanceRecords.term1.totals.percent}</td>
                               </tr>
-                            </tfoot>
+                            </tbody>
                           </table>
                         </div>
                       </div>
@@ -2543,9 +2532,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                   <td className="py-1 px-2 font-mono font-bold text-black">{r.percent}</td>
                                 </tr>
                               ))}
-                            </tbody>
-                            <tfoot className="bg-white font-bold border-t border-slate-800 text-center text-black">
-                              <tr>
+                              <tr className="bg-white font-bold text-center text-black">
                                 <td className="py-1.5 px-3 text-center border-r border-slate-800 text-black">รวมภาคเรียนที่ 2</td>
                                 <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.schoolDays}</td>
                                 <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.present}</td>
@@ -2554,7 +2541,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 <td className="py-1.5 px-2 font-mono text-black border-r border-slate-800">{combinedAttendanceRecords.term2.totals.sick > 0 ? combinedAttendanceRecords.term2.totals.sick : '-'}</td>
                                 <td className="py-1.5 px-2 font-mono font-bold text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
                               </tr>
-                            </tfoot>
+                            </tbody>
                           </table>
                         </div>
                       </div>
@@ -2599,9 +2586,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 <td className="py-1 px-2 font-mono font-bold border-r border-slate-800 text-black">{combinedAttendanceRecords.term2.totals.percent}</td>
                                 <td className="py-1 px-2 font-bold text-black">{combinedAttendanceRecords.term2.totals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
                               </tr>
-                            </tbody>
-                            <tfoot className="bg-white font-bold border-t-2 border-slate-800 text-black">
-                              <tr>
+                              <tr className="bg-white font-bold text-black">
                                 <td className="py-1.5 px-3 border-r border-slate-800 text-center text-black">รวม 2 ภาคเรียน</td>
                                 <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.schoolDays}</td>
                                 <td className="py-1.5 px-2 font-mono border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.present}</td>
@@ -2611,7 +2596,7 @@ export const PhorPhor6Modal: React.FC<PhorPhor6ModalProps> = ({
                                 <td className="py-1.5 px-2 font-mono font-black border-r border-slate-800 text-black">{combinedAttendanceRecords.grandTotals.percent}</td>
                                 <td className="py-1.5 px-2 font-bold text-black">{combinedAttendanceRecords.grandTotals.percentNum >= 80 ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'}</td>
                               </tr>
-                            </tfoot>
+                            </tbody>
                           </table>
                         </div>
                       </div>

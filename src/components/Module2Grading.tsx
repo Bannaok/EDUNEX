@@ -1482,17 +1482,16 @@ export const Module2Grading: React.FC<Module2Props> = ({
     return (a.studentCode || '').localeCompare(b.studentCode || '');
   });
 
-  // Thai GPA calculation standard (supports 50-point or 100-point max score -> GPA)
-  const calculateThaiGrade = (total: number, maxScore: number = selectedSubject?.totalScore || 100): number => {
-    const effectiveMax = maxScore && maxScore > 0 ? maxScore : 100;
-    const normalized = total > effectiveMax && effectiveMax < 100 ? total : (total / effectiveMax) * 100;
-    if (normalized >= 80) return 4.0;
-    if (normalized >= 75) return 3.5;
-    if (normalized >= 70) return 3.0;
-    if (normalized >= 65) return 2.5;
-    if (normalized >= 60) return 2.0;
-    if (normalized >= 55) return 1.5;
-    if (normalized >= 50) return 1.0;
+  // Thai GPA calculation standard (50=1, 55=1.5, 60=2, 65=2.5, 70=3, 75=3.5, 80=4)
+  const calculateThaiGrade = (total: number, _maxScore?: number): number => {
+    const numericScore = Number(total) || 0;
+    if (numericScore >= 80) return 4.0;
+    if (numericScore >= 75) return 3.5;
+    if (numericScore >= 70) return 3.0;
+    if (numericScore >= 65) return 2.5;
+    if (numericScore >= 60) return 2.0;
+    if (numericScore >= 55) return 1.5;
+    if (numericScore >= 50) return 1.0;
     return 0.0;
   };
 

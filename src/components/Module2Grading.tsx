@@ -4178,18 +4178,20 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                     type="number"
                                     min={0}
                                     max={selectedSubject?.courseworkScore || 70}
-                                    value={row.coursework === 0 ? 0 : (row.coursework ?? '')}
+                                    value={row.coursework === 0 || row.coursework == null ? '' : row.coursework}
+                                    placeholder="-"
+                                    onFocus={(e) => e.target.select()}
                                     onClick={(e) => e.stopPropagation()}
                                     onChange={(e) => {
                                       const val = e.target.value === '' ? 0 : Number(e.target.value);
                                       handleScoreChange(student.id, 'coursework', val);
                                     }}
-                                    className="w-12 text-center text-xs py-1 px-0.5 rounded border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-1 focus:ring-amber-500"
+                                    className="w-12 text-center text-xs py-1 px-0.5 rounded border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-1 focus:ring-amber-500 placeholder:text-slate-400"
                                     title={`พิมพ์คะแนนระหว่างภาค (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`}
                                   />
                                 ) : (
                                   <div className="flex flex-col items-center">
-                                    <span>{row.coursework ?? 0}</span>
+                                    <span>{row.coursework ? row.coursework : '-'}</span>
                                     {!isCourseworkInputUnlocked && canGradeSubject && !isAdminReadOnly && (
                                       <span className="text-[8px] text-slate-400 flex items-center gap-0.5 mt-0.5" title="กดปุ่ม 'กดกรอก' ที่หัวตารางเพื่อพิมพ์คะแนน">
                                         <Lock className="w-2.5 h-2.5 text-slate-400" /> ล็อก
@@ -4199,7 +4201,7 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                 )}
                               </td>
                               <td className="py-2.5 px-1 text-center font-mono font-medium text-slate-700 text-xs tabular-nums">
-                                {row.exam ?? 0}
+                                {row.exam ? row.exam : '-'}
                               </td>
                               <td className="py-2.5 px-1 text-center">
                                 <span className={`inline-block font-mono font-bold text-xs tabular-nums px-1 py-0.5 rounded-md ${
@@ -4971,18 +4973,20 @@ export const Module2Grading: React.FC<Module2Props> = ({
                                 type="number"
                                 min={0}
                                 max={selectedSubject?.courseworkScore || 70}
-                                value={row.coursework === 0 ? 0 : (row.coursework ?? '')}
+                                value={row.coursework === 0 || row.coursework == null ? '' : row.coursework}
+                                placeholder="-"
+                                onFocus={(e) => e.target.select()}
                                 onChange={(e) => {
                                   const val = e.target.value === '' ? 0 : Number(e.target.value);
                                   handleScoreChange(student.id, 'coursework', val);
                                 }}
-                                className="w-14 text-center text-xs py-1 px-1 rounded-lg border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-xs"
+                                className="w-14 text-center text-xs py-1 px-1 rounded-lg border-2 border-amber-400 bg-white font-mono font-bold text-slate-900 tabular-nums focus:ring-2 focus:ring-amber-500 focus:outline-none shadow-xs placeholder:text-slate-400"
                                 title={`พิมพ์คะแนนระหว่างภาค (ห้ามเกินเต็ม ${selectedSubject?.courseworkScore || 70} คะแนน)`}
                               />
                             ) : (
                               <div className="flex flex-col items-center justify-center">
                                 <span className={`font-mono font-bold text-xs tabular-nums ${row.coursework > (selectedSubject?.courseworkScore || 70) ? 'text-rose-700 font-black' : 'text-indigo-900'}`}>
-                                  {row.coursework ?? 0}
+                                  {row.coursework ? row.coursework : '-'}
                                 </span>
                                 {row.coursework > (selectedSubject?.courseworkScore || 70) && (
                                   <span className="text-[8px] font-bold text-rose-600 leading-tight">เกินเต็ม!</span>
@@ -5003,10 +5007,15 @@ export const Module2Grading: React.FC<Module2Props> = ({
                               disabled={!canGradeSubject}
                               min={0}
                               max={selectedSubject?.examScore || 30}
-                              value={row.exam ?? ''}
-                              onChange={(e) => handleScoreChange(student.id, 'exam', Number(e.target.value))}
+                              value={row.exam === 0 || row.exam == null ? '' : row.exam}
+                              placeholder="-"
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                handleScoreChange(student.id, 'exam', val);
+                              }}
                               title={isAdminReadOnly ? 'ผู้ดูแลระบบ: โหมดดูคะแนนเท่านั้น' : undefined}
-                              className={`w-12 text-center text-xs py-1 px-1 rounded-lg border border-slate-200 font-mono font-semibold tabular-nums focus:ring-1 focus:ring-amber-500 focus:outline-none ${!canGradeSubject ? 'bg-slate-100 text-slate-700 cursor-not-allowed font-bold' : ''}`}
+                              className={`w-12 text-center text-xs py-1 px-1 rounded-lg border border-slate-200 font-mono font-semibold tabular-nums focus:ring-1 focus:ring-amber-500 focus:outline-none placeholder:text-slate-400 ${!canGradeSubject ? 'bg-slate-100 text-slate-700 cursor-not-allowed font-bold' : ''}`}
                             />
                           </td>
 
@@ -7803,14 +7812,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
                     <div className="bg-white rounded-xl px-2 py-1.5 border border-indigo-200/80 text-center shadow-2xs">
                       <div className="text-[10px] text-indigo-700 font-bold">ระหว่างภาค</div>
                       <div className="font-mono font-bold text-indigo-950 text-xs sm:text-sm">
-                        {row.coursework ?? 0}
+                        {row.coursework ? row.coursework : '-'}
                         <span className="text-[10px] text-indigo-500 font-normal">/{selectedSubject?.courseworkScore || 70}</span>
                       </div>
                     </div>
                     <div className="bg-white rounded-xl px-2 py-1.5 border border-amber-200/80 text-center shadow-2xs">
                       <div className="text-[10px] text-amber-800 font-bold">ปลายภาค</div>
                       <div className="font-mono font-bold text-amber-950 text-xs sm:text-sm">
-                        {row.exam ?? 0}
+                        {row.exam ? row.exam : '-'}
                         <span className="text-[10px] text-amber-600 font-normal">/{selectedSubject?.examScore || 30}</span>
                       </div>
                     </div>
@@ -8049,9 +8058,14 @@ export const Module2Grading: React.FC<Module2Props> = ({
                         min={0}
                         max={selectedSubject?.examScore || 30}
                         disabled={!canGradeSubject || isMemberLockedReadOnly || isAdminReadOnly}
-                        value={scoreRows[currentGradingStudent.id]?.exam ?? ''}
-                        onChange={(e) => handleScoreChange(currentGradingStudent.id, 'exam', Number(e.target.value))}
-                        className="w-16 h-9 text-center font-mono font-bold text-base rounded-xl border border-amber-300 bg-amber-50/30 text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                        value={scoreRows[currentGradingStudent.id]?.exam === 0 || scoreRows[currentGradingStudent.id]?.exam == null ? '' : scoreRows[currentGradingStudent.id]?.exam}
+                        placeholder="-"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Number(e.target.value);
+                          handleScoreChange(currentGradingStudent.id, 'exam', val);
+                        }}
+                        className="w-16 h-9 text-center font-mono font-bold text-base rounded-xl border border-amber-300 bg-amber-50/30 text-amber-950 focus:ring-2 focus:ring-amber-500 focus:outline-none placeholder:text-slate-400"
                       />
                       <span className="text-xs font-bold text-slate-500">
                         /{selectedSubject?.examScore || 30}
